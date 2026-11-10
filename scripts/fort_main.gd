@@ -85,4 +85,28 @@ func _shots(dir: String) -> void:
 	print("[FORT] %.1f 秒：phase=%s outcome=%s 家豪 %s（血 %.1f），還活著 %s" % [bt.time, bt.phase, bt.outcome, bt.bird.state, bt.bird.hp, alive])
 	for l in bt.events:
 		print("   %.1f  %s" % [l.t, l.text])
+
+	# 第二輪：梯子腳下撒飼料，家豪爬上炮塔 B 把砲手踢下去
+	bt.reset()
+	var tb: Dictionary = bt.towers[1]
+	var lad: Vector2 = tb.ladder
+	var lp: Vector3 = bt._ground(Vector3(lad.x, 0, lad.y))
+	print("[FORT] 第二輪：炮塔 B 梯子腳 (%.1f, %.1f)，放飼料：%s %s" % [lp.x, lp.z, bt.cast(0, lp), bt.aim_error])
+	_look(Vector3(0.0, 9.0, 9.0), Vector3(6.5, 3.0, -0.5))
+	bt.start()
+	var climbed: bool = await _wait_until(func(): return bt.bird.state == "climb", 40.0)
+	print("[FORT] 開始爬梯子：%s（%.1f 秒）" % [climbed, bt.time])
+	if climbed:
+		await get_tree().create_timer(1.6).timeout
+		await _snap(dir, "fort_30_climb")
+		await _wait_until(func(): return tb.side == "ally", 6.0)
+		await get_tree().create_timer(0.5).timeout
+		await _snap(dir, "fort_31_captured")
+	await get_tree().create_timer(10.0).timeout
+	_look(Vector3(0.0, 22.0, 16.0), Vector3(2, 0, -3))
+	await _snap(dir, "fort_32_after")
+	var alive2: Array = bt.farmers.filter(func(f): return f.alive()).map(func(f): return f.name)
+	print("[FORT] %.1f 秒：炮塔 B=%s/%s 家豪 %s（血 %.1f），還活著 %s" % [bt.time, tb.state, tb.side, bt.bird.state, bt.bird.hp, alive2])
+	for l in bt.events:
+		print("   %.1f  %s" % [l.t, l.text])
 	get_tree().quit()

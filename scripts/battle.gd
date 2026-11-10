@@ -75,6 +75,20 @@ const CANNON_MIN_FIRE := 0.6   # 卡進去至少這麼久之後才能按左鍵�
 const CANNON_RANGE := 24.0     # 最遠射多遠
 const CANNON_SPLASH := 1.7     # 落地時這個距離內的人會被砸倒
 const CANNON_HIT_FARMER := 6.0
+## 炮塔（關卡的 towers 有 gun 才會開砲）：塔頂砲手瞄準一下就開砲，砲彈飛一段時間才落地，
+## 一直在走的家豪大多躲得掉；站著不動（打架、吃東西、卡在大砲裡）就容易被炸到。
+## 梯子腳下撒飼料，家豪會爬上去把砲手踢下去，炮塔就改打人類。
+const TURRET_RANGE := 12.0
+const TURRET_AIM := 1.0        # 瞄準（地上出現紅圈）多久後開砲
+const TURRET_RELOAD := 5.0
+const TURRET_FIRST := 2.5      # 開打後第一砲要等多久（第二座再晚一點）
+const SHELL_TIME := 1.0        # 砲彈飛行時間
+const SHELL_PEAK := 3.0
+const SHELL_BLAST := 1.5
+const SHELL_DMG_BIRD := 1.0
+const SHELL_DMG_FARMER := 4.0
+const CLIMB_TIME := 2.6        # 爬上梯子要多久
+const LADDER_LURE := 1.4       # 飼料離梯子腳這麼近，家豪吃完就會往上爬
 
 var phase: Phase = Phase.PREPARE
 var time := 0.0
@@ -113,6 +127,10 @@ var launch_from := Vector3.ZERO
 var launch_to := Vector3.ZERO
 var launch_dur := 1.0
 var launch_peak := 3.0
+var launch_hurt := true           # true = 被大砲射出去（落地會摔、會砸人）；false = 自己跳下來
+var shells: Array = []            # 飛行中的砲彈 {from, to, t, node, side}
+var climb_k := -1                 # 正在爬第幾座塔的梯子（-1 = 沒在爬）
+var _warn_mat: StandardMaterial3D
 var _tower_chain := true          # true = 骨牌（倒向前一座、最後砸大穀倉）；false = 順著巨石的方向倒
 var demo_path := PackedVector3Array()
 var demo_i := 0   # 右上角敵人欄 {fighter, face, fill, chip, name}
@@ -598,8 +616,16 @@ func _build_fighters() -> void:
 		farmers.append(f)
 	# 骨牌
 	for t in world.towers:
-		towers.append({"node": t.node, "pos": t.pos, "radius": t.radius, "height": t.height,
-			"state": "stand", "angle": 0.0, "omega": 0.0, "dir": Vector3.FORWARD, "crushed": false})
+		var td := {"node": t.node, "pos": t.pos, "radius": t.radius, "height": t.height,
+			"state": "stand", "angle": 0.0, "omega": 0.0, "dir": Vector3.FORWARD, "crushed": false,
+			"gun": t.get("gun"), "gunner": t.get("gunner"), "ladder": t.get("ladder"), "top_y": t.get("top_y", 0.0),
+			"side": "enemy", "cd": 0.0, "aim_t": -1.0, "lock": Vector3.ZERO}
+		if td.gun:
+			td["gun_rot"] = (td.gun as Node3D).rotation
+			td["warn"] = _make_warn_ring()
+		if td.gunner:
+			td["gunner_xf"] = (td.gunner as Node3D).transform
+		towers.append(td)
 	_tower_chain = world.get("tower_chain") != false
 	has_cannon = world.has_method("cannon_muzzle")
 	if world.barn_node:
@@ -677,12 +703,24 @@ func reset() -> void:
 	lights.clear()
 	peels.clear()
 	_last_pos.clear()
-	for t in towers:
+	for k in towers.size():
+		var t: Dictionary = towers[k]
 		t.state = "stand"
 		t.angle = 0.0
 		t.omega = 0.0
 		t.crushed = false
 		(t.node as Node3D).basis = Basis()
+		t.side = "enemy"
+		t.cd = TURRET_FIRST + k * 1.3
+		t.aim_t = -1.0
+		if t.gun:
+			(t.gun as Node3D).rotation = t.gun_rot
+			(t.warn as Node3D).visible = false
+		if t.gunner:
+			(t.gunner as Node3D).transform = t.gunner_xf
+			(t.gunner as Node3D).visible = true
+	shells.clear()
+	climb_k = -1
 	barn_state = "stand"
 	barn_t = 0.0
 	if demo_rock:
@@ -1234,6 +1272,8 @@ func _step(dt: float) -> void:
 			else:
 				_tick_farmer(f, dt)
 		_tick_towers(dt)
+		_tick_turrets(dt)
+		_tick_shells(dt)
 		_tick_demo_rock(dt)
 		_tick_bird(dt)
 		_tick_miracles(dt)
@@ -1621,8 +1661,16 @@ func _tick_towers(dt: float) -> void:
 		if e.kind == "dust":
 			n2.scale = Vector3.ONE * (1.0 + e.t * 2.5)
 			n2.position.y += dt * 1.2
+		elif e.kind == "gunner":
+			# 被踢飛的砲手：拋物線飛出去、一邊翻滾
+			e.vel.y -= 12.0 * dt
+			n2.global_position += e.vel * dt
+			n2.rotate_x(dt * 9.0)
 		if e.t >= e.life:
-			n2.queue_free()
+			if e.kind == "gunner":
+				n2.visible = false   # 砲手是場景裡原本的東西，重試時要放回去，不能刪
+			else:
+				n2.queue_free()
 			_fx_timed.remove_at(i)
 
 ## 示範石頭只是滾下來給玩家看，不會傷人、不會撞倒水塔
@@ -1793,7 +1841,12 @@ func _tick_bird(dt: float) -> void:
 		if b.state != "fly":
 			b.air = 0.0
 		_log("家豪被從砲管裡拔了出來")
-	if not b.state in ["fly", "cannon", "launch"]:
+	if climb_k >= 0 and b.state != "climb":
+		climb_k = -1
+		if b.state != "fly":
+			b.air = 0.0
+		_log("家豪從梯子上摔了下來")
+	if not b.state in ["fly", "cannon", "launch", "climb"]:
 		_apply_knockback(b, dt)
 	var tgt := _nearest_farmer(b.pos)
 	b.target = tgt
@@ -1824,6 +1877,10 @@ func _tick_bird(dt: float) -> void:
 						(feeds[b.feed_target].node as Node3D).queue_free()
 						feeds.remove_at(b.feed_target)
 						_enter_cannon()
+					elif _ladder_at(fp) >= 0:
+						(feeds[b.feed_target].node as Node3D).queue_free()
+						feeds.remove_at(b.feed_target)
+						_start_climb(_ladder_at(fp))
 					else:
 						b.set_state("eat")
 		"eat":
@@ -1877,6 +1934,8 @@ func _tick_bird(dt: float) -> void:
 				_log("家豪落地站穩，找路繞回來")
 		"cannon":
 			_tick_cannon(dt)
+		"climb":
+			_tick_climb(dt)
 		"launch":
 			var k := clampf(b.t / launch_dur, 0.0, 1.0)
 			var p := launch_from.lerp(launch_to, k) + Vector3.UP * launch_peak * 4.0 * k * (1.0 - k)
@@ -1978,6 +2037,7 @@ func _fire_cannon() -> void:
 	var dist := Vector2(launch_to.x - m.x, launch_to.z - m.z).length()
 	launch_dur = 0.7 + dist * 0.045
 	launch_peak = 2.5 + dist * 0.3 + maxf(launch_to.y - m.y, 0.0)
+	launch_hurt = true
 	cannon_t = -1.0
 	cannon_fire_req = false
 	world.set_fuse(0.0)
@@ -1991,6 +2051,11 @@ func _land_cannon() -> void:
 	var b := bird
 	var p := launch_to
 	b.air = 0.0
+	if not launch_hurt:
+		# 自己從塔上跳下來：輕輕落地
+		b.pos = _ground(world.clamp_play(p))
+		b.set_state("land")
+		return
 	_puff(p, Color(0.85, 0.8, 0.7, 0.55), 8, 0.6)
 	_noise_at(p)
 	# 落在指揮官的高台上：一頭撞翻指揮官
@@ -2023,6 +2088,219 @@ func _land_cannon() -> void:
 	b.hp = maxf(b.hp - 1.0, 1.0)
 	_log("家豪摔在地上（剩 %d）" % ceili(b.hp))
 	b.set_state("land")
+
+# ------------------------------------------------------------------ 炮塔：開砲、爬梯子、佔領
+
+func _make_warn_ring() -> MeshInstance3D:
+	if _warn_mat == null:
+		_warn_mat = StandardMaterial3D.new()
+		_warn_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_warn_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_warn_mat.no_depth_test = true
+		_warn_mat.albedo_color = Color(1.0, 0.2, 0.15, 0.85)
+	var mi := MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = SHELL_BLAST - 0.12
+	tm.outer_radius = SHELL_BLAST
+	tm.rings = 32
+	tm.ring_segments = 4
+	mi.mesh = tm
+	mi.material_override = _warn_mat
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.visible = false
+	world.add_child(mi)
+	return mi
+
+func _gun_muzzle(t: Dictionary) -> Vector3:
+	return (t.gun as Node3D).global_position + Vector3.UP * 0.8
+
+## 炮塔要打誰：敵方炮塔打家豪，被佔領的炮塔打最近的農夫（老闆打不到）
+func _turret_target(k: int) -> Variant:
+	var t: Dictionary = towers[k]
+	var origin := Vector3(t.pos.x, 0, t.pos.y)
+	if t.side == "enemy":
+		var b := bird
+		if not b.alive() or b.state in ["launch", "fly"] or b.air > 1.5 or (b.state == "climb" and climb_k == k):
+			return null
+		return b.pos if _flat_dist(origin, b.pos) <= TURRET_RANGE else null
+	var best: Variant = null
+	var bd := TURRET_RANGE
+	for f in farmers:
+		if f.alive() and not f.is_boss and f.air < 1.0:
+			var d := _flat_dist(origin, f.pos)
+			if d <= bd:
+				bd = d
+				best = f.pos
+	return best
+
+func _tick_turrets(dt: float) -> void:
+	for k in towers.size():
+		var t: Dictionary = towers[k]
+		if t.gun == null:
+			continue
+		var warn := t.warn as MeshInstance3D
+		if t.state != "stand":
+			warn.visible = false
+			continue
+		var tgt: Variant = _turret_target(k)
+		if t.aim_t >= 0.0:
+			t.aim_t += dt
+			if tgt != null:
+				t.lock = tgt
+			var d: Vector3 = t.lock - (t.gun as Node3D).global_position
+			(t.gun as Node3D).rotation.y = atan2(d.x, d.z)
+			warn.visible = true
+			warn.global_position = t.lock + Vector3(0, 0.1, 0)
+			if t.aim_t >= TURRET_AIM:
+				_fire_shell(k, t.lock)
+				t.aim_t = -1.0
+				t.cd = TURRET_RELOAD
+				warn.visible = false
+		else:
+			t.cd -= dt
+			if t.cd <= 0.0 and tgt != null:
+				t.aim_t = 0.0
+				t.lock = tgt
+				_log("炮塔%s瞄準%s" % [_tower_name(k), "家豪" if t.side == "enemy" else "農夫"])
+
+func _tower_name(k: int) -> String:
+	return "ABCDEFG"[k] if k < 7 else str(k + 1)
+
+func _fire_shell(k: int, to: Vector3) -> void:
+	var t: Dictionary = towers[k]
+	var mi := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.22
+	sm.height = 0.44
+	mi.mesh = sm
+	mi.material_override = _toon_mat(Color(0.15, 0.15, 0.17))
+	_fx_root.add_child(mi)
+	var from := _gun_muzzle(t)
+	mi.global_position = from
+	shells.append({"from": from, "to": to, "t": 0.0, "node": mi, "side": t.side})
+	_puff(from, Color(0.9, 0.9, 0.88, 0.6), 4, 0.35)
+	_log("炮塔%s開砲" % _tower_name(k))
+
+var _toon_cache := {}
+func _toon_mat(c: Color) -> ShaderMaterial:
+	if _toon_cache.has(c):
+		return _toon_cache[c]
+	var m := ShaderMaterial.new()
+	m.shader = load("res://shaders/toon_color.gdshader")
+	m.set_shader_parameter("albedo", c)
+	_toon_cache[c] = m
+	return m
+
+func _tick_shells(dt: float) -> void:
+	for i in range(shells.size() - 1, -1, -1):
+		var sh: Dictionary = shells[i]
+		sh.t += dt
+		var k := clampf(sh.t / SHELL_TIME, 0.0, 1.0)
+		(sh.node as Node3D).global_position = (sh.from as Vector3).lerp(sh.to, k) + Vector3.UP * SHELL_PEAK * 4.0 * k * (1.0 - k)
+		if k >= 1.0:
+			(sh.node as Node3D).queue_free()
+			shells.remove_at(i)
+			_explode_shell(sh.to, sh.side)
+
+func _explode_shell(p: Vector3, side: String) -> void:
+	_puff(p, Color(0.35, 0.3, 0.28, 0.6), 7, 0.55)
+	_noise_at(p)
+	# 農夫被砸到（敵方炮塔也會誤傷自己人）
+	for f in farmers:
+		if f.alive() and not f.is_boss and f.air < 1.0 and _flat_dist(f.pos, p) < SHELL_BLAST:
+			f.hp = maxf(f.hp - SHELL_DMG_FARMER, 0.0)
+			var away: Vector3 = f.pos - p
+			away.y = 0.0
+			f.kb_vel = (away.normalized() if away.length() > 0.01 else Vector3.BACK) * 3.5
+			_aggro(f)
+			_anim(f, "Death")
+			f.set_state("dead" if f.hp <= 0.0 else "down")
+			_log("砲彈炸到%s（剩 %d）" % [f.name, ceili(f.hp)])
+	if side != "enemy":
+		return
+	var b := bird
+	if b.alive() and b.air < 1.5 and not b.state in ["launch", "fly"] and _flat_dist(b.pos, p) < SHELL_BLAST:
+		b.hp = maxf(b.hp - SHELL_DMG_BIRD, 0.0)
+		hit_spots.append(b.pos)
+		_log("砲彈炸到家豪（剩 %d）" % ceili(b.hp))
+		_toast("轟！", 0.8)
+		if b.hp <= 0.0:
+			b.set_state("dead")
+			return
+		b.air = 0.0
+		var away := b.pos - p
+		away.y = 0.0
+		away = away.normalized() if away.length() > 0.01 else Vector3.BACK
+		_start_fly(b.pos + away * 4.0, FLY_TIME, FLY_PEAK, "land")
+
+## 飼料撒在哪一座炮塔的梯子腳下（還站著、還沒被佔領的）
+func _ladder_at(p: Vector3) -> int:
+	for k in towers.size():
+		var t: Dictionary = towers[k]
+		if t.ladder != null and t.state == "stand" and t.side == "enemy":
+			var l: Vector2 = t.ladder
+			if Vector2(p.x - l.x, p.z - l.y).length() < LADDER_LURE:
+				return k
+	return -1
+
+func _start_climb(k: int) -> void:
+	climb_k = k
+	bird.set_state("climb")
+	bird.kb_vel = Vector3.ZERO
+	_log("家豪吃完飼料，順著梯子爬上炮塔%s" % _tower_name(k))
+	_toast("家豪爬上炮塔了！", 1.6)
+
+func _tick_climb(_dt: float) -> void:
+	var b := bird
+	var t: Dictionary = towers[climb_k]
+	if t.state != "stand":
+		# 塔倒了：跟著摔下來
+		climb_k = -1
+		b.air = 0.0
+		b.set_state("land")
+		_log("炮塔倒了，家豪摔了下來")
+		return
+	var k := clampf(b.t / CLIMB_TIME, 0.0, 1.0)
+	var holder := t.node as Node3D
+	var l: Vector2 = t.ladder
+	var tp: Vector2 = t.pos
+	var foot := tp + (l - tp).normalized() * ((l - tp).length() - 0.35)
+	var gy: float = world.height_at(foot.x, foot.y)
+	b.pos = Vector3(foot.x, gy, foot.y)
+	b.air = maxf(holder.global_position.y + float(t.top_y) - gy, 0.0) * k
+	b.yaw = atan2(tp.x - foot.x, tp.y - foot.y)   # 面向塔
+	if k >= 1.0:
+		_capture_tower(climb_k)
+
+func _capture_tower(k: int) -> void:
+	var b := bird
+	var t: Dictionary = towers[k]
+	t.side = "ally"
+	t.aim_t = -1.0
+	t.cd = 0.8
+	(t.warn as Node3D).visible = false
+	if t.gunner:
+		var g := t.gunner as Node3D
+		var away := Vector3(t.pos.x, 0, t.pos.y) - b.pos
+		away.y = 0.0
+		away = away.normalized() if away.length() > 0.01 else Vector3.FORWARD
+		_fx_timed.append({"node": g, "t": 0.0, "life": 1.6, "kind": "gunner", "vel": away * 4.0 + Vector3.UP * 5.0})
+	_log("家豪把砲手踢下去，佔領了炮塔%s！" % _tower_name(k))
+	_toast("佔領炮塔%s！" % _tower_name(k), 1.8)
+	climb_k = -1
+	# 從塔頂跳回地面（梯子前方 2.5 公尺）
+	var l: Vector2 = t.ladder
+	var tp: Vector2 = t.pos
+	var out := l + (l - tp).normalized() * 2.5
+	var top := b.pos + Vector3(0, b.air, 0)
+	var land := _ground(world.clamp_play(Vector3(out.x, 0, out.y)))
+	launch_from = top
+	launch_to = land
+	launch_dur = 0.9
+	launch_peak = 0.8
+	launch_hurt = false
+	b.air = 0.0
+	b.set_state("launch")
 
 ## 一團煙／塵土
 func _puff(p: Vector3, col: Color, n: int, r: float) -> void:
@@ -2408,9 +2686,14 @@ func _bird_pose() -> void:
 			rz = sin(b.t * 14.0) * 0.18
 			flap = 0.5 + 0.6 * absf(sin(b.t * 22.0))
 		"launch":
-			# 被射出去：在空中翻滾，翅膀張開
-			rx = b.t * 13.0
+			# 被射出去：在空中翻滾，翅膀張開（自己跳下來就不翻滾）
+			rx = b.t * 13.0 if launch_hurt else -0.3
 			flap = 1.1
+		"climb":
+			# 抱著梯子一格一格往上爬
+			rx = -0.35
+			lift = absf(sin(b.t * 10.0)) * 0.05
+			flap = 0.3 + 0.3 * absf(sin(b.t * 10.0))
 		"dead":
 			rz = minf(b.t * 6.0, 1.0) * 1.5
 		"cheer":

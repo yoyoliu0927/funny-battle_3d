@@ -8,9 +8,12 @@ extends "res://scripts/farm_builder.gd"
 ##   城牆      西邊和南邊（含城門）是人類蓋的城牆：牆上放不了巨石
 ##   天然山坡  北邊到東邊是天然的山坡，往中庭傾斜：巨石放在坡上會滾下來
 ##   城門      南牆偏左 (-4, 9.6)，家豪從門外 (-5, 15.5) 出發
-##   炮塔 A    北邊靠牆 (-1, -11)：北坡的巨石滾下來會撞到它；南面有梯子可以爬
+##   炮塔 A    北邊靠牆 (-1, -11)：北坡的巨石滾下來會撞到它
 ##   炮塔 B    東邊中庭 (6.5, -0.5)：東坡的巨石往西滾會撞到它
-##   大砲      西邊 (-9.5, -1)，砲口朝東；砲尾一小段引信，點燃後燒完就發射（燒的動畫就是倒數）
+##             兩座塔頂都有砲手，家豪進射程就瞄準開砲（地上先出紅圈）；
+##             南面梯子腳下撒飼料，家豪會爬上去把砲手踢下去，炮塔改打人類
+##   大砲      西邊 (-9.5, -1)，砲口朝東；砲口前撒飼料，家豪鑽進去卡住，
+##             引信燒完（或左鍵）就射向準心；射上指揮官高台能撞翻指揮官
 ##   指揮官高台 東北角 (10.5, -9)，比地面高 5 公尺，走不上去，只能被大砲射上去
 
 const FORT_C := Vector2(0.0, -3.0)
@@ -370,12 +373,34 @@ func _build_towers() -> void:
 		var to_c := FORT_C - tp
 		gun.rotation.y = atan2(to_c.x, to_c.y)
 		holder.add_child(gun)
+		# 塔頂的砲手（家豪爬上去會把他踢下去）
+		var gunner := _make_gunner()
+		gunner.position = Vector3(-0.6, y - 0.3 * s + 0.3, -0.5)
+		gunner.rotation.y = gun.rotation.y
+		holder.add_child(gunner)
 		# 南面的梯子（家豪可以爬）
 		_ladder(holder, Vector3(0, 0, s * 0.5 + 0.12), y - 0.3 * s)
 		var r := s * 0.62
 		obstacles.append([tp, r])
-		fort_towers.append({"node": holder, "pos": tp, "radius": r, "height": y})
+		fort_towers.append({"node": holder, "pos": tp, "radius": r, "height": y,
+			"gun": gun, "gunner": gunner,
+			"ladder": Vector2(tp.x, tp.y + s * 0.5 + 0.75),   # 梯子腳下（飼料撒這裡，家豪就會爬上去）
+			"top_y": y - 0.3 * s + 0.3})
 	towers = fort_towers   # 給戰鬥用：巨石撞得倒
+
+## 塔頂砲手：戴深色頭盔的小兵（簡單幾何）
+func _make_gunner() -> Node3D:
+	var g := Node3D.new()
+	g.name = "Gunner"
+	var coat := _toon(Color(0.55, 0.2, 0.18))
+	var skin := _toon(Color(0.96, 0.78, 0.62))
+	var dark := _toon(Color(0.2, 0.2, 0.24))
+	_box(g, Vector3(0.5, 0.7, 0.32), Vector3(0, 0.75, 0), coat)
+	_box(g, Vector3(0.36, 0.36, 0.36), Vector3(0, 1.3, 0), skin)
+	_box(g, Vector3(0.44, 0.14, 0.44), Vector3(0, 1.52, 0), dark)
+	for sx in [-0.13, 0.13]:
+		_box(g, Vector3(0.16, 0.42, 0.18), Vector3(sx, 0.21, 0), dark)
+	return g
 
 func _ladder(parent: Node3D, base: Vector3, h: float) -> void:
 	var wood := _toon(Color(0.6, 0.42, 0.25))
