@@ -1,0 +1,31 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/intro.gd" id="1_intro"]
+
+[sub_resource type="Environment" id="env"]
+background_mode = 1
+background_color = Color(0.05, 0.06, 0.12, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.40, 0.45, 0.70, 1)
+ambient_light_energy = 0.8
+tonemap_mode = 2
+tonemap_white = 4.0
+ssao_enabled = true
+ssao_radius = 0.6
+fog_enabled = true
+fog_light_color = Color(0.15, 0.17, 0.3, 1)
+fog_density = 0.02
+adjustment_enabled = true
+adjustment_saturation = 1.05
+
+[node name="Intro" type="Node3D"]
+script = ExtResource("1_intro")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
+
+[node name="Moon" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.7, -0.6, 0)
+light_color = Color(0.6, 0.7, 1.0, 1)
+light_energy = 0.45
+shadow_enabled = true

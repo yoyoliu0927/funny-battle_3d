@@ -1,0 +1,57 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://scripts/level_select.gd" id="1_ls"]
+[ext_resource type="Shader" path="res://shaders/sky.gdshader" id="2_sky"]
+
+[sub_resource type="ShaderMaterial" id="sky_mat"]
+shader = ExtResource("2_sky")
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("sky_mat")
+
+[sub_resource type="Environment" id="env"]
+background_mode = 2
+sky = SubResource("sky")
+ambient_light_source = 2
+ambient_light_color = Color(0.60, 0.72, 0.88, 1)
+ambient_light_energy = 0.85
+tonemap_mode = 2
+tonemap_white = 4.0
+ssao_enabled = true
+ssao_radius = 1.0
+ssao_intensity = 0.8
+fog_enabled = true
+fog_sun_scatter = 0.35
+fog_light_color = Color(0.70, 0.86, 0.90, 1)
+fog_density = 0.003
+fog_sky_affect = 0.25
+glow_enabled = true
+glow_intensity = 0.45
+glow_strength = 0.9
+glow_bloom = 0.12
+glow_hdr_threshold = 0.85
+glow_blend_mode = 1
+adjustment_enabled = true
+adjustment_saturation = 1.35
+adjustment_contrast = 1.08
+
+[node name="LevelSelect" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+rotation = Vector3(-0.75, 0.9, 0)
+light_color = Color(1, 0.80, 0.52, 1)
+light_energy = 1.75
+shadow_enabled = true
+directional_shadow_max_distance = 90.0
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 0.707107, 0.707107, 0, -0.707107, 0.707107, 0, 26, 29)
+current = true
+fov = 42.0
+far = 600.0
+
+[node name="Map" type="Node3D" parent="."]
+script = ExtResource("1_ls")

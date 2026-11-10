@@ -1,0 +1,2 @@
+assets/textures/ 內的貼圖來自 Poly Haven (https://polyhaven.com)，CC0 授權：
+lichen_rock, gravelly_sand, grass_ground, forest_ground_04

@@ -1,0 +1,108 @@
+[gd_scene load_steps=12 format=3]
+
+[ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
+[ext_resource type="Script" path="res://scripts/farm_builder.gd" id="2_world"]
+[ext_resource type="Script" path="res://scripts/player.gd" id="3_player"]
+[ext_resource type="Shader" path="res://shaders/sky.gdshader" id="4_sky"]
+[ext_resource type="Script" path="res://scripts/crosshair.gd" id="5_cross"]
+[ext_resource type="Script" path="res://scripts/battle.gd" id="6_battle"]
+
+[sub_resource type="ShaderMaterial" id="sky_mat"]
+shader = ExtResource("4_sky")
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("sky_mat")
+
+[sub_resource type="Environment" id="env"]
+background_mode = 2
+sky = SubResource("sky")
+ambient_light_source = 2
+ambient_light_color = Color(0.60, 0.72, 0.88, 1)
+ambient_light_energy = 0.85
+tonemap_mode = 2
+tonemap_white = 4.0
+ssao_enabled = true
+ssao_radius = 2.0
+ssao_intensity = 1.0
+ssao_light_affect = 0.2
+fog_enabled = true
+fog_light_color = Color(0.70, 0.86, 0.90, 1)
+fog_light_energy = 1.0
+fog_sun_scatter = 0.35
+fog_density = 0.0045
+fog_aerial_perspective = 0.0
+fog_sky_affect = 0.25
+glow_enabled = true
+glow_intensity = 0.45
+glow_strength = 0.9
+glow_bloom = 0.12
+glow_hdr_threshold = 0.85
+glow_blend_mode = 1
+adjustment_enabled = true
+adjustment_saturation = 1.35
+adjustment_contrast = 1.08
+
+[sub_resource type="CapsuleShape3D" id="capsule"]
+radius = 0.35
+height = 1.8
+
+[sub_resource type="LabelSettings" id="hint_label"]
+font_size = 18
+outline_size = 6
+outline_color = Color(0, 0, 0, 0.55)
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_main")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 40, 0)
+rotation = Vector3(-0.48, 0.95, 0)
+light_color = Color(1, 0.80, 0.52, 1)
+light_energy = 1.75
+shadow_enabled = true
+directional_shadow_max_distance = 70.0
+
+[node name="World" type="Node3D" parent="."]
+script = ExtResource("2_world")
+
+[node name="Player" type="CharacterBody3D" parent="."]
+script = ExtResource("3_player")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.9, 0)
+shape = SubResource("capsule")
+
+[node name="Head" type="Node3D" parent="Player"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.65, 0)
+
+[node name="Camera3D" type="Camera3D" parent="Player/Head"]
+current = true
+fov = 72.0
+near = 0.08
+far = 1500.0
+
+[node name="HUD" type="CanvasLayer" parent="."]
+
+[node name="Hint" type="Label" parent="HUD"]
+offset_left = 20.0
+offset_top = 16.0
+offset_right = 1100.0
+offset_bottom = 44.0
+text = "WASD 飄移｜空白 上升｜Shift 下降｜滑鼠 轉視角｜1 2 3 選神蹟｜左鍵 施放｜Enter 開始｜R 重試｜M 地圖｜Esc 放開游標"
+label_settings = SubResource("hint_label")
+
+[node name="Crosshair" type="Control" parent="HUD"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("5_cross")
+
+[node name="Battle" type="Node" parent="."]
+script = ExtResource("6_battle")

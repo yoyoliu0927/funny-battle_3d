@@ -1,0 +1,6 @@
+# Godot 自動產生的快取與匯入資料
+.godot/
+*.translation
+export_presets.cfg
+# macOS
+.DS_Store

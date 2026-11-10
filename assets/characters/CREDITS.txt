@@ -1,0 +1,2 @@
+Farmer.gltf：Quaternius「Ultimate Modular Men」(https://quaternius.com/packs/ultimatemodularcharacters.html)，CC0。
+主角公雞：放入 styloo「CHICKEN ESCAPE ASSET PACK」中檔名含 rooster 或 chicken 的 .glb/.gltf 後會自動取代替身。
