@@ -14,7 +14,7 @@ const TEX := "res://assets/textures/"
 ## 關卡：位置（地圖座標）、名稱、場景（還沒做的關卡沒有場景）
 const LEVELS := [
 	{"pos": Vector2(12.6, 6.8), "city": "高雄", "title": "農場大門", "desc": "家豪的起義從這座人類農場開始。", "scene": "res://scenes/main.tscn"},
-	{"pos": Vector2(8.7, 8.8), "city": "台南", "title": "？？？", "desc": "攻下前一關後開放", "scene": ""},
+	{"pos": Vector2(8.7, 8.8), "city": "台南", "title": "人類要塞", "desc": "城牆裡有兩座炮塔和一門大砲，指揮官站在高台上。（場地草稿）", "scene": "res://scenes/fort.tscn"},
 	{"pos": Vector2(-5.6, 7.0), "city": "台中", "title": "？？？", "desc": "攻下前一關後開放", "scene": ""},
 	{"pos": Vector2(-13.6, 4.4), "city": "新竹", "title": "？？？", "desc": "攻下前一關後開放", "scene": ""},
 	{"pos": Vector2(-17.9, -0.1), "city": "台北", "title": "？？？", "desc": "攻下前一關後開放", "scene": ""},
@@ -248,8 +248,13 @@ func _toon(c: Color) -> ShaderMaterial:
 	m.set_shader_parameter("albedo", c)
 	return m
 
+## true = 要攻下前一關才開放下一關；開發中先關掉，做好場景的關卡都能直接進去
+const SEQUENTIAL_UNLOCK := false
+
 func unlocked(i: int) -> bool:
-	return i <= cleared and LEVELS[i].scene != ""
+	if LEVELS[i].scene == "":
+		return false
+	return i <= cleared or not SEQUENTIAL_UNLOCK
 
 func _build_path() -> void:
 	var dot := SphereMesh.new()
@@ -494,7 +499,8 @@ func _autotest() -> void:
 	var checks := [
 		["選關地圖有 5 個關卡", _markers.size() == 5],
 		["第 1 關（高雄）可以玩", unlocked(0)],
-		["第 2~5 關尚未開放", not unlocked(1) and not unlocked(2) and not unlocked(3) and not unlocked(4)],
+		["第 2 關（要塞）不用先攻下第 1 關就能玩", unlocked(1)],
+		["第 3~5 關（還沒做）尚未開放", not unlocked(2) and not unlocked(3) and not unlocked(4)],
 		["第 5 關在島的最北端（台北）", LEVELS[4].pos.x < LEVELS[0].pos.x and LEVELS[4].city == "台北"],
 	]
 	if DisplayServer.window_can_draw():
@@ -507,6 +513,7 @@ func _autotest() -> void:
 	await get_tree().process_frame
 	await get_tree().process_frame
 	checks.append(["按 → 換到第 2 關", selected == 1])
+	select(2)
 	checks.append(["未開放的關卡進不去", not start_selected()])
 	if DisplayServer.window_can_draw():
 		await RenderingServer.frame_post_draw

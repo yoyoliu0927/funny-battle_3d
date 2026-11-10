@@ -1,12 +1,17 @@
 ; Engine configuration file.
-; 第一關「場地與鏡頭」
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
 
 config_version=5
 
 [application]
 
 config/name="Peak Slope - 第一關 場地與鏡頭"
-run/main_scene="res://scenes/intro.tscn"
+run/main_scene="res://scenes/fort.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 
 [display]
@@ -51,5 +56,5 @@ fly_down={
 
 [rendering]
 
-anti_aliasing/quality/msaa_3d=2
 lights_and_shadows/directional_shadow/size=8192
+anti_aliasing/quality/msaa_3d=2

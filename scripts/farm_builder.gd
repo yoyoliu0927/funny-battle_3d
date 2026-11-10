@@ -88,6 +88,8 @@ var door_out := Vector3.ZERO        # 門外一點點
 var door_in := Vector3.ZERO         # 門內一點點
 var plateau_rocks: Array[Vector2] = []   # 台地上的裝飾石頭位置
 var obstacles: Array = []           # [[Vector2 center, float radius], ...]
+var demo_rock_start: Variant = Vector3(10.4, 0, 4.2)   # 開打後自己滑下坡的示範石頭（沒有就設 null）
+var tower_chain := true             # 水塔是骨牌：倒向前一座，最後砸大穀倉
 
 func _ready() -> void:
 	_rng.seed = world_seed
@@ -471,6 +473,10 @@ func _build_farm_grass() -> void:
 	var inside := barn_rect.grow(0.4)
 	spots.assign(spots.filter(func(sp): return not inside.has_point(Vector2(sp.x, sp.y))))
 	spots.assign(spots.filter(func(sp): return Vector2(sp.x, sp.y).distance_to(POND_CENTER) > POND_R - 0.1 or Vector2(sp.x, sp.y).distance_to(POND_CENTER) < ISLAND_R - 0.1))
+	_spawn_grass(spots)
+
+## 在 spots（x, z, 大小）長出草叢
+func _spawn_grass(spots: Array[Vector3]) -> void:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
@@ -494,6 +500,10 @@ func _build_farm_grass() -> void:
 
 # ---------------------------------------------------------------- 森林包住遊玩範圍
 
+## 種森林的範圍（之後只種在離遊玩範圍 0.4 ~ FOREST_BAND 公尺的地方）；子類別可覆寫
+func _forest_rect() -> Rect2:
+	return Rect2(FARM_MIN - Vector2.ONE * FOREST_BAND, Vector2(FARM_MAX.x - FARM_MIN.x, YARD_MAX_Z - FARM_MIN.y) + Vector2.ONE * FOREST_BAND * 2.0)
+
 func _build_farm_forest() -> void:
 	var r := RandomNumberGenerator.new()
 	r.seed = world_seed + 31
@@ -510,10 +520,11 @@ func _build_farm_forest() -> void:
 	var crowns: Array[Transform3D] = []
 	var cols: Array[Color] = []
 	var step := 1.8
-	var x := FARM_MIN.x - FOREST_BAND
-	while x <= FARM_MAX.x + FOREST_BAND:
-		var z := FARM_MIN.y - FOREST_BAND
-		while z <= YARD_MAX_Z + FOREST_BAND:
+	var fr := _forest_rect()
+	var x := fr.position.x
+	while x <= fr.end.x:
+		var z := fr.position.y
+		while z <= fr.end.y:
 			var px := x + r.randf_range(-0.7, 0.7)
 			var pz := z + r.randf_range(-0.7, 0.7)
 			var d := play_dist(px, pz)

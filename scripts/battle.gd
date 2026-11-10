@@ -43,11 +43,12 @@ const FENCE_CLEAR := 1.0
 
 ## 神蹟設定
 const SKILLS := [
-	# charges = -1 代表不限次數（目前先不限）
-	# cooldown = 用一次之後要等幾秒才能再用
-	{"id": "feed", "name": "飼料", "key": "1", "charges": -1, "cooldown": 1.5, "radius": 0.6, "color": Color(1.0, 0.85, 0.3)},
-	{"id": "banana", "name": "香蕉皮", "key": "2", "charges": -1, "cooldown": 4.0, "radius": 0.5, "color": Color(1.0, 0.9, 0.25)},
-	{"id": "rock", "name": "巨石", "key": "3", "charges": -1, "cooldown": 8.0, "radius": 0.9, "color": Color(0.85, 0.85, 0.8)},
+	# prep = 準備階段（預先佈置）能放幾次；live = 開打後（現場）能放幾次；-1 代表不限次數
+	# 兩個次數各算各的，準備階段沒用完的不會留到現場
+	# cooldown = 現場用一次之後要等幾秒才能再用（準備階段沒有冷卻）
+	{"id": "feed", "name": "飼料", "key": "1", "prep": -1, "live": -1, "cooldown": 1.5, "radius": 0.6, "color": Color(1.0, 0.85, 0.3)},
+	{"id": "banana", "name": "香蕉皮", "key": "2", "prep": -1, "live": -1, "cooldown": 4.0, "radius": 0.5, "color": Color(1.0, 0.9, 0.25)},
+	{"id": "rock", "name": "巨石", "key": "3", "prep": -1, "live": -1, "cooldown": 8.0, "radius": 0.9, "color": Color(0.85, 0.85, 0.8)},
 ]
 const PEEL_RADIUS := 0.55      # 走到香蕉皮這麼近就會踩到
 const SLIP_TIME := 3.0         # 滑倒後躺在地上的時間
@@ -66,6 +67,14 @@ const FEED_LINGER := 3.0       # 吃完飼料後，家豪會在原地意猶未�
 const LIGHT_TIME := 5.0
 const LIGHT_HEAL := 2.0        # 每秒
 const FEED_HEAL := 1.0         # 吃一把飼料回的血
+## 大砲（關卡有 cannon_muzzle() 才有）：飼料撒在砲口前，家豪去吃就會鑽進砲管卡住；
+## 引信燒完（或玩家按左鍵）就把家豪射向準心指的地方
+const CANNON_LURE := 1.6       # 飼料離砲口前方這麼近，家豪就會鑽進砲管
+const CANNON_FUSE := 4.0       # 引信燒完的秒數（= 瞄準時間）
+const CANNON_MIN_FIRE := 0.6   # 卡進去至少這麼久之後才能按左鍵提早發射
+const CANNON_RANGE := 24.0     # 最遠射多遠
+const CANNON_SPLASH := 1.7     # 落地時這個距離內的人會被砸倒
+const CANNON_HIT_FARMER := 6.0
 
 var phase: Phase = Phase.PREPARE
 var time := 0.0
@@ -92,16 +101,26 @@ var _barn_xf: Transform3D
 var _fx_timed: Array = []      # 會自己消失的特效 {node, t, life, kind}
 var _enemy_rows: Array = []
 # 示範石頭：一開始放在台地斜坡頂端，開打後一下下就自己滑下來，讓玩家想到巨石可以放在坡上
-const DEMO_ROCK_START := Vector3(10.4, 0, 4.2)
 const DEMO_ROCK_DELAY := 2.5
 const DEMO_ROCK_RADIUS := 0.5   # 示範石頭比巨石小一號
 var demo_rock: MeshInstance3D
+var _demo_start: Variant = null   # 關卡有示範石頭才有值（world.demo_rock_start）
+var has_cannon := false
+var cannon_t := -1.0              # 家豪卡在砲管裡多久了（< 0 = 沒在砲管裡）
+var cannon_target := Vector3.ZERO # 現在瞄準的落點
+var cannon_fire_req := false      # 玩家按了左鍵要提早發射
+var launch_from := Vector3.ZERO
+var launch_to := Vector3.ZERO
+var launch_dur := 1.0
+var launch_peak := 3.0
+var _tower_chain := true          # true = 骨牌（倒向前一座、最後砸大穀倉）；false = 順著巨石的方向倒
 var demo_path := PackedVector3Array()
 var demo_i := 0   # 右上角敵人欄 {fighter, face, fill, chip, name}
 
 # 神蹟狀態
 var selected := 0
-var charges: Array = []
+var charges: Array = []        # 現場（開打後）剩下的次數
+var prep_charges: Array = []   # 準備階段剩下的次數
 var casts: Array = []          # 本輪施放紀錄 {t, id, pos}
 var feeds: Array = []          # {pos, node}
 var rocks: Array = []          # {path, i, node, done, hit}
@@ -141,6 +160,13 @@ var _tut_arrow: TutArrow
 var _tut_panel: PanelContainer
 var _tut_label: Label
 var _hud_layer: CanvasLayer
+# 換階段的通知卡（像 Mac 的通知：右上角滑進來、停一下、滑出去）
+const NOTICE_TIME := 2.6
+var _notice: PanelContainer
+var _notice_title: Label
+var _notice_body: Label
+var _notice_t := -1.0
+var _notice_base_top := 0.0
 # 輸了的畫面
 const DEFEAT_ORIGIN := Vector3(600.0, 0.0, 600.0)
 var defeat_room: Node3D
@@ -254,8 +280,11 @@ class Hotbar extends Control:
 	const S := 84.0          # 一格的大小
 	const PX := 4.0          # 圖示一個像素的大小
 	var skills: Array = []
-	var counts: Array = []
+	var counts: Array = []        # 現場次數
+	var prep_counts: Array = []   # 準備階段次數
+	var prepping := true          # 現在是不是準備階段（顯示哪一個階段的次數）
 	var cooldowns: Array = []
+	var pulse_t := 0.0            # 換階段時整條閃一下，提示次數可能變了
 	var selected := 0
 	var name_t := 0.0        # 切換後在上方顯示技能名稱的剩餘時間
 
@@ -265,6 +294,9 @@ class Hotbar extends Control:
 	func _process(dt: float) -> void:
 		if name_t > 0.0:
 			name_t = maxf(name_t - dt, 0.0)
+			queue_redraw()
+		if pulse_t > 0.0:
+			pulse_t = maxf(pulse_t - dt, 0.0)
 			queue_redraw()
 
 	func _draw() -> void:
@@ -282,7 +314,9 @@ class Hotbar extends Control:
 			draw_rect(Rect2(inner.position, Vector2(3, inner.size.y)), Color(0.08, 0.08, 0.08, 0.9))
 			draw_rect(Rect2(inner.position + Vector2(0, inner.size.y - 3), Vector2(inner.size.x, 3)), Color(0.4, 0.4, 0.4, 0.9))
 			draw_rect(Rect2(inner.position + Vector2(inner.size.x - 3, 0), Vector2(3, inner.size.y)), Color(0.4, 0.4, 0.4, 0.9))
-			var cnt: int = counts[i] if i < counts.size() else 0
+			var live: int = counts[i] if i < counts.size() else 0
+			var prep: int = prep_counts[i] if i < prep_counts.size() else 0
+			var cnt: int = prep if prepping else live
 			var cd: float = cooldowns[i] if i < cooldowns.size() else 0.0
 			_draw_icon(skills[i].id, cell.get_center(), cnt == 0)
 			if cd > 0.0:
@@ -296,10 +330,17 @@ class Hotbar extends Control:
 			var font := get_theme_default_font()
 			# 左上角小小的按鍵數字
 			_shadow_text(font, cell.position + Vector2(9, 24), skills[i].key, 17, Color(0.85, 0.85, 0.85))
-			# 右下角數量（方塊遊戲的堆疊數字）
+			# 右下角數量：目前這個階段還能用幾次（換階段時數字跳一下）
+			var bump := 1.0 + 0.45 * _pulse_k()
+			var fs := int(24 * bump)
 			var txt := "∞" if cnt < 0 else str(cnt)
-			var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
-			_shadow_text(font, cell.position + Vector2(S - 10 - tw, S - 10), txt, 24, Color(1, 1, 1) if cnt != 0 else Color(1, 0.35, 0.3))
+			var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+			_shadow_text(font, cell.position + Vector2(S - 10 - tw, S - 10), txt, fs, Color(1, 1, 1) if cnt != 0 else Color(1, 0.35, 0.3))
+			# 換階段：每一格亮一圈白光再淡掉
+			var k := _pulse_k()
+			if k > 0.0:
+				draw_rect(inner, Color(1, 1, 1, 0.28 * k))
+				draw_rect(cell.grow(-1.0), Color(1, 0.95, 0.7, 0.9 * k), false, 3.0)
 		# 選中的格子：粗白框，比格子大一圈、蓋在相鄰格子上
 		var sel := Rect2(Vector2(2.0 + selected * S, 2.0), Vector2(S, S)).grow(4.0)
 		draw_rect(sel, Color(0.05, 0.05, 0.05, 0.95), false, 10.0)
@@ -312,6 +353,18 @@ class Hotbar extends Control:
 			var a := clampf(name_t / 0.5, 0.0, 1.0)
 			var w := font.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
 			_shadow_text(font, Vector2((bs.x - w) * 0.5, -16), nm, 26, Color(1, 1, 1, a))
+
+	## 閃一下的強度：開頭快速亮起，再慢慢淡掉
+	func _pulse_k() -> float:
+		const DUR := 0.9
+		if pulse_t <= 0.0:
+			return 0.0
+		var t := 1.0 - pulse_t / DUR
+		return clampf(t / 0.12, 0.0, 1.0) * (1.0 - clampf((t - 0.12) / 0.88, 0.0, 1.0))
+
+	func pulse() -> void:
+		pulse_t = 0.9
+		queue_redraw()
 
 	func _shadow_text(font: Font, pos: Vector2, txt: String, fs: int, col: Color) -> void:
 		draw_string(font, pos + Vector2(2, 2), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0.15, 0.15, 0.15, col.a))
@@ -547,7 +600,13 @@ func _build_fighters() -> void:
 	for t in world.towers:
 		towers.append({"node": t.node, "pos": t.pos, "radius": t.radius, "height": t.height,
 			"state": "stand", "angle": 0.0, "omega": 0.0, "dir": Vector3.FORWARD, "crushed": false})
-	_barn_xf = world.barn_node.transform
+	_tower_chain = world.get("tower_chain") != false
+	has_cannon = world.has_method("cannon_muzzle")
+	if world.barn_node:
+		_barn_xf = world.barn_node.transform
+	_demo_start = world.get("demo_rock_start")
+	if _demo_start == null:
+		return
 	demo_rock = MeshInstance3D.new()
 	demo_rock.name = "DemoRock"
 	var drng := RandomNumberGenerator.new()
@@ -596,6 +655,7 @@ func _build_preview() -> void:
 # ------------------------------------------------------------------ 狀態切換
 
 func reset() -> void:
+	var was_prep := phase == Phase.PREPARE
 	phase = Phase.PREPARE
 	time = 0.0
 	_acc = 0.0
@@ -604,9 +664,11 @@ func reset() -> void:
 	hit_spots.clear()
 	casts.clear()
 	charges.clear()
+	prep_charges.clear()
 	cooldowns.clear()
 	for s in SKILLS:
-		charges.append(s.charges)
+		charges.append(s.live)
+		prep_charges.append(s.prep)
 		cooldowns.append(0.0)
 	for c in _fx_root.get_children():
 		c.queue_free()
@@ -623,11 +685,18 @@ func reset() -> void:
 		(t.node as Node3D).basis = Basis()
 	barn_state = "stand"
 	barn_t = 0.0
-	demo_path = simulate_roll(_ground(DEMO_ROCK_START))
-	demo_i = 0
-	demo_rock.rotation = Vector3.ZERO
-	demo_rock.position = (demo_path[0] if demo_path.size() > 0 else _ground(DEMO_ROCK_START)) - Vector3(0, ROCK_RADIUS - DEMO_ROCK_RADIUS, 0)
-	world.barn_node.transform = _barn_xf
+	if demo_rock:
+		demo_path = simulate_roll(_ground(_demo_start))
+		demo_i = 0
+		demo_rock.rotation = Vector3.ZERO
+		demo_rock.position = (demo_path[0] if demo_path.size() > 0 else _ground(_demo_start)) - Vector3(0, ROCK_RADIUS - DEMO_ROCK_RADIUS, 0)
+	if world.barn_node:
+		world.barn_node.transform = _barn_xf
+	cannon_t = -1.0
+	cannon_fire_req = false
+	if has_cannon:
+		world.reset_cannon()
+		cannon_target = _default_cannon_target()
 	_fx_timed.clear()
 	for f in [bird] + farmers:
 		f.hp = f.max_hp
@@ -656,6 +725,8 @@ func reset() -> void:
 	_toast("", 0.0)
 	_update_phase_label()
 	_refresh_slots()
+	if not was_prep and _notice:
+		notify_phase("回到準備階段", "神蹟次數換回準備階段的次數")
 	phase_changed.emit("prepare")
 
 func start() -> void:
@@ -667,6 +738,8 @@ func start() -> void:
 		f.set_state("boss" if f.is_boss else "patrol")   # 一開打就各自開始巡邏
 	_log("開始")
 	_update_phase_label()
+	_refresh_slots()
+	notify_phase("開戰了", "神蹟次數換成戰鬥中的次數")
 	phase_changed.emit("running")
 
 func _end(result: String) -> void:
@@ -717,7 +790,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.pressed and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		if event.button_index == MOUSE_BUTTON_LEFT:
-			try_cast()
+			if bird.state == "cannon":
+				cannon_fire_req = true   # 家豪在砲管裡：左鍵 = 發射
+			else:
+				try_cast()
 	elif event is InputEventPanGesture:
 		# Mac 觸控板兩指上下滑：累積到一定距離才換一格，避免一滑就跳好幾格
 		_pan_ms = Time.get_ticks_msec()
@@ -770,22 +846,28 @@ func placement_error(i: int, p: Vector3) -> String:
 		return "這裡放不了"
 	return ""
 
+## 目前這個階段還能放幾次（-1 = 不限）
+func charges_left(i: int) -> int:
+	return prep_charges[i] if phase == Phase.PREPARE else charges[i]
+
 func cast(i: int, p: Vector3) -> bool:
 	if phase == Phase.ENDED:
 		return false
-	if charges[i] == 0:
-		_toast("%s 用完了" % SKILLS[i].name, 1.4)
+	var prepping := phase == Phase.PREPARE
+	if charges_left(i) == 0:
+		_toast("%s 這階段用完了" % SKILLS[i].name if prepping else "%s 用完了" % SKILLS[i].name, 1.4)
 		return false
-	if not no_cooldown and i < cooldowns.size() and cooldowns[i] > 0.0:
+	if not prepping and not no_cooldown and i < cooldowns.size() and cooldowns[i] > 0.0:
 		_toast("%s 還要等 %.1f 秒" % [SKILLS[i].name, cooldowns[i]], 1.0)
 		return false
 	var err := placement_error(i, p)
 	if err != "":
 		_toast(err, 1.4)
 		return false
-	if charges[i] > 0:
-		charges[i] -= 1
-	if not no_cooldown:
+	var pool: Array = prep_charges if prepping else charges
+	if pool[i] > 0:
+		pool[i] -= 1
+	if not prepping and not no_cooldown:   # 準備階段可以連續佈置，不進冷卻
 		cooldowns[i] = SKILLS[i].cooldown
 	var id: String = SKILLS[i].id
 	casts.append({"t": time, "id": id, "pos": p})
@@ -866,7 +948,7 @@ func _spawn_feed(p: Vector3) -> void:
 	_fx_root.add_child(node)
 	feeds.append({"pos": p, "node": node})
 
-## 冷卻時間照真實時間走（準備階段也會倒數）
+## 冷卻時間照真實時間走（準備階段不會進冷卻）
 func _tick_cooldowns(dt: float) -> void:
 	var changed := false
 	for k in cooldowns.size():
@@ -1024,9 +1106,9 @@ func _tick_miracles(dt: float) -> void:
 		for k in towers.size():
 			var t: Dictionary = towers[k]
 			if t.state == "stand" and speed >= 0.6 and Vector2(cur.x - t.pos.x, cur.z - t.pos.y).length() < t.radius + ROCK_RADIUS + 0.45:
-				_log("巨石撞倒了第 %d 座水塔！" % (k + 1))
-				_toast("撞到水塔了！", 1.4)
-				_topple(k)
+				_log("巨石撞倒了第 %d 座塔！" % (k + 1))
+				_toast("撞到塔了！", 1.4)
+				_topple(k, flat)
 				r.done = true
 				break
 		if r.done:
@@ -1166,9 +1248,14 @@ func _step(dt: float) -> void:
 
 func _process(dt: float) -> void:
 	_tick_tutorial(dt)
+	_tick_notice(dt)
 	_tick_cooldowns(dt)
 	_update_aim()
-	var show: bool = phase != Phase.ENDED and aim_point != null and charges[selected] != 0 and not defeat_shown
+	if bird and bird.state == "cannon" and phase == Phase.RUNNING:
+		_update_cannon_aim()
+		_tick_hud_misc(dt)
+		return
+	var show: bool = phase != Phase.ENDED and aim_point != null and charges_left(selected) != 0 and not defeat_shown
 	aim_error = placement_error(selected, aim_point) if aim_point != null else ""
 	var ok := show and aim_error == ""
 	_preview.visible = show
@@ -1182,6 +1269,35 @@ func _process(dt: float) -> void:
 	var can := ok
 	if crosshair and "highlight" in crosshair:
 		crosshair.highlight = can
+	_tick_hud_misc(dt)
+
+## 家豪卡在砲管裡：砲口跟著準心轉，畫出拋物線和落點
+func _update_cannon_aim() -> void:
+	if aim_point != null:
+		cannon_target = _clamp_cannon_target(aim_point)
+	world.aim_cannon(cannon_target)
+	var m: Vector3 = world.cannon_muzzle()
+	var dist := Vector2(cannon_target.x - m.x, cannon_target.z - m.z).length()
+	var peak := 2.5 + dist * 0.3 + maxf(cannon_target.y - m.y, 0.0)
+	var n := 22
+	for k in _dots.size():
+		var d: MeshInstance3D = _dots[k]
+		if k < n:
+			var t := float(k + 1) / (n + 1)
+			d.visible = true
+			d.global_position = m.lerp(cannon_target, t) + Vector3.UP * peak * 4.0 * t * (1.0 - t)
+			d.scale = Vector3.ONE * (1.2 - t * 0.5)
+		else:
+			d.visible = false
+	_preview.visible = true
+	_preview.global_position = cannon_target + Vector3(0, 0.08, 0)
+	_preview.scale = Vector3(1.2, 1, 1.2)
+	var on_boss: bool = world.has_method("on_boss_platform") and world.on_boss_platform(cannon_target)
+	(_preview.material_override as StandardMaterial3D).albedo_color = Color(0.4, 1.0, 0.4, 0.9) if on_boss else Color(1, 0.6, 0.2, 0.85)
+	if crosshair and "highlight" in crosshair:
+		crosshair.highlight = true
+
+func _tick_hud_misc(dt: float) -> void:
 	if _toast_t > 0.0:
 		_toast_t -= dt
 		if _toast_t <= 0.0:
@@ -1429,12 +1545,17 @@ func _spawn_tracer(a: Vector3, b: Vector3) -> void:
 
 # ------------------------------------------------------------------ 骨牌：水塔與大穀倉
 
-func _topple(k: int) -> void:
+func _topple(k: int, push := Vector3.ZERO) -> void:
 	var t: Dictionary = towers[k]
 	if t.state != "stand":
 		return
 	t.state = "fall"
 	t.omega = 0.35
+	if not _tower_chain:
+		# 不是骨牌：順著巨石滾過來的方向倒
+		var pd := Vector3(push.x, 0, push.z)
+		t.dir = pd.normalized() if pd.length() > 0.0001 else Vector3.FORWARD
+		return
 	var target: Vector2 = towers[k - 1].pos if k > 0 else Vector2(world.barn_pos.x, world.barn_pos.z)
 	var d := target - (t.pos as Vector2)
 	t.dir = Vector3(d.x, 0, d.y).normalized()
@@ -1450,12 +1571,14 @@ func _tick_towers(dt: float) -> void:
 		(t.node as Node3D).basis = Basis(axis, t.angle)
 		var reach: float = t.height * sin(t.angle)
 		# 倒向下一座（或大穀倉）
-		if k > 0:
+		if not _tower_chain:
+			pass
+		elif k > 0:
 			var n: Dictionary = towers[k - 1]
 			if n.state == "stand" and reach >= (t.pos as Vector2).distance_to(n.pos) - n.radius:
 				_log("第 %d 座水塔砸倒第 %d 座" % [k + 1, k])
 				_topple(k - 1)
-		elif barn_state == "stand":
+		elif barn_state == "stand" and world.barn_node:
 			var bp := Vector2(world.barn_pos.x, world.barn_pos.z)
 			if reach >= (t.pos as Vector2).distance_to(bp) - BARN_HIT_RADIUS:
 				_collapse_barn()
@@ -1471,13 +1594,13 @@ func _tick_towers(dt: float) -> void:
 				var u := clampf((q - a).dot(b - a) / (b - a).length_squared(), 0.0, 1.0)
 				if q.distance_to(a.lerp(b, u)) < 1.4:
 					if f.is_bird:
-						_log("水塔倒下來壓到家豪")
+						_log("塔倒下來壓到家豪")
 						_hit_bird(minf(3.0, maxf(f.hp - 1.0, 0.0)), true, Vector3(a.x, 0, a.y))
 					else:
 						f.hp = 0.0
 						f.set_state("dead")
 						_anim(f, "Death")
-						_log("水塔倒下來壓倒了%s" % f.name)
+						_log("塔倒下來壓倒了%s" % f.name)
 		if t.angle >= 1.45:
 			t.state = "down"
 	# 大穀倉垮掉的動畫
@@ -1487,7 +1610,8 @@ func _tick_towers(dt: float) -> void:
 		var xf := _barn_xf
 		xf.basis = _barn_xf.basis * Basis(Vector3.FORWARD, 0.12 * k2)
 		xf.basis = xf.basis.scaled(Vector3(1.0 + 0.08 * k2, 1.0 - 0.6 * k2 * k2, 1.0 + 0.08 * k2))
-		world.barn_node.transform = xf
+		if world.barn_node:
+			world.barn_node.transform = xf
 		if k2 >= 1.0:
 			barn_state = "down"
 	for i in range(_fx_timed.size() - 1, -1, -1):
@@ -1503,7 +1627,7 @@ func _tick_towers(dt: float) -> void:
 
 ## 示範石頭只是滾下來給玩家看，不會傷人、不會撞倒水塔
 func _tick_demo_rock(_dt: float) -> void:
-	if time < DEMO_ROCK_DELAY or demo_i >= demo_path.size() - 1:
+	if demo_rock == null or time < DEMO_ROCK_DELAY or demo_i >= demo_path.size() - 1:
 		return
 	demo_i += 1
 	var prev := demo_path[demo_i - 1]
@@ -1662,7 +1786,14 @@ func _nearest_feed(from: Vector3, within: float) -> int:
 func _tick_bird(dt: float) -> void:
 	var b := bird
 	b.t += dt
-	if b.state != "fly":
+	if cannon_t >= 0.0 and b.state != "cannon":
+		# 還沒發射就被打出來了（農夫把牠從砲管拔出來）
+		cannon_t = -1.0
+		world.set_fuse(-1.0)
+		if b.state != "fly":
+			b.air = 0.0
+		_log("家豪被從砲管裡拔了出來")
+	if not b.state in ["fly", "cannon", "launch"]:
 		_apply_knockback(b, dt)
 	var tgt := _nearest_farmer(b.pos)
 	b.target = tgt
@@ -1689,7 +1820,12 @@ func _tick_bird(dt: float) -> void:
 				var fp: Vector3 = feeds[b.feed_target].pos
 				_bird_walk(fp, b.speed * 0.85, dt, "feed")
 				if _flat_dist(b.pos, fp) < 0.35:
-					b.set_state("eat")
+					if has_cannon and _flat_dist(fp, world.cannon_bait_spot()) < CANNON_LURE:
+						(feeds[b.feed_target].node as Node3D).queue_free()
+						feeds.remove_at(b.feed_target)
+						_enter_cannon()
+					else:
+						b.set_state("eat")
 		"eat":
 			if b.t >= FEED_EAT_TIME:
 				var fi := _nearest_feed(b.pos, 0.8)
@@ -1739,6 +1875,17 @@ func _tick_bird(dt: float) -> void:
 			if b.t >= 0.7:
 				b.set_state("return")
 				_log("家豪落地站穩，找路繞回來")
+		"cannon":
+			_tick_cannon(dt)
+		"launch":
+			var k := clampf(b.t / launch_dur, 0.0, 1.0)
+			var p := launch_from.lerp(launch_to, k) + Vector3.UP * launch_peak * 4.0 * k * (1.0 - k)
+			var gy: float = world.height_at(p.x, p.z)
+			b.pos = Vector3(p.x, gy, p.z)
+			b.air = maxf(p.y - gy, 0.0)
+			b.yaw = atan2(launch_to.x - launch_from.x, launch_to.z - launch_from.z)
+			if k >= 1.0:
+				_land_cannon()
 		"return":
 			_bird_walk(tgt.pos, b.speed * 0.75, dt, "return")
 			if _farmer_open(tgt) and dist < 6.5:
@@ -1782,6 +1929,118 @@ func _bird_walk(target: Vector3, spd: float, dt: float, resume: String) -> void:
 	var moved: Vector3 = world.clamp_play(_avoid(b.pos, nxt, 0.35))
 	if _wall_crossing(b.pos, moved) == null:
 		b.pos = _ground(moved)
+
+# ------------------------------------------------------------------ 大砲
+
+func _default_cannon_target() -> Vector3:
+	var m: Vector3 = world.cannon_muzzle()
+	return _ground(m + world.cannon_dir() * 12.0)
+
+## 把準心指的點收進射程內
+func _clamp_cannon_target(p: Vector3) -> Vector3:
+	var m: Vector3 = world.cannon_muzzle()
+	var d := Vector3(p.x - m.x, 0, p.z - m.z)
+	if d.length() > CANNON_RANGE:
+		d = d.normalized() * CANNON_RANGE
+	return _ground(m + d)
+
+func _enter_cannon() -> void:
+	var b := bird
+	b.set_state("cannon")
+	b.kb_vel = Vector3.ZERO
+	cannon_t = 0.0
+	cannon_fire_req = false
+	world.set_fuse(1.0)
+	_log("家豪鑽進砲管吃飼料，結果卡住了")
+	_toast("家豪卡在砲管裡！瞄準落點，左鍵發射", 2.2)
+	_tick_cannon(0.0)
+
+## 卡在砲管裡：屁股露在外面亂踢，引信一路燒
+func _tick_cannon(dt: float) -> void:
+	var b := bird
+	cannon_t += dt
+	var m: Vector3 = world.cannon_muzzle()
+	var dir: Vector3 = world.cannon_dir()
+	var p := m + dir * 0.15
+	var gy: float = world.height_at(p.x, p.z)
+	b.pos = Vector3(p.x, gy, p.z)
+	b.air = maxf(m.y - gy - 0.55, 0.0)
+	b.yaw = atan2(-dir.x, -dir.z)   # 頭朝砲管裡面
+	world.set_fuse(1.0 - cannon_t / CANNON_FUSE)
+	if (cannon_fire_req and cannon_t >= CANNON_MIN_FIRE) or cannon_t >= CANNON_FUSE:
+		_fire_cannon()
+
+func _fire_cannon() -> void:
+	var b := bird
+	var m: Vector3 = world.cannon_muzzle()
+	launch_from = m
+	launch_to = cannon_target
+	var dist := Vector2(launch_to.x - m.x, launch_to.z - m.z).length()
+	launch_dur = 0.7 + dist * 0.045
+	launch_peak = 2.5 + dist * 0.3 + maxf(launch_to.y - m.y, 0.0)
+	cannon_t = -1.0
+	cannon_fire_req = false
+	world.set_fuse(0.0)
+	b.set_state("launch")
+	_noise_at(m)
+	_log("砰！大砲把家豪射向（%.1f, %.1f）" % [launch_to.x, launch_to.z])
+	_toast("砰！", 0.8)
+	_puff(m, Color(0.9, 0.9, 0.88, 0.6), 6, 0.5)
+
+func _land_cannon() -> void:
+	var b := bird
+	var p := launch_to
+	b.air = 0.0
+	_puff(p, Color(0.85, 0.8, 0.7, 0.55), 8, 0.6)
+	_noise_at(p)
+	# 落在指揮官的高台上：一頭撞翻指揮官
+	if world.has_method("on_boss_platform") and world.on_boss_platform(p):
+		b.pos = _ground(p)
+		if boss and boss.alive():
+			boss.hp = 0.0
+			boss.set_state("dead")
+			_anim(boss, "Death")
+			_log("家豪從天而降，一頭撞翻了%s！" % boss.name)
+			_toast("正中%s！" % boss.name, 2.0)
+		b.set_state("land")
+		return
+	# 落在別的地方：砸倒旁邊的人，自己也摔一下
+	var hit_any := false
+	for f in farmers:
+		if f.alive() and not f.is_boss and _flat_dist(f.pos, p) < CANNON_SPLASH:
+			f.hp = maxf(f.hp - CANNON_HIT_FARMER, 0.0)
+			var away: Vector3 = f.pos - p
+			away.y = 0.0
+			f.kb_vel = (away.normalized() if away.length() > 0.01 else Vector3.BACK) * 4.0
+			_aggro(f)
+			_anim(f, "Death")
+			f.set_state("dead" if f.hp <= 0.0 else "down")
+			_log("家豪砸在%s頭上（剩 %d）" % [f.name, ceili(f.hp)])
+			hit_any = true
+	if hit_any:
+		_toast("砸中了！", 1.2)
+	b.pos = _ground(world.clamp_play(p))
+	b.hp = maxf(b.hp - 1.0, 1.0)
+	_log("家豪摔在地上（剩 %d）" % ceili(b.hp))
+	b.set_state("land")
+
+## 一團煙／塵土
+func _puff(p: Vector3, col: Color, n: int, r: float) -> void:
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_color = col
+	for k in n:
+		var a := k * TAU / n
+		var mi := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = r
+		sm.height = r * 2.0
+		mi.mesh = sm
+		mi.material_override = m
+		_fx_root.add_child(mi)
+		mi.global_position = p + Vector3(cos(a) * r * 1.2, 0.3, sin(a) * r * 1.2)
+		_fx_timed.append({"node": mi, "t": 0.0, "life": 0.8, "kind": "dust"})
 
 func _start_fly(to: Vector3, dur: float, peak: float, after: String) -> void:
 	var b := bird
@@ -2143,6 +2402,15 @@ func _bird_pose() -> void:
 			rz = sin(b.t * 2.2) * 0.12
 			rx = 0.45 if fmod(b.t, 1.1) < 0.25 else 0.05
 			flap = 0.05
+		"cannon":
+			# 頭塞在砲管裡，屁股翹在外面左右扭，翅膀亂拍
+			rx = 1.25
+			rz = sin(b.t * 14.0) * 0.18
+			flap = 0.5 + 0.6 * absf(sin(b.t * 22.0))
+		"launch":
+			# 被射出去：在空中翻滾，翅膀張開
+			rx = b.t * 13.0
+			flap = 1.1
 		"dead":
 			rz = minf(b.t * 6.0, 1.0) * 1.5
 		"cheer":
@@ -2300,6 +2568,8 @@ func _build_hud() -> void:
 	_phase_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	layer.add_child(_phase_label)
 
+	_build_notice(layer)
+
 	var ts := LabelSettings.new()
 	ts.font_size = 30
 	ts.font_color = Color(1, 0.92, 0.55)
@@ -2403,6 +2673,8 @@ func _refresh_slots() -> void:
 	if _hotbar.selected != selected:
 		_hotbar.name_t = 2.0
 	_hotbar.counts = charges.duplicate()
+	_hotbar.prep_counts = prep_charges.duplicate()
+	_hotbar.prepping = phase == Phase.PREPARE
 	_hotbar.cooldowns = cooldowns.duplicate()
 	_hotbar.selected = selected
 	_hotbar.queue_redraw()
@@ -2428,6 +2700,84 @@ func _update_phase_label() -> void:
 			_phase_label.text = "戰鬥中  %.1f 秒　｜　R 重試" % time
 		Phase.ENDED:
 			_phase_label.text = ("勝利！" if outcome == "win" else "落敗…") + "　按 R 重試"
+
+func _build_notice(layer: CanvasLayer) -> void:
+	_notice = PanelContainer.new()
+	_notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.97, 0.97, 0.98, 0.9)
+	sb.set_corner_radius_all(16)
+	sb.content_margin_left = 14
+	sb.content_margin_right = 18
+	sb.content_margin_top = 12
+	sb.content_margin_bottom = 12
+	sb.shadow_color = Color(0, 0, 0, 0.25)
+	sb.shadow_size = 10
+	sb.shadow_offset = Vector2(0, 3)
+	_notice.add_theme_stylebox_override("panel", sb)
+	_notice.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+	_notice.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_notice.custom_minimum_size = Vector2(330, 0)
+	# 放在右上角敵人欄的下面
+	_notice_base_top = 16.0 + _enemy_rows.size() * 64.0 + 14.0
+	_notice.offset_top = _notice_base_top
+	_notice.offset_right = -20
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 12)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_notice.add_child(row)
+	var icon := TextureRect.new()
+	icon.texture = load("res://assets/ui/jiahao_portrait.png")
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+	icon.custom_minimum_size = Vector2(44, 44)
+	icon.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	row.add_child(icon)
+	var texts := VBoxContainer.new()
+	texts.add_theme_constant_override("separation", 2)
+	row.add_child(texts)
+	_notice_title = Label.new()
+	var tls := LabelSettings.new()
+	tls.font_size = 18
+	tls.font_color = Color(0.1, 0.1, 0.12)
+	_notice_title.label_settings = tls
+	texts.add_child(_notice_title)
+	_notice_body = Label.new()
+	var bls := LabelSettings.new()
+	bls.font_size = 15
+	bls.font_color = Color(0.3, 0.3, 0.34)
+	_notice_body.label_settings = bls
+	texts.add_child(_notice_body)
+	_notice.visible = false
+	layer.add_child(_notice)
+
+## 換階段時：右上角跳一張通知，技能欄閃一下，提示神蹟次數可能變了
+func notify_phase(title: String, body: String) -> void:
+	if _notice == null:
+		return
+	_notice_title.text = title
+	_notice_body.text = body
+	_notice_t = 0.0
+	_notice.visible = true
+	_notice.modulate.a = 0.0
+	if _hotbar:
+		_hotbar.pulse()
+
+func _tick_notice(dt: float) -> void:
+	if _notice_t < 0.0:
+		return
+	_notice_t += dt
+	var t := _notice_t
+	var slide_in := clampf(t / 0.28, 0.0, 1.0)
+	var slide_out := clampf((t - (NOTICE_TIME - 0.35)) / 0.35, 0.0, 1.0)
+	var ease_in := 1.0 - pow(1.0 - slide_in, 3.0)
+	var off := (1.0 - ease_in) * 360.0 + slide_out * slide_out * 360.0
+	_notice.offset_right = -20.0 + off
+	_notice.offset_left = _notice.offset_right - _notice.size.x
+	_notice.modulate.a = ease_in * (1.0 - slide_out)
+	if t >= NOTICE_TIME:
+		_notice_t = -1.0
+		_notice.visible = false
 
 func _toast(text: String, dur: float) -> void:
 	_toast_label.text = text

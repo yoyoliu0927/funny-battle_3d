@@ -552,6 +552,11 @@ func _battle_tests() -> void:
 	await _press(KEY_R)
 	bt.no_cooldown = false
 	var fpt: Vector3 = bt._ground(Vector3(-4.0, 0, 17.5))
+	# 準備階段沒有冷卻：連放兩把都要成功
+	var p1: bool = bt.cast(0, fpt + Vector3(0, 0, 1.5))
+	var p2: bool = bt.cast(0, fpt + Vector3(0.5, 0, 1.5))
+	_check("準備階段佈置沒有冷卻", p1 and p2 and bt.cooldowns[0] == 0.0)
+	bt.start()
 	var c1: bool = bt.cast(0, fpt)
 	var c2: bool = bt.cast(0, fpt + Vector3(0.5, 0, 0))
 	var cd_order: bool = bt.SKILLS[0].cooldown < bt.SKILLS[1].cooldown and bt.SKILLS[1].cooldown < bt.SKILLS[2].cooldown

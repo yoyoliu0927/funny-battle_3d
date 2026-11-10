@@ -1,0 +1,3 @@
+assets/castle：Kenney「Castle Kit 2.0」(https://kenney.nl/assets/castle-kit)，CC0。
+assets/pirate：Kenney「Pirate Kit」(https://kenney.nl/assets/pirate-kit)，CC0（只取用到的模型）。
+assets/tdkit：Kenney「Tower Defense Kit」(https://kenney.nl/assets/tower-defense-kit)，CC0（只取用到的模型）。
