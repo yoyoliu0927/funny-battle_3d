@@ -2,23 +2,27 @@ extends Node3D
 ## 選關地圖（2.5D）
 ##
 ## 一座像橫躺台灣的小島（參考古地圖「Het Eyland Formosa」那樣轉了 90 度：左邊是北、山脈在後方）。
-## 五個關卡從高雄（第 1 關）沿著西部平原一路往北到台北（第 5 關），用虛線連起來。
+## 每個大關一支旗子（從 scripts/registry.gd 自動找到 levels/*/chapter.gd），沿著西部平原用虛線連起來。
 ## 風格沿用遊戲內：同一套天空、霧、卡通光影、地形著色與低多邊形樹。
+## template 的一部分：各關不要改這個檔案，大關的名字、城市、小關都寫在自己的 chapter.gd。
 ##
-## 操作：← → 選關、Enter 開始；滑鼠移到旗子上會選取，點一下開始。
+## 操作：← → 選大關、↑ ↓ 或數字鍵選小關、Enter 開始；滑鼠移到旗子上會選取，點一下開始。
 
 const TerrainShader := preload("res://shaders/terrain.gdshader")
 const Progress := preload("res://scripts/progress.gd")
+const Registry := preload("res://scripts/registry.gd")
 const TEX := "res://assets/textures/"
 
-## 關卡：位置（地圖座標）、名稱、場景（還沒做的關卡沒有場景）
-const LEVELS := [
-	{"pos": Vector2(12.6, 6.8), "city": "高雄", "title": "農場大門", "desc": "家豪的起義從這座人類農場開始。", "scene": "res://scenes/main.tscn"},
-	{"pos": Vector2(8.7, 8.8), "city": "台南", "title": "？？？", "desc": "攻下前一關後開放", "scene": ""},
-	{"pos": Vector2(-5.6, 7.0), "city": "台中", "title": "？？？", "desc": "攻下前一關後開放", "scene": ""},
-	{"pos": Vector2(-13.6, 4.4), "city": "新竹", "title": "？？？", "desc": "攻下前一關後開放", "scene": ""},
-	{"pos": Vector2(-17.9, -0.1), "city": "台北", "title": "？？？", "desc": "攻下前一關後開放", "scene": ""},
+## 城市在地圖上的位置（由南往北）。大關的 chapter.gd 寫了 CITY 就放那裡，沒寫就照順序補空位。
+const CITIES := [
+	["高雄", Vector2(12.6, 6.8)], ["台南", Vector2(8.7, 8.8)], ["台中", Vector2(-5.6, 7.0)],
+	["新竹", Vector2(-13.6, 4.4)], ["台北", Vector2(-17.9, -0.1)],
 ]
+## 城市不夠用時的備用位置（沿海）
+const SPARE_POS := [Vector2(2.0, 10.4), Vector2(-9.8, 8.2), Vector2(15.5, 4.0), Vector2(-19.5, 2.4)]
+
+## 大關（照 Registry 排好，每個多一個 pos 和 city）
+var LEVELS: Array = []
 
 ## 島的輪廓：用台灣海岸線的經緯度換算，轉 90 度並擺正成水平（北在左、西岸朝鏡頭、東岸在後方）
 const OUTLINE := [
@@ -40,7 +44,8 @@ const MAP_MIN := Vector2(-28.0, -16.0)
 const MAP_MAX := Vector2(28.0, 20.0)
 
 var selected := 0
-var cleared := 0
+var stage_sel := 0           # 目前大關裡選的小關（0 開始）
+var cleared := 0             # 從頭數過來連續全破的大關數（畫路線顏色、家豪站的位置用）
 var _noise := FastNoiseLite.new()
 var _markers: Array = []      # {root, flag, ring, label}
 var _hero: Node3D
@@ -58,7 +63,7 @@ func _ready() -> void:
 	_noise.seed = 1624
 	_noise.frequency = 0.12
 	_noise.fractal_octaves = 3
-	cleared = Progress.cleared()
+	_load_chapters()
 	_cam = get_node("../Camera3D")
 	_cam_base = _cam.position
 	_build_island()
@@ -71,6 +76,37 @@ func _ready() -> void:
 	select(0)
 	if "--autotest" in OS.get_cmdline_user_args():
 		_autotest.call_deferred()
+
+## 讀大關清單，決定每支旗子插在哪
+func _load_chapters() -> void:
+	LEVELS = Registry.chapters()
+	var used := {}
+	for ch in LEVELS:
+		for c in CITIES:
+			if c[0] == ch.city and not used.has(c[0]):
+				ch.pos = c[1]
+				used[c[0]] = true
+	var spare := 0
+	for ch in LEVELS:
+		if ch.has("pos"):
+			continue
+		for c in CITIES:
+			if not used.has(c[0]):
+				ch.pos = c[1]
+				ch.city = c[0]
+				used[c[0]] = true
+				break
+		if not ch.has("pos"):
+			ch.pos = SPARE_POS[spare % SPARE_POS.size()] + Vector2(0, spare / SPARE_POS.size() * 1.5)
+			ch.city = "外島"
+			spare += 1
+	# 由南往北排（地圖 x 越大越南）
+	LEVELS.sort_custom(func(a, b): return a.pos.x > b.pos.x)
+	cleared = 0
+	for ch in LEVELS:
+		if not Progress.chapter_cleared(ch):
+			break
+		cleared += 1
 
 # ---------------------------------------------------------------- 地形
 
@@ -248,8 +284,12 @@ func _toon(c: Color) -> ShaderMaterial:
 	m.set_shader_parameter("albedo", c)
 	return m
 
-func unlocked(i: int) -> bool:
-	return i <= cleared and LEVELS[i].scene != ""
+## 第 i 個大關的第 n 小關（從 1 開始）照規則解鎖了沒
+func unlocked(i: int, n := 1) -> bool:
+	var ch: Dictionary = LEVELS[i]
+	if n < 1 or n > ch.stages.size() or String(ch.stages[n - 1].scene) == "":
+		return false
+	return Progress.unlocked(ch.id, n)
 
 func _build_path() -> void:
 	var dot := SphereMesh.new()
@@ -277,7 +317,7 @@ func _build_path() -> void:
 func _build_markers() -> void:
 	for i in LEVELS.size():
 		var lv: Dictionary = LEVELS[i]
-		var open := unlocked(i)
+		var open: bool = not lv.stages.is_empty()
 		var root := Node3D.new()
 		root.position = _ground(lv.pos)
 		add_child(root)
@@ -308,7 +348,7 @@ func _build_markers() -> void:
 		fm.size = Vector3(0.7, 0.42, 0.04)
 		flag.mesh = fm
 		var fc := Color(0.95, 0.42, 0.24) if open else Color(0.55, 0.56, 0.58)
-		if i < cleared:
+		if Progress.chapter_cleared(lv):
 			fc = Color(0.35, 0.75, 0.38)
 		flag.material_override = _toon(fc)
 		flag.position = Vector3(0.37, 1.42, 0)
@@ -327,7 +367,7 @@ func _build_markers() -> void:
 		ring.visible = false
 		holder.add_child(ring)
 		var label := Label3D.new()
-		label.text = "%d  %s" % [i + 1, lv.city]
+		label.text = "%s  %s" % [lv.city, lv.title]
 		label.font_size = 56
 		label.outline_size = 14
 		label.pixel_size = 0.008
@@ -347,8 +387,8 @@ func _build_hero() -> void:
 	_hero = chars._make_standin_rooster()
 	chars.add_child(_hero)
 	_hero.scale *= 0.85
-	var cur := mini(cleared, LEVELS.size() - 1)
-	var p: Vector2 = LEVELS[cur].pos + Vector2(0.8, -1.3)
+	var cur := clampi(cleared, 0, maxi(LEVELS.size() - 1, 0))
+	var p: Vector2 = (LEVELS[cur].pos if not LEVELS.is_empty() else Vector2.ZERO) + Vector2(0.8, -1.3)
 	_hero.position = _ground(p)
 	_hero.rotation.y = PI * 0.15
 
@@ -394,7 +434,7 @@ func _build_ui() -> void:
 	_hint = Label.new()
 	_hint.label_settings = small
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_hint.text = "← → 選擇關卡　｜　Enter 開始　｜　滑鼠點旗子也可以"
+	_hint.text = "← → 選大關　｜　↑ ↓ 或數字鍵 選小關　｜　Enter 開始　｜　滑鼠點旗子也可以"
 	box.add_child(_hint)
 	layer.add_child(panel)
 
@@ -412,21 +452,55 @@ func _build_ui() -> void:
 	layer.add_child(_toast)
 
 func select(i: int) -> void:
+	if LEVELS.is_empty():
+		_info.text = "還沒有任何大關（levels/ 底下沒有 chapter.gd）"
+		return
+	var was := selected
 	selected = clampi(i, 0, LEVELS.size() - 1)
-	var lv: Dictionary = LEVELS[selected]
-	var state := "已攻下" if selected < cleared else ("" if unlocked(selected) else "尚未開放")
-	_info.text = "第 %d 關　%s・%s%s\n%s" % [selected + 1, lv.city, lv.title, ("　（%s）" % state) if state != "" else "", lv.desc]
+	if selected != was:
+		stage_sel = 0
+	_refresh_info()
 	for k in _markers.size():
 		_markers[k].ring.visible = k == selected
 
+func select_stage(n: int) -> void:
+	if LEVELS.is_empty():
+		return
+	stage_sel = clampi(n, 0, maxi(LEVELS[selected].stages.size() - 1, 0))
+	_refresh_info()
+
+func _refresh_info() -> void:
+	var lv: Dictionary = LEVELS[selected]
+	var lines: PackedStringArray = []
+	var who := ("　by %s" % lv.author) if lv.author != "" else ""
+	lines.append("%s・%s%s" % [lv.city, lv.title, who])
+	if lv.desc != "":
+		lines.append(lv.desc)
+	var row: PackedStringArray = []
+	for k in lv.stages.size():
+		var st: Dictionary = lv.stages[k]
+		var mark := "（已過）" if Progress.is_cleared(st.id) else ("" if unlocked(selected, k + 1) else "（未解鎖）")
+		var txt := "%d. %s%s" % [k + 1, st.title, mark]
+		row.append(("【%s】" % txt) if k == stage_sel else txt)
+	lines.append("　".join(row) if not row.is_empty() else "（這個大關還沒有小關）")
+	_info.text = "\n".join(lines)
+
 func start_selected() -> bool:
-	if _starting:
+	if _starting or LEVELS.is_empty():
 		return false
-	if not unlocked(selected):
-		_show_toast("第 %d 關還沒開放，先攻下前面的關卡吧" % (selected + 1))
+	var lv: Dictionary = LEVELS[selected]
+	if lv.stages.is_empty() or String(lv.stages[stage_sel].scene) == "":
+		_show_toast("這一關還沒做好")
 		return false
+	if not unlocked(selected, stage_sel + 1):
+		if OS.is_debug_build() and not "--autotest" in OS.get_cmdline_user_args():
+			_show_toast("（開發模式：還沒解鎖也讓你進去）")
+		else:
+			_show_toast("先過前一小關才能玩這一關")
+			return false
 	_starting = true
-	Engine.set_meta("next_scene", LEVELS[selected].scene)
+	Engine.set_meta("next_scene", lv.stages[stage_sel].scene)
+	Engine.set_meta("stage_id", lv.stages[stage_sel].id)
 	get_tree().change_scene_to_file("res://scenes/loading.tscn")   # 先進載入畫面
 	return true
 
@@ -441,6 +515,12 @@ func _unhandled_input(e: InputEvent) -> void:
 				select(selected - 1)   # 往南（回到前面的關卡）
 			KEY_RIGHT, KEY_D:
 				select(selected + 1)
+			KEY_UP, KEY_W:
+				select_stage(stage_sel - 1)
+			KEY_DOWN, KEY_S:
+				select_stage(stage_sel + 1)
+			KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9:
+				select_stage(e.keycode - KEY_1)
 			KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
 				start_selected()
 	elif e is InputEventMouseMotion:
@@ -491,27 +571,42 @@ func _autotest() -> void:
 			out_dir = a.substr(9)
 	DirAccess.make_dir_recursive_absolute(out_dir)
 	await get_tree().create_timer(1.5).timeout
+	var farm := -1
+	for k in LEVELS.size():
+		if LEVELS[k].id == "example_farm":
+			farm = k
+	var all_first := true
+	for k in LEVELS.size():
+		all_first = all_first and (LEVELS[k].stages.is_empty() or unlocked(k, 1))
 	var checks := [
-		["選關地圖有 5 個關卡", _markers.size() == 5],
-		["第 1 關（高雄）可以玩", unlocked(0)],
-		["第 2~5 關尚未開放", not unlocked(1) and not unlocked(2) and not unlocked(3) and not unlocked(4)],
-		["第 5 關在島的最北端（台北）", LEVELS[4].pos.x < LEVELS[0].pos.x and LEVELS[4].city == "台北"],
+		["選關地圖自動找到所有大關（%d 個）" % LEVELS.size(), _markers.size() == LEVELS.size() and LEVELS.size() >= 1],
+		["農場範例在地圖上", farm >= 0],
+		["每個大關的第 1 小關都可以玩", all_first],
+		["旗子由南往北排", LEVELS.size() < 2 or LEVELS[0].pos.x >= LEVELS[LEVELS.size() - 1].pos.x],
 	]
 	if DisplayServer.window_can_draw():
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(out_dir.path_join("00_level_select.png"))
+	select(0)
 	var e := InputEventKey.new()
 	e.keycode = KEY_RIGHT
 	e.pressed = true
 	Input.parse_input_event(e)
 	await get_tree().process_frame
 	await get_tree().process_frame
-	checks.append(["按 → 換到第 2 關", selected == 1])
-	checks.append(["未開放的關卡進不去", not start_selected()])
+	checks.append(["按 → 換到下一個大關", LEVELS.size() < 2 or selected == 1])
+	# 找一個有第 2 小關的大關，測「沒過第 1 小關進不去第 2 小關」
+	for k in LEVELS.size():
+		if LEVELS[k].stages.size() >= 2 and not Progress.is_cleared(LEVELS[k].stages[0].id):
+			select(k)
+			select_stage(1)
+			checks.append(["還沒過第 1 小關，第 2 小關進不去", not start_selected()])
+			break
 	if DisplayServer.window_can_draw():
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(out_dir.path_join("00b_level_locked.png"))
-	select(0)
+	select(farm if farm >= 0 else 0)
+	select_stage(0)
 	for c in checks:
 		var ok: bool = c[1]
 		if not ok:
@@ -521,5 +616,5 @@ func _autotest() -> void:
 		lines.append(s)
 	Engine.set_meta("ls_lines", lines)
 	Engine.set_meta("ls_fails", fails)
-	# 進入第 1 關，繼續農場的驗收
+	# 進入農場範例，繼續農場的驗收
 	start_selected()
