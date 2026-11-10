@@ -20,7 +20,7 @@ var _bar_bg: ColorRect
 var _tip: Label
 
 func _ready() -> void:
-	_target = String(Engine.get_meta("next_scene", "res://scenes/main.tscn"))
+	_target = String(Engine.get_meta("next_scene", "res://examples/farm/stage.tscn"))
 	ResourceLoader.load_threaded_request(_target)
 	_build_ground()
 	_build_crowd()

@@ -1,0 +1,16 @@
+# 統一換行（Windows 和 Mac 的組員一起改也不會整個檔案都變）
+* text=auto eol=lf
+*.gd text eol=lf
+*.tscn text eol=lf
+*.tres text eol=lf
+*.godot text eol=lf
+*.md text eol=lf
+# 二進位檔不要嘗試合併
+*.png binary
+*.jpg binary
+*.glb binary
+*.ogg binary
+*.wav binary
+*.mp3 binary
+*.ttf binary
+*.otf binary

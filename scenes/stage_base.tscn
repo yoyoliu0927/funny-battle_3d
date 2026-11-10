@@ -1,11 +1,11 @@
 [gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
-[ext_resource type="Script" path="res://scripts/farm_builder.gd" id="2_world"]
+[ext_resource type="Script" path="res://scripts/world/arena_world.gd" id="2_world"]
 [ext_resource type="Script" path="res://scripts/player.gd" id="3_player"]
 [ext_resource type="Shader" path="res://shaders/sky.gdshader" id="4_sky"]
 [ext_resource type="Script" path="res://scripts/crosshair.gd" id="5_cross"]
-[ext_resource type="Script" path="res://scripts/battle.gd" id="6_battle"]
+[ext_resource type="Script" path="res://scripts/battle/battle_base.gd" id="6_battle"]
 
 [sub_resource type="ShaderMaterial" id="sky_mat"]
 shader = ExtResource("4_sky")
@@ -91,7 +91,7 @@ offset_left = 20.0
 offset_top = 16.0
 offset_right = 1100.0
 offset_bottom = 44.0
-text = "WASD 飄移｜空白 上升｜Shift 下降｜滑鼠 轉視角｜1 2 3 選神蹟｜左鍵 施放｜Enter 開始｜R 重試｜M 地圖｜Esc 放開游標"
+text = "WASD 飄移｜空白 上升｜Shift 下降｜滑鼠 轉視角｜數字鍵／滾輪 選道具｜左鍵 施放｜Enter 開始｜R 重試｜M 地圖｜Esc 放開游標"
 label_settings = SubResource("hint_label")
 
 [node name="Crosshair" type="Control" parent="HUD"]

@@ -66,6 +66,51 @@ func setup_multi(world: Node, hero_pos: Vector3, enemy_positions: Array, boss_la
 		enemies.append(e)
 	enemy = enemies[0] if not enemies.is_empty() else null
 
+## 一個一個生角色（battle_base.gd 照 _enemy_specs() 生敵人時用）
+func spawn_hero(world: Node, pos: Vector3) -> Node3D:
+	hero = _load_model(["rooster", "chicken"], HERO_HEIGHT, ["idle"])
+	if hero == null:
+		hero = _make_standin_rooster()
+	hero.name = "Hero"
+	add_child(hero)
+	hero.global_position = Vector3(pos.x, world.height_at(pos.x, pos.z), pos.z)
+	return hero
+
+## model："farmer"（預設農夫）、"merchant"（胖商人）、或 .glb / .gltf 的完整路徑（自動縮放到敵人身高）
+func spawn_enemy(world: Node, model: String, pos: Vector3) -> Node3D:
+	var e: Node3D = null
+	if model == "merchant":
+		e = _make_merchant()
+	elif model.begins_with("res://"):
+		e = _load_model_path(model, ENEMY_HEIGHT, ["Idle", "idle"])
+	else:
+		e = _load_model([model], ENEMY_HEIGHT, ["Idle"])
+	if e == null:
+		e = _make_standin_human()
+	e.name = "Enemy%d" % (enemies.size() + 1)
+	add_child(e)
+	e.global_position = Vector3(pos.x, world.height_at(pos.x, pos.z), pos.z)
+	enemies.append(e)
+	if enemy == null:
+		enemy = e
+	return e
+
+func _load_model_path(path: String, height: float, idle_names: Array) -> Node3D:
+	var scene := load(path) as PackedScene
+	if scene == null:
+		return null
+	var model := scene.instantiate() as Node3D
+	var wrapper := Node3D.new()
+	wrapper.add_child(model)
+	var aabb := _merged_aabb(model, Transform3D.IDENTITY)
+	if aabb.size.y > 0.001:
+		var s := height / aabb.size.y
+		model.scale = Vector3.ONE * s
+		model.position.y = -aabb.position.y * s
+	_play_idle(model, idle_names)
+	wrapper.set_meta("source", path)
+	return wrapper
+
 # ------------------------------------------------------------ 載入外部模型
 
 func _find_file(keys: Array) -> String:

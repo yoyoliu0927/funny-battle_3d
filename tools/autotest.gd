@@ -256,6 +256,7 @@ func _wait_end(bt: Node, limit := 90.0) -> void:
 func _battle_tests() -> void:
 	var bt := get_node("/root/Main/Battle")
 	bt.no_cooldown = true   # 驗收時連續施放很多次，冷卻另外測
+	bt.no_limit = true      # 次數也另外測
 	var world := get_node("/root/Main/World")
 	Engine.time_scale = 1.0
 	bt.reset()   # 清掉前面滑鼠測試時誤放的神蹟
@@ -381,7 +382,7 @@ func _battle_tests() -> void:
 	await _press(KEY_ENTER)
 	var f3 = bt.farmers[2]
 	var fwd3 := Vector3(sin(f3.yaw), 0, cos(f3.yaw))
-	bt.bird.pos = bt._ground(f3.pos + fwd3 * 4.0)
+	bt.bird.pos = bt.ground(f3.pos + fwd3 * 4.0)
 	await _wait(0.2)
 	_check("走進紅色偵測區就會被發現", f3.aggro, "%s 狀態=%s" % [f3.name, f3.state])
 	# 從背後偷襲沒發現的農夫
@@ -390,7 +391,7 @@ func _battle_tests() -> void:
 	await get_tree().physics_frame
 	var f2 = bt.farmers[1]
 	var fwd2 := Vector3(sin(f2.yaw), 0, cos(f2.yaw))
-	bt.bird.pos = bt._ground(f2.pos - fwd2 * 0.9)
+	bt.bird.pos = bt.ground(f2.pos - fwd2 * 0.9)
 	var hp_before: float = f2.hp
 	var sneaked := false
 	for i in 90:
@@ -510,7 +511,7 @@ func _battle_tests() -> void:
 	await _wait(0.4)
 	var bdir: Vector3 = (bt.bird.target.pos - bt.bird.pos) if bt.bird.target else Vector3.FORWARD
 	bdir.y = 0
-	var peel_pt: Vector3 = bt._ground(bt.bird.pos + bdir.normalized() * 1.2)
+	var peel_pt: Vector3 = bt.ground(bt.bird.pos + bdir.normalized() * 1.2)
 	var peel_ok: bool = bt.cast(1, peel_pt)
 	var bird_slip := false
 	var slip_len := 0.0
@@ -534,7 +535,7 @@ func _battle_tests() -> void:
 			break
 	var farmer_slip := false
 	if walker:
-		bt.cast(1, bt._ground(walker.pos))
+		bt.cast(1, bt.ground(walker.pos))
 		for i in 120:
 			await get_tree().physics_frame
 			if walker.state == "slip":
@@ -551,7 +552,7 @@ func _battle_tests() -> void:
 	# 冷卻時間：用過一次要等一下；三個依序越來越長
 	await _press(KEY_R)
 	bt.no_cooldown = false
-	var fpt: Vector3 = bt._ground(Vector3(-4.0, 0, 17.5))
+	var fpt: Vector3 = bt.ground(Vector3(-4.0, 0, 17.5))
 	var c1: bool = bt.cast(0, fpt)
 	var c2: bool = bt.cast(0, fpt + Vector3(0.5, 0, 0))
 	var cd_order: bool = bt.SKILLS[0].cooldown < bt.SKILLS[1].cooldown and bt.SKILLS[1].cooldown < bt.SKILLS[2].cooldown
@@ -562,6 +563,48 @@ func _battle_tests() -> void:
 	_check("神蹟有冷卻時間（飼料＜香蕉皮＜巨石）", c1 and not c2 and c3 and cd_order,
 		"%s / %s / %s 秒" % [bt.SKILLS[0].cooldown, bt.SKILLS[1].cooldown, bt.SKILLS[2].cooldown])
 	bt.no_cooldown = true
+	await _press(KEY_R)
+
+	# 次數分兩段：準備階段和開打後分開算；共用的只有一個數字，不限次數顯示 ∞
+	bt.no_limit = false
+	var shared_i := -1
+	var split_i: Array = []
+	for i in bt.SKILLS.size():
+		if bt.is_shared(i):
+			shared_i = i
+		else:
+			split_i.append(i)
+	var prep_ok := true
+	for i in bt.SKILLS.size():
+		prep_ok = prep_ok and bt.charges[i] == bt.phase_charges(i, false)
+	# 把準備階段的飼料用光，再多放一次要被擋下
+	var fed := 0
+	for k in 6:
+		if bt.cast(0, fpt + Vector3(0.4 * k, 0, 0)):
+			fed += 1
+	var prep_feed_used: bool = bt.phase_charges(0, false) < 0 or (fed == bt.phase_charges(0, false) and bt.charges[0] == 0)
+	var shared_before := -99
+	if shared_i >= 0:
+		bt.cast(shared_i, fpt + Vector3(0, 0, 1.2))
+		shared_before = bt.charges[shared_i]
+	await _press(KEY_ENTER)
+	var run_ok := true
+	for i in split_i:
+		run_ok = run_ok and bt.charges[i] == bt.phase_charges(i, true)
+	var shared_kept: bool = shared_i < 0 or bt.charges[shared_i] == shared_before
+	var anim_on: bool = bt._hotbar.switching()
+	await _wait(0.45)
+	await _shot("08h_charges_switch")
+	await _wait(1.0)
+	_check("準備／開打的次數分開算，按開始時數字切換", prep_ok and prep_feed_used and run_ok and shared_kept and anim_on and not bt._hotbar.switching(),
+		"準備=%s 開打=%s 共用格=%s" % [str(bt.SKILLS.map(func(s): return s.prep)),
+			str(bt.charges), str(shared_i)])
+	await _press(KEY_R)
+	var back_ok := true
+	for i in bt.SKILLS.size():
+		back_ok = back_ok and bt.charges[i] == bt.phase_charges(i, false)
+	_check("重試後次數回到準備階段的數字", back_ok and not bt._hotbar.switching())
+	bt.no_limit = true
 	await _press(KEY_R)
 
 	# 巨石規則：平地也能放、有人站的地方不能放、放在坡上會滾下來
@@ -608,7 +651,7 @@ func _battle_tests() -> void:
 	var bossf = bt.boss
 	var bc: Vector3 = world.barn_pos
 	# 家豪在穀倉東牆外（在射程內，但被牆擋住）：老闆不能開槍
-	var east: Vector3 = bt._ground(Vector3(bc.x + 7.0, 0, bc.z - 1.0))
+	var east: Vector3 = bt.ground(Vector3(bc.x + 7.0, 0, bc.z - 1.0))
 	for k in 4:
 		bt.cast(0, east + Vector3(0.2 * k, 0, 0.1 * k))
 	bt.bird.pos = east
@@ -627,7 +670,7 @@ func _battle_tests() -> void:
 	var hp_before_shot: float = bt.bird.hp
 	for i in 600:
 		await get_tree().physics_frame
-		if bt._wall_crossing(prev, bt.bird.pos) != null:
+		if bt.wall_crossing(prev, bt.bird.pos) != null:
 			crossed_wall = true
 		prev = bt.bird.pos
 		for e in bt.events:
@@ -666,23 +709,23 @@ func _battle_tests() -> void:
 	# 瞄準這個點：路徑會撞到的水塔要亮綠色
 	await _press(KEY_3)
 	Engine.time_scale = 1.0
-	await _look_at_point(bt._ground(spot) + Vector3(-2, 0, -4), 14.0, 9.0)
-	await _aim_only(bt._ground(spot))
+	await _look_at_point(bt.ground(spot) + Vector3(-2, 0, -4), 14.0, 9.0)
+	await _aim_only(bt.ground(spot))
 	await get_tree().process_frame
 	await get_tree().process_frame
 	# 用這個放置點的預測路徑檢查（滑鼠準心打到的點會差一點點）
-	bt._path_cache_at = bt._ground(spot)
-	bt._path_cache = bt.simulate_roll(bt._ground(spot))
+	bt._path_cache_at = bt.ground(spot)
+	bt._path_cache = bt.simulate_roll(bt.ground(spot))
 	bt._update_highlights(bt._path_cache, true)
 	_check("巨石路徑會撞到的水塔亮綠色", bt.highlighted == [4], "亮綠色：%s" % str(bt.highlighted))
 	await _shot("13e_green_highlight")
 	# 準心直接指著水塔（巨石沒有滾過去）時不要亮綠色
 	var t4p: Vector2 = bt.towers[4].pos
-	var at_tower: Vector3 = bt._ground(Vector3(t4p.x + bt.towers[4].radius + 0.3, 0, t4p.y))
+	var at_tower: Vector3 = bt.ground(Vector3(t4p.x + bt.towers[4].radius + 0.3, 0, t4p.y))
 	bt._update_highlights(bt.simulate_roll(at_tower), true)
 	_check("準心直接指著水塔時不亮綠色", bt.highlighted.is_empty(), "亮綠色：%s" % str(bt.highlighted))
 	bt._update_highlights(bt._path_cache, true)
-	var cast_ok: bool = spot != Vector3.ZERO and bt.cast(2, bt._ground(spot))
+	var cast_ok: bool = spot != Vector3.ZERO and bt.cast(2, bt.ground(spot))
 	var shot_mid := false
 	for i in 900:
 		await get_tree().physics_frame
@@ -708,13 +751,13 @@ func _battle_tests() -> void:
 	await _press(KEY_ENTER)
 	var pc: Vector2 = world.pond_center
 	var pr: float = world.pond_r
-	bt.cast(0, bt._ground(Vector3(pc.x, 0, pc.y)))
-	bt.cast(0, bt._ground(Vector3(pc.x + 0.4, 0, pc.y + 0.3)))
-	bt.cast(0, bt._ground(Vector3(pc.x - 0.4, 0, pc.y - 0.2)))
-	bt.bird.pos = bt._ground(Vector3(pc.x + pr + 1.5, 0, pc.y))
+	bt.cast(0, bt.ground(Vector3(pc.x, 0, pc.y)))
+	bt.cast(0, bt.ground(Vector3(pc.x + 0.4, 0, pc.y + 0.3)))
+	bt.cast(0, bt.ground(Vector3(pc.x - 0.4, 0, pc.y - 0.2)))
+	bt.bird.pos = bt.ground(Vector3(pc.x + pr + 1.5, 0, pc.y))
 	var fd = bt.farmers[1]
-	fd.pos = bt._ground(Vector3(pc.x + pr + 4.0, 0, pc.y + 1.0))
-	bt._aggro(fd)
+	fd.pos = bt.ground(Vector3(pc.x + pr + 4.0, 0, pc.y + 1.0))
+	bt.aggro(fd)
 	var on_island := false
 	var drowned := false
 	var shot_pond := false
@@ -803,7 +846,7 @@ func _bot(bt: Node) -> void:
 			return
 	# 血少、附近沒農夫：在身邊撒飼料讓牠吃一口回血
 	if bt.charges[0] != 0 and b.hp <= 6.0 and bt.feeds.is_empty() and b.state in ["charge", "return"]:
-		var nf = bt._nearest_farmer(b.pos)
+		var nf = bt.nearest_enemy(b.pos)
 		if nf and _flat(nf.pos, b.pos) > 6.0:
 			var away2: Vector3 = b.pos - nf.pos
 			away2.y = 0

@@ -1,5 +1,5 @@
 extends "res://scripts/world_builder.gd"
-## 第一關：農場
+## 範例關的場地：農場（範例，不屬於任何人的大關）
 ##
 ## 平緩的農場地形（不再有大坡和石柱），外圍一圈密林是世界邊界。
 ## 家豪從南邊的農場大門外出發；農場裡有三個農夫守在不同位置。
@@ -226,6 +226,10 @@ func clamp_play(p: Vector3) -> Vector3:
 		var dir := -g.normalized() if g.length() > 0.0001 else Vector2(-1, 0)
 		q = Vector3(q.x + dir.x * 0.25, q.y, q.z + dir.y * 0.25)
 	return q
+
+## 巨石滾動的阻力：台地上（高起來的地方）幾乎沒有阻力，巨石會沿著微斜的台面一路滾到邊緣再滾下去
+func roll_resist(x: float, z: float) -> float:
+	return 3.2 if hill_bump(x, z) < 1.0 else 0.2
 
 ## 石球可以放的地方：遊玩範圍內或山丘上
 func rock_ground(x: float, z: float) -> bool:
