@@ -16,6 +16,8 @@ var snowmen: Array = []
 var snowman_nodes: Array = []
 ## 冰湖邊的松樹（裝飾，會擋路）：[Vector3, ...]
 var pines: Array = []
+## 雪堆（不擋路）：滑出去停在雪堆旁的人會倒栽進去，只露出兩條腿。[Vector3, ...]
+var snow_piles: Array = []
 
 ## 執行中的薄冰：[{center, r, state ("solid" / "cracking" / "broken"), t, node, water, dynamic}]
 var thin: Array = []
@@ -182,6 +184,16 @@ func _build_extra() -> void:
 		_snowman(root, p)
 	for p in pines:
 		_pine(root, p)
+	for p in snow_piles:
+		var pile := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = 1.1
+		sm.height = 1.3
+		pile.mesh = sm
+		pile.material_override = _snow_mat
+		pile.position = Vector3(p.x, height_at(p.x, p.z) - 0.05, p.z)
+		pile.scale = Vector3(1.3, 1.0, 1.0)
+		root.add_child(pile)
 	_cold_weather()
 
 ## 冰面：從湖中心往外一圈一圈的網格（邊緣平滑），中心淡藍、邊緣深藍；冰洞的地方挖空

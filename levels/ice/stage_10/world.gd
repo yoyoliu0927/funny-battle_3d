@@ -13,4 +13,6 @@ func _ice_configure() -> void:
 	lakes = [{"center": Vector2(0.0, -2.5), "rx": 10.5, "rz": 7.0}]
 	ponds = [{"center": Vector2(7.5, -6.8), "r": 1.5}]
 	snowmen = [Vector3(9.5, 0, 9.0)]
+	# 冰湖北岸的雪堆：在第二段被香蕉皮滑出去的工人，會一頭栽進去只露出兩條腿
+	snow_piles = [Vector3(-0.6, 0, 6.0)]
 	pines = [Vector3(-11.0, 0, -11.5), Vector3(-5.5, 0, -12.5), Vector3(10.5, 0, -11.5), Vector3(11.5, 0, 2.0)]

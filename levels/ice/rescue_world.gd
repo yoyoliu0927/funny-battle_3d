@@ -16,6 +16,7 @@ var _penguins: Array = []      # {node, home, out, t0}
 var _freed := false
 var _free_target := Vector3.ZERO
 var _free_t := 0.0             # 開籠之後過了幾秒（遊戲時間，由戰局每一步推進）
+var _free_cam := Vector3.ZERO  # 過關鏡頭的位置：企鵝只站在家豪背後（不擋鏡頭），臉朝鏡頭
 
 func _build_extra() -> void:
 	super()
@@ -60,13 +61,15 @@ func _build_cage() -> void:
 	add_child(_cage_label)
 
 ## 打開籠子：正面欄杆消失，企鵝跳出來圍著家豪
-func open_cage(target: Vector3) -> void:
+func open_cage(target: Vector3, cam := Vector3.ZERO) -> void:
 	_freed = true
 	_free_target = target
+	_free_cam = cam
 	_free_t = 0.0
 	for b in _front_bars:
 		(b as Node3D).visible = false
 	_cage_label.text = "謝謝家豪！"
+	_cage_label.font_size = 64
 
 ## 開籠動畫往前推一步（戰局每 1/60 秒呼叫一次）
 func tick_cage(dt: float) -> void:
@@ -79,6 +82,7 @@ func reset_cage() -> void:
 		(b as Node3D).visible = true
 	if _cage_label:
 		_cage_label.text = "救我！"
+		_cage_label.font_size = 96
 	for p in _penguins:
 		(p.node as Node3D).position = p.home
 
@@ -86,7 +90,8 @@ func _process(_dt: float) -> void:
 	if _cage_label == null:
 		return
 	var now := Time.get_ticks_msec()
-	_cage_label.position = _cage_root.position + Vector3(0, 3.0 + sin(now * 0.004) * 0.12, 0)
+	if not _freed:
+		_cage_label.position = _cage_root.position + Vector3(0, 3.0 + sin(now * 0.004) * 0.12, 0)
 	for p in _penguins:
 		var n := p.node as Node3D
 		var k: int = p.k
@@ -98,12 +103,23 @@ func _process(_dt: float) -> void:
 		# 一隻接一隻：先走到籠門口，再跑到家豪身邊繞圈圈跳
 		var t := maxf(_free_t - k * 0.2, 0.0)
 		var door: Vector3 = Vector3(p.home.x * 0.6, 0.0, 1.35)
-		var around: Vector3 = _cage_root.to_local(_free_target) + Vector3(cos(k * 2.1 + _free_t * 1.2), 0, sin(k * 2.1 + _free_t * 1.2)) * 1.9
-		var hop := absf(sin(_free_t * 9.0 + k)) * 0.3
+		# 站位：家豪兩旁排成一排（稍微在後面一點，不擋家豪也不擋鏡頭），一隻一隻輪流跳
+		var away := _free_target - _free_cam
+		away.y = 0.0
+		away = away.normalized() if away.length() > 0.1 else Vector3.FORWARD
+		var lateral := away.cross(Vector3.UP)
+		var spot_w: Vector3 = _free_target + away * 0.6 + lateral * [-1.4, 1.4, -2.6][k]
+		var around: Vector3 = _cage_root.to_local(spot_w)
+		var hop := maxf(sin(_free_t * 7.0 - k * 1.3), 0.0) * 0.35
 		if t < 0.45:
 			n.position = p.home.lerp(door, t / 0.45) + Vector3(0, hop, 0)
 			n.rotation.y = 0.0
 		else:
 			var s2 := clampf((t - 0.45) / 0.6, 0.0, 1.0)
 			n.position = door.lerp(around, s2) + Vector3(0, hop, 0)
-			n.rotation.y = _free_t * 3.0 + k
+			# 臉朝鏡頭
+			var to_cam := _cage_root.to_local(_free_cam) - n.position
+			n.rotation.y = atan2(to_cam.x, to_cam.z)
+		if k == 0 and t >= 0.45:
+			# 「謝謝家豪！」變成中間那隻企鵝說的
+			_cage_label.position = _cage_root.to_global(n.position) + Vector3(0, 1.6, 0)

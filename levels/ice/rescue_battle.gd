@@ -23,6 +23,8 @@ const CAGE_REACH := 2.7        # 籠子變大了，走到籠門前就算
 const ON_ROUTE := 0.75         # 香蕉皮離路線多近算「在路線上」
 const LIFT_TIME := 0.9         # 被抓住之後拎起來晃多久才結束
 const WIN_SHOW := 3.2          # 過關演出幾秒後才跳結算
+const HAT_Y := 2.45            # 雪人頭扣在工人頭上的高度（貼著頭頂）
+const PILE_R := 1.9            # 滑停在雪堆這麼近的地方，就倒栽進雪堆
 
 var path: Array = []
 var path_i := 0
@@ -50,6 +52,8 @@ var _ran := false
 var preview_full := true
 var _new_stars: Array = []
 var _guard_labels := {}        # 守衛 -> 「撲」字
+var _stars := {}               # 暈倒的人 -> 頭上轉圈的星星 [Label3D x3]
+var _pop_seen := {}            # 「字 + 誰」 -> 上次跳字的時間（0.5 秒內同一個字不重複跳）
 
 ## 每一關拿過的星星（這次開遊戲期間累積；不同解法可以分次拿）
 static var best_stars := {}
@@ -74,6 +78,7 @@ func guard(name: String, at: Vector3) -> Dictionary:
 ##   rescue 救出企鵝　fall1 有人掉進冰洞　fall2 兩個人掉進冰洞　carom 連環撞
 ##   guard_carom 用連環撞把守衛撞進冰洞　guard_slip 讓守衛自己撲上香蕉皮
 ##   one_banana 只用 1 片香蕉皮救出　two_banana 只用 2 片
+##   snow_hole 戴著雪人頭掉進冰洞　pile 有人倒栽進雪堆
 func _checklist() -> Array:
 	return [{"id": "rescue", "text": "救出企鵝"}]
 
@@ -237,6 +242,11 @@ func _level_reset() -> void:
 	_catcher = null
 	_ran = false
 	_new_stars.clear()
+	_pop_seen.clear()
+	bird.data.erase("held")
+	for f in enemies:
+		f.data.erase("pile")
+		f.data.erase("snow_hat")
 	if _list_layer:
 		_list_layer.visible = true
 	if camera:
@@ -277,6 +287,9 @@ func _update_phase_label() -> void:
 		Phase.RUNNING:
 			_phase_label.text = "救援中　%.1f 秒　｜　R 重來" % time
 		Phase.ENDED:
+			if _summary_pending:
+				_phase_label.text = ""   # 過關演出中：上面不放字，讓畫面乾淨
+				return
 			_phase_label.text = ("按 Enter 下一關　｜　R 再玩一次" if outcome == "win" else "按 R 再試一次")
 
 # ---------------------------------------------------------------- 整人清單
@@ -322,7 +335,20 @@ func _refresh_list() -> void:
 	_list_label.text = "\n".join(lines)
 
 func fall_in(f: Fighter) -> void:
+	# 同一個洞已經有人：並排露頭（左右各讓開一點），兩顆頭一起入鏡
+	for o in enemies:
+		if o != f and o.data.get("sunk", false) and flat_dist(o.pos, f.pos) < 0.9:
+			var side := _cam_side()
+			f.pos = o.pos + side * 0.65
+			o.pos = o.pos - side * 0.1
 	super(f)
+	# 臉朝鏡頭，凍得發抖、吐泡泡
+	var cp: Vector3 = camera.global_position if camera else f.pos + Vector3(0, 0, 10)
+	f.yaw = atan2(cp.x - f.pos.x, cp.z - f.pos.z)
+	f.data.sunk_yaw = f.yaw
+	f.data.blub = false
+	if f.data.get("snow_hat") != null:
+		mark("snow_hole")
 	falls += 1
 	mark("fall1")
 	if falls >= 2:
@@ -370,12 +396,20 @@ func _end(result: String) -> void:
 		# 先演：籠門打開、企鵝衝出來圍著家豪，家豪轉向鏡頭；WIN_SHOW 秒後才從右邊跳結算
 		_summary_panel.visible = false
 		_summary_pending = true
+		_phase_label.text = ""
+		# 鏡頭從側面高一點拍：籠子在畫面一邊、家豪在另一邊，企鵝橫著跑過畫面，站到家豪背後
+		var to_cage: Vector3 = world.cage - bird.pos
+		to_cage.y = 0.0
+		to_cage = to_cage.normalized() if to_cage.length() > 0.1 else Vector3.FORWARD
+		var side := to_cage.cross(Vector3.UP)
+		var focus: Vector3 = bird.pos + to_cage * 1.2 + Vector3(0, 0.9, 0)
+		var offset: Vector3 = side * 4.6 - to_cage * 1.4 + Vector3(0, 1.9, 0)
 		if world.has_method("open_cage"):
-			world.open_cage(bird.pos)
-		bird.yaw = 0.0
+			world.open_cage(bird.pos, focus + offset)
+		bird.yaw = atan2(offset.x, offset.z)
 		bird.air = 0.0
-		_cut_to(bird.pos + Vector3(0, 0.9, -0.6), Vector3(2.6, 1.6, 5.2), 99.0)
-		pop_label("……可以回家了嗎", bird.pos + Vector3(0, 2.0, 0), Color(1, 1, 1), 3500, bird)
+		_cut_to(focus, offset, 99.0)
+		bubble("……可以回家了嗎", bird, 1.9, 3500)
 
 func _level_step_ended(dt: float) -> void:
 	super(dt)
@@ -388,6 +422,7 @@ func _level_step_ended(dt: float) -> void:
 		_summary_panel.offset_right = -40
 		_summary_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 		_summary_panel.visible = true
+		_update_phase_label()
 
 func _win_line() -> String:
 	var best := _best()
@@ -449,19 +484,16 @@ func _tick_bird(dt: float) -> void:
 	b.t += dt
 	match b.state:
 		"dead", "cheer":
+			if b.data.get("held", false):
+				_hold_bird(b)
 			return
 		"lifted":
-			# 被工人拎在胸前：腳懸空亂踢
-			if _catcher:
-				var fw := Vector3(sin(_catcher.yaw), 0, cos(_catcher.yaw))
-				b.pos = ground(_catcher.pos + fw * 0.75)
-				b.yaw = _catcher.yaw + PI
-			b.air = minf(b.t * 4.0, 1.25)
-			b.yaw += sin(b.t * 40.0) * 0.3   # 被拎著亂扭
+			# 被工人拎在胸前、臉朝鏡頭：腳懸空亂踢（一直拎著到輸了的畫面，不會趴回地上）
+			_hold_bird(b)
 			if b.t >= LIFT_TIME:
 				b.hp = 0.0
 				b.set_state("dead")
-				b.air = 0.0
+				b.data.held = true
 			return
 		"fly":
 			var k := clampf(b.t / b.fly_dur, 0.0, 1.0)
@@ -519,7 +551,9 @@ func _tick_bird(dt: float) -> void:
 # ---------------------------------------------------------------- 工人：照畫好的路線衝；守衛沿箭頭撲
 
 func _tick_enemy(f: Fighter, dt: float) -> void:
-	if bird.state == "lifted":
+	if bird.state == "lifted" or bird.data.get("held", false):
+		return
+	if f.data.get("pile") != null:
 		return
 	if f.state == "slip" and f.alive():
 		# 雪地上踩到香蕉皮：只跌一下就爬起來繼續追（冰上才會滑出去）
@@ -597,9 +631,11 @@ func _level_step(dt: float) -> void:
 			_face(f, bird.pos)
 			anim(f, "Idle")
 			log_event("%s抓住了家豪" % f.name)
-			pop_label("……", bird.pos + Vector3(0, 3.0, 0), Color(1, 1, 1), 1500, bird)
+			bubble("……完了", bird, 1.5, 4000)
+			# 鏡頭在兩人斜前方：工人的臉和被拎著的家豪的臉都拍得到
 			var fw := Vector3(sin(f.yaw), 0, cos(f.yaw))
-			_cut_to(f.pos + fw * 0.75 + Vector3(0, 1.4, 0), fw * 3.6 + Vector3(1.2, 0.6, 0), LIFT_TIME + 3.0)
+			var sd := fw.cross(Vector3.UP)
+			_cut_to(f.pos + fw * 0.3 - sd * 0.2 + Vector3(0, 1.5, 0), fw * 2.6 + sd * 2.6 + Vector3(0, 0.4, 0), LIFT_TIME + 3.0)
 			return
 
 ## 守衛撲過去的點：家豪的路線上，第一個走進紅圈的位置
@@ -749,6 +785,9 @@ func _process(dt: float) -> void:
 		(_how_label.get_parent() as Control).visible = false
 	if _list_label:
 		(_list_label.get_parent() as Control).visible = not cut and not defeat_shown
+	var cl = world.get("_cage_label")
+	if cl:
+		(cl as Label3D).visible = world.get("_freed") or not cut   # 特寫時籠子的「救我！」不要蓋到人臉
 	_path_line.visible = not cut
 	_route_line.visible = not cut
 	_peel_line.visible = not cut
@@ -761,7 +800,7 @@ func _process(dt: float) -> void:
 	for f in enemies:
 		var hat = f.data.get("snow_hat")
 		if hat and is_instance_valid(hat):
-			(hat as Node3D).global_position = f.pos + Vector3(0, 2.75 + f.air, 0)
+			(hat as Node3D).global_position = head_pos(f) + Vector3(0, 0.22, 0)
 	_draw_path()
 	_draw_routes()
 	_draw_placed_peels()
@@ -804,13 +843,13 @@ func _draw_routes() -> void:
 			var org := Color(1.0, 0.55, 0.15, 0.95)
 			var a0: Vector3 = route[0]
 			var a1: Vector3 = route[1]
-			_dashes(im, [a0, a1], org, 0.14)
 			var dirv := (a1 - a0)
 			dirv.y = 0
 			dirv = dirv.normalized()
-			var sidev := dirv.cross(Vector3.UP) * 0.5
-			var tip := a1 + Vector3(0, 0.13, 0)
-			for v in [tip + dirv * 0.6, tip + sidev, tip - sidev]:
+			_solid(im, a0, a1 - dirv * 0.2, org, 0.22)
+			var sidev := dirv.cross(Vector3.UP) * 0.75
+			var tip := a1 - dirv * 0.2 + Vector3(0, 0.13, 0)
+			for v in [tip + dirv * 1.0, tip + sidev, tip - sidev]:
 				im.surface_set_color(org)
 				im.surface_add_vertex(v)
 			continue
@@ -861,7 +900,10 @@ func _update_intents() -> void:
 			"slip":
 				t = "跌倒"
 			"stunned":
-				t = "暈"
+				t = ""          # 改成頭上轉圈的星星
+			"giveup":
+				t = "呼…呼…"
+				c = Color(0.8, 0.8, 0.85)
 			"guard":
 				t = "守"
 				c = Color(1.0, 0.5, 0.3)
@@ -924,20 +966,7 @@ func _update_slide_preview() -> void:
 	var aiming: bool = phase == Phase.PREPARE and aim_point != null and aim_error == "" \
 		and not items.is_empty() and items[selected].id == "banana" and charges[selected] != 0
 	if aiming:
-		results = peel_outcome(aim_point)
-		if not preview_full:
-			# 後面的關卡：只畫 1.5 公尺的方向箭頭，結果自己想
-			for r in results:
-				var pts: Array = r.pts
-				if pts.size() >= 2:
-					var a: Vector3 = pts[0]
-					var d: Vector3 = (pts[1] - pts[0])
-					d.y = 0
-					d = d.normalized()
-					r.pts = [a, a + d * 1.5]
-					r.end = a + d * 1.5
-				r.text = "→"
-				r.color = Color(1.0, 0.92, 0.25)
+		results = _tier(peel_outcome(aim_point))
 	_draw_slides(im, results, Color(1.0, 0.92, 0.25, 0.95), 0.11)
 	for i in _ends.size():
 		var lb: Label3D = _ends[i]
@@ -960,7 +989,7 @@ func _draw_placed_peels() -> void:
 		return
 	var results: Array = []
 	for pl in items[bi].peels:
-		results.append_array(peel_outcome(pl.pos))
+		results.append_array(_tier(peel_outcome(pl.pos)))
 	_draw_slides(im, results, Color(1.0, 1.0, 1.0, 0.45), 0.07)
 
 func _draw_slides(im: ImmediateMesh, results: Array, col: Color, w: float) -> void:
@@ -985,3 +1014,191 @@ func _draw_slides(im: ImmediateMesh, results: Array, col: Color, w: float) -> vo
 				im.surface_add_vertex(v)
 	if drew:
 		im.surface_end()
+
+# ---------------------------------------------------------------- 第五輪：演出細節
+
+## 鏡頭的「右手邊」（平放在地上），用來把兩顆頭左右排開
+func _cam_side() -> Vector3:
+	if camera == null:
+		return Vector3.RIGHT
+	var x := camera.global_basis.x
+	x.y = 0.0
+	return x.normalized() if x.length() > 0.01 else Vector3.RIGHT
+
+## 被拎著：在工人胸前、臉朝跟工人同一邊（也就是朝鏡頭），一直亂扭
+func _hold_bird(b: Fighter) -> void:
+	if _catcher == null:
+		return
+	var fw := Vector3(sin(_catcher.yaw), 0, cos(_catcher.yaw))
+	var sd := fw.cross(Vector3.UP)
+	b.pos = ground(_catcher.pos + fw * 0.6 - sd * 0.45)
+	b.air = minf(b.air + 0.08, 1.1)
+	b.yaw = _catcher.yaw + sin(_clock * 40.0) * 0.3
+
+## 被拎著的家豪：身體左右扭、翅膀狂拍
+func _bird_pose() -> void:
+	var b := bird
+	if b.body != null and (b.state == "lifted" or b.data.get("held", false)):
+		b.body.rotation = Vector3(-0.2, 0, sin(_clock * 23.0) * 0.35)
+		b.body.scale = Vector3.ONE
+		b.body.set_meta("posed", false)
+		for w in b.wings:
+			var sx := -1.0 if w.name == "WingL" else 1.0
+			w.rotation = Vector3(0, 0, sx * (0.4 + 0.9 * absf(sin(_clock * 30.0))))
+		return
+	super()
+
+## 對白泡泡：固定在頭上（不會往上飄），白字粗黑邊
+func bubble(text: String, who: Fighter, dy: float, ms: int) -> void:
+	if silent:
+		return
+	pop_label(text, who.pos + Vector3(0, dy, 0), Color(1, 1, 1), ms, who)
+	if _labels.is_empty():
+		return
+	var e: Dictionary = _labels.back()
+	e.fixed = true
+	var l: Label3D = e.node
+	l.outline_size = 28
+	l.outline_modulate = Color(0.05, 0.05, 0.1, 1.0)
+	l.font_size = 64
+
+## 同一個人頭上同一個字 0.5 秒內只跳一次（不會「咚！咚！」疊在一起）
+func pop_label(text: String, pos: Vector3, color: Color, ms: int, follow: Fighter = null) -> void:
+	var key := "%s|%s" % [text, str(follow.get_instance_id()) if follow else "-"]
+	if _pop_seen.has(key) and _clock - float(_pop_seen[key]) < 0.5:
+		return
+	_pop_seen[key] = _clock
+	super(text, pos, color, ms, follow)
+
+func _update_labels(now: int) -> void:
+	super(now)
+	for e in _labels:
+		if e.get("fixed", false) and e.follow and is_instance_valid(e.node):
+			var f: Fighter = e.follow
+			(e.node as Label3D).position = f.pos + Vector3(0, float(e.dy) + f.air, 0)
+
+## 滑停的時候旁邊有雪堆：倒栽進雪堆，只露出兩條腿在空中亂踢（出局）
+func _stop_slide(f: Fighter, msg: String) -> void:
+	if f.hp > 0.0:
+		for p in world.get("snow_piles"):
+			if flat_dist(p, f.pos) < PILE_R:
+				f.hp = 0.0
+				f.set_state("dead")
+				f.data.pile = ground(p)
+				f.pos = ground(p)
+				log_event("%s倒栽進雪堆，只剩兩條腿在外面" % f.name)
+				pop_label("噗！", f.pos + Vector3(0, 2.6, 0), Color(1, 1, 1), 900)
+				sfx("crack")
+				mark("pile")
+				_shake_until = Time.get_ticks_msec() + 300
+				anim(f, "Run")
+				return
+	super(f, msg)
+
+## 泡在冰洞裡：一直發抖，過一下吐泡泡「噗嚕…」
+func _tick_sunk(f: Fighter, dt: float) -> void:
+	super(f, dt)
+	f.yaw = float(f.data.get("sunk_yaw", f.yaw)) + sin(f.data.sink_t * 45.0) * 0.06
+	if f.data.sink_t > 1.0 and not f.data.get("blub", false):
+		f.data.blub = true
+		pop_label("噗嚕…", f.pos + Vector3(0, 0.0, 0), Color(0.6, 0.85, 1.0), 1400, f)
+		var e: Dictionary = _labels.back() if not _labels.is_empty() else {}
+		if not e.is_empty():
+			e.dy = 2.3
+
+## 姿勢：暈倒、追不上 → 坐在地上；雪堆裡 → 倒栽只露腿；暈倒頭上星星轉圈
+func _level_visuals() -> void:
+	super()
+	for f in enemies:
+		var pile = f.data.get("pile")
+		if pile != null:
+			f.node.global_position = (pile as Vector3) + Vector3(0, 1.45, 0)
+			f.node.rotation = Vector3(PI, f.yaw, sin(_clock * 11.0) * 0.06)
+			continue
+		var sitting: bool = f.alive() and f.state in ["stunned", "giveup"]
+		if sitting:
+			_freeze_pose(f, "Death", 0.4)
+			f.node.global_position = f.pos + Vector3(0, f.air - 0.35, 0)
+			var wob := sin(_clock * 6.0) * 0.15 if f.state == "stunned" else 0.0
+			f.node.rotation = Vector3(0.1, f.yaw + wob, 0.0)
+		elif f.data.get("frozen_pose", "") != "":
+			f.data.frozen_pose = ""
+			if f.anim:
+				f.anim.play()
+		_update_stars(f, f.alive() and f.state == "stunned" and phase != Phase.ENDED)
+
+## 把動畫停在某一格（Death 的前段＝一屁股坐下）
+func _freeze_pose(f: Fighter, name: String, frac: float) -> void:
+	if f.anim == null or not f.anim.has_animation(name) or f.data.get("frozen_pose", "") == name:
+		return
+	f.data.frozen_pose = name
+	f.anim.play(name, 0.0)   # 不混合：直接跳到那一格（混合到一半停住會變成站著）
+	f.anim.seek(f.anim.get_animation(name).length * frac, true)
+	f.anim.pause()
+
+func _update_stars(f: Fighter, on: bool) -> void:
+	if not _stars.has(f):
+		if not on:
+			return
+		var arr: Array = []
+		for k in 3:
+			var l := Label3D.new()
+			l.text = "★"
+			l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			l.no_depth_test = true
+			l.font_size = 96
+			l.pixel_size = 0.004
+			l.outline_size = 12
+			l.modulate = Color(1.0, 0.9, 0.2)
+			world.add_child(l)
+			arr.append(l)
+		_stars[f] = arr
+	for k in 3:
+		var l: Label3D = _stars[f][k]
+		l.visible = on
+		if on:
+			var a := _clock * 5.0 + k * TAU / 3.0
+			var top := 0.55 if f.data.get("snow_hat") == null else 1.0
+			l.position = head_pos(f) + Vector3(cos(a) * 0.55, top + sin(a * 2.0) * 0.05, sin(a) * 0.55)
+
+## 實心粗線（守衛撲過去的箭頭用）
+func _solid(im: ImmediateMesh, a: Vector3, b: Vector3, c: Color, w: float) -> void:
+	var side := (b - a)
+	side.y = 0
+	if side.length() < 0.01:
+		return
+	side = side.normalized().cross(Vector3.UP) * w
+	var p0 := a + Vector3(0, 0.12, 0)
+	var p1 := b + Vector3(0, 0.12, 0)
+	for v in [p0 - side, p0 + side, p1 + side, p0 - side, p1 + side, p1 - side]:
+		im.surface_set_color(c)
+		im.surface_add_vertex(v)
+
+## 預告分級：preview_full＝false 的關卡只給 1.5 公尺的方向箭頭（瞄準中和已經放下的都一樣）
+func _tier(results: Array) -> Array:
+	if preview_full:
+		return results
+	for r in results:
+		var pts: Array = r.pts
+		if pts.size() >= 2:
+			var a: Vector3 = pts[0]
+			var d: Vector3 = (pts[1] - pts[0])
+			d.y = 0
+			d = d.normalized()
+			r.pts = [a, a + d * 1.5]
+			r.end = a + d * 1.5
+		r.text = "→"
+		r.color = Color(1.0, 0.92, 0.25)
+	return results
+
+## 這個人頭頂的位置（照骨架的頭骨算，坐下、仰倒都跟得上）
+func head_pos(f: Fighter) -> Vector3:
+	var sk = f.data.get("skel")
+	if sk == null:
+		sk = f.node.find_child("Skeleton3D", true, false)
+		f.data.skel = sk if sk else false
+	if sk is Skeleton3D:
+		var bi: int = (sk as Skeleton3D).find_bone("Head")
+		if bi >= 0:
+			return (sk as Skeleton3D).global_transform * (sk as Skeleton3D).get_bone_global_pose(bi).origin + Vector3(0, 0.2, 0)
+	return f.pos + Vector3(0, HAT_Y - 0.42 + f.air, 0)
