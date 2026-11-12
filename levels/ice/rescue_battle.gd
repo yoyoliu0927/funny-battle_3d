@@ -22,9 +22,11 @@ const LUNGE_R := 2.6           # 守衛撲過來的距離
 const CAGE_REACH := 2.7        # 籠子變大了，走到籠門前就算
 const ON_ROUTE := 0.75         # 香蕉皮離路線多近算「在路線上」
 const LIFT_TIME := 0.9         # 被抓住之後拎起來晃多久才結束
-const WIN_SHOW := 3.2          # 過關演出幾秒後才跳結算
+const WIN_SHOW := 2.8          # 過關演出幾秒後才跳結算
 const HAT_Y := 2.45            # 雪人頭扣在工人頭上的高度（貼著頭頂）
-const PILE_R := 1.9            # 滑停在雪堆這麼近的地方，就倒栽進雪堆
+const PILE_R := 1.9
+const PEEL_STEP := 0.55        # 走到離香蕉皮這麼近就踩到（跟 banana_item 的 PEEL_RADIUS 一樣）
+const HANG := 1.05             # 家豪被拎著：手到他腳底的距離            # 滑停在雪堆這麼近的地方，就倒栽進雪堆
 
 var path: Array = []
 var path_i := 0
@@ -53,6 +55,15 @@ var preview_full := true
 var _new_stars: Array = []
 var _guard_labels := {}        # 守衛 -> 「撲」字
 var _stars := {}               # 暈倒的人 -> 頭上轉圈的星星 [Label3D x3]
+var _vb: Array = []            # 要畫的三角形：[顏色, 頂點, 顏色, 頂點…]（沒有頂點就不開 surface）
+var _recap_t := 0.0            # 過關前「今日最佳」受害者特寫還剩幾秒
+var _told_giveup := false
+## 第 3 關（時機）：紅線上每 1 秒標一個點；瞄準時標出「他踩到的那一刻，別人在哪」
+var show_timing := false
+var _time_labels: Array = []
+var _ghost_label: Label3D
+var _reroute_label: Label3D
+var _reroute_used := false
 var _pop_seen := {}            # 「字 + 誰」 -> 上次跳字的時間（0.5 秒內同一個字不重複跳）
 
 ## 每一關拿過的星星（這次開遊戲期間累積；不同解法可以分次拿）
@@ -79,6 +90,7 @@ func guard(name: String, at: Vector3) -> Dictionary:
 ##   guard_carom 用連環撞把守衛撞進冰洞　guard_slip 讓守衛自己撲上香蕉皮
 ##   one_banana 只用 1 片香蕉皮救出　two_banana 只用 2 片
 ##   snow_hole 戴著雪人頭掉進冰洞　pile 有人倒栽進雪堆
+##   first_try 第一次就成功（這次開遊戲以來的第一局）
 func _checklist() -> Array:
 	return [{"id": "rescue", "text": "救出企鵝"}]
 
@@ -243,9 +255,20 @@ func _level_reset() -> void:
 	_ran = false
 	_new_stars.clear()
 	_pop_seen.clear()
+	_recap_t = 0.0
+	_told_giveup = false
 	bird.data.erase("held")
+	# 雪人扶正（被撞倒過的）
+	for sn in world.get("snowman_nodes"):
+		(sn.node as Node3D).rotation = Vector3(0, (sn.pos as Vector3).x * 0.7, 0)
+		(sn.node as Node3D).position = sn.pos
+		for ob in world.obstacles:
+			if (ob[0] as Vector2).distance_to(Vector2(sn.pos.x, sn.pos.z)) < 0.05:
+				ob[1] = 0.6
 	for f in enemies:
 		f.data.erase("pile")
+		f.data.erase("chase_to")
+		f.data.erase("pair")
 		f.data.erase("snow_hat")
 	if _list_layer:
 		_list_layer.visible = true
@@ -287,7 +310,7 @@ func _update_phase_label() -> void:
 		Phase.RUNNING:
 			_phase_label.text = "救援中　%.1f 秒　｜　R 重來" % time
 		Phase.ENDED:
-			if _summary_pending:
+			if outcome == "win" or _summary_pending:
 				_phase_label.text = ""   # 過關演出中：上面不放字，讓畫面乾淨
 				return
 			_phase_label.text = ("按 Enter 下一關　｜　R 再玩一次" if outcome == "win" else "按 R 再試一次")
@@ -341,6 +364,8 @@ func fall_in(f: Fighter) -> void:
 			var side := _cam_side()
 			f.pos = o.pos + side * 0.65
 			o.pos = o.pos - side * 0.1
+			f.data.pair = true
+			o.data.pair = true
 	super(f)
 	# 臉朝鏡頭，凍得發抖、吐泡泡
 	var cp: Vector3 = camera.global_position if camera else f.pos + Vector3(0, 0, 10)
@@ -356,7 +381,7 @@ func fall_in(f: Fighter) -> void:
 	if f.data.get("guard", false) and f.data.get("was_hit", false):
 		mark("guard_carom")
 	if _cut_cam and _cut_cam.current:
-		_cut_t = maxf(_cut_t, 0.9)
+		_cut_t = maxf(_cut_t, 1.7 if f.data.get("snow_hat") != null else 0.9)
 
 func _on_carom(_a: Fighter, b: Fighter) -> void:
 	caroms += 1
@@ -373,6 +398,8 @@ func _check_end() -> String:
 			mark("one_banana")
 		if bananas <= 2:
 			mark("two_banana")
+		if attempts.is_empty():
+			mark("first_try")
 		return "win"
 	if not bird.alive():
 		return "lose"
@@ -388,31 +415,94 @@ func _end(result: String) -> void:
 	super(result)
 	_ended_t = 0.0
 	toast("", 0.0)
-	for l in _labels:
+	# 跳字清掉，但對白泡泡（例如被抓時的「……完了」）留著
+	for i in range(_labels.size() - 1, -1, -1):
+		var l: Dictionary = _labels[i]
+		if l.get("fixed", false):
+			continue
 		if is_instance_valid(l.node):
 			l.node.queue_free()
-	_labels.clear()
+		_labels.remove_at(i)
 	if result == "win":
 		# 先演：籠門打開、企鵝衝出來圍著家豪，家豪轉向鏡頭；WIN_SHOW 秒後才從右邊跳結算
 		_summary_panel.visible = false
 		_summary_pending = true
 		_phase_label.text = ""
-		# 鏡頭從側面高一點拍：籠子在畫面一邊、家豪在另一邊，企鵝橫著跑過畫面，站到家豪背後
-		var to_cage: Vector3 = world.cage - bird.pos
-		to_cage.y = 0.0
-		to_cage = to_cage.normalized() if to_cage.length() > 0.1 else Vector3.FORWARD
-		var side := to_cage.cross(Vector3.UP)
-		var focus: Vector3 = bird.pos + to_cage * 1.2 + Vector3(0, 0.9, 0)
-		var offset: Vector3 = side * 4.6 - to_cage * 1.4 + Vector3(0, 1.9, 0)
-		if world.has_method("open_cage"):
-			world.open_cage(bird.pos, focus + offset)
-		bird.yaw = atan2(offset.x, offset.z)
-		bird.air = 0.0
-		_cut_to(focus, offset, 99.0)
-		bubble("……可以回家了嗎", bird, 1.9, 3500)
+		var v := _best_victim()
+		if not v.is_empty():
+			# 先回顧今天最好笑的受害者（1.4 秒），再演企鵝出籠
+			_recap_t = RECAP
+			var tgt: Vector3 = v.target
+			var away: Vector3 = (camera.global_position - tgt) if camera else Vector3(0, 0, 1)
+			away.y = 0.0
+			away = away.normalized() if away.length() > 0.1 else Vector3.BACK
+			_cut_to(tgt, away * 3.0 + Vector3(0, 1.3, 0), 99.0)
+			toast(String(v.text), RECAP)
+		else:
+			_start_win_show()
+
+const RECAP := 1.3
+
+## 今天最好笑的那一幕：雪人頭泡在洞裡 > 雪堆裡的腿 > 同一個洞兩個人 > 冰棒工人 > 坐著喘的人
+func _best_victim() -> Dictionary:
+	var best := {}
+	var rank := 0
+	for f in enemies:
+		var r := 0
+		var text := ""
+		var tgt: Vector3 = head_pos(f)
+		if f.data.get("sunk", false) and f.data.get("snow_hat") != null:
+			r = 5
+			text = "今日最佳：雪人頭先生"
+		elif f.data.get("pile") != null:
+			r = 4
+			text = "今日最佳：雪堆裡的兩條腿"
+			tgt = (f.data.pile as Vector3) + Vector3(0, 1.1, 0)
+		elif f.data.get("sunk", false) and f.data.get("pair", false):
+			r = 3
+			text = "今日最佳：一個洞泡兩個"
+		elif f.data.get("sunk", false):
+			r = 2
+			text = "今日最佳：冰棒%s" % f.name
+		elif f.alive() and f.state == "giveup":
+			r = 1
+			text = "今日最佳：追不上的%s" % f.name
+		if r > rank:
+			rank = r
+			best = {"f": f, "text": text, "target": tgt}
+	return best
+
+## 企鵝出籠：側面鏡頭，企鵝排在家豪兩旁，家豪說一句（依這局做到的事換台詞）
+func _start_win_show() -> void:
+	_ended_t = 0.0
+	toast("", 0.0)
+	var to_cage: Vector3 = world.cage - bird.pos
+	to_cage.y = 0.0
+	to_cage = to_cage.normalized() if to_cage.length() > 0.1 else Vector3.FORWARD
+	var side := to_cage.cross(Vector3.UP)
+	var focus: Vector3 = bird.pos + to_cage * 1.2 + Vector3(0, 0.9, 0)
+	var offset: Vector3 = side * 4.6 - to_cage * 1.4 + Vector3(0, 1.9, 0)
+	if world.has_method("open_cage"):
+		world.open_cage(bird.pos, focus + offset)
+	bird.yaw = atan2(offset.x, offset.z)
+	bird.air = 0.0
+	_cut_to(focus, offset, 99.0)
+	var line := "……可以回家了嗎"
+	if _done.has("snow_hole"):
+		line = "……他頭上那個是什麼"
+	elif _done.has("pile") or enemies.any(func(f): return f.data.get("pile") != null):
+		line = "……那是腿嗎"
+	elif _done.has("guard_carom") or _done.has("carom"):
+		line = "……一次兩個"
+	bubble(line, bird, 1.9, int((WIN_SHOW + 4.0) * 1000))
 
 func _level_step_ended(dt: float) -> void:
 	super(dt)
+	if _recap_t > 0.0:
+		_recap_t -= dt
+		if _recap_t <= 0.0:
+			_start_win_show()
+		return
 	_ended_t += dt
 	if world.has_method("tick_cage"):
 		world.tick_cage(dt)
@@ -426,14 +516,15 @@ func _level_step_ended(dt: float) -> void:
 
 func _win_line() -> String:
 	var best := _best()
-	var s := ""
-	for c in _checklist():
-		s += "★" if best.has(c.id) else "☆"
-	var news: PackedStringArray = []
-	for c in _checklist():
-		if _new_stars.has(c.id):
-			news.append("新！" + String(c.text))
-	return "企鵝救出來了！　%s%s\n按 Enter 下一關" % [s, ("\n" + "\n".join(news)) if not news.is_empty() else ""]
+	var list := _checklist()
+	var n := list.filter(func(c): return best.has(c.id)).size()
+	var stars_s := "★".repeat(n) + "☆".repeat(list.size() - n)
+	var lines: PackedStringArray = ["企鵝救出來了！　%s（%d/%d）" % [stars_s, n, list.size()]]
+	for c in list:
+		var tag := "☑ " if best.has(c.id) else "☐ "
+		lines.append(tag + String(c.text) + ("　新！" if _new_stars.has(c.id) else ""))
+	lines.append("按 Enter 下一關")
+	return "\n".join(lines)
 
 func _lose_line(_left: int) -> String:
 	if time >= time_limit:
@@ -551,6 +642,8 @@ func _tick_bird(dt: float) -> void:
 # ---------------------------------------------------------------- 工人：照畫好的路線衝；守衛沿箭頭撲
 
 func _tick_enemy(f: Fighter, dt: float) -> void:
+	# 已經在滑的人不會再踩到香蕉皮（不然會被第二片從半路彈回來，預告就不準了）
+	f.can_slip = f.state not in ["kslide", "stunned"]
 	if bird.state == "lifted" or bird.data.get("held", false):
 		return
 	if f.data.get("pile") != null:
@@ -604,11 +697,21 @@ func _tick_enemy(f: Fighter, dt: float) -> void:
 			# chase（或被撞停下來之後）：跑到家豪前面去攔；追不上就放棄
 			if f.state != "chase":
 				f.set_state("chase")
-			var ip = intercept_point(f)
+				f.data.erase("chase_to")
+			# 爬起來就認定一個攔截點直直跑過去（跟準備時預告的新紅線一樣），到了再重新看
+			var ip = f.data.get("chase_to")
+			if ip == null or flat_dist(f.pos, ip) < 0.3:
+				ip = intercept_point(f)
+				f.data.chase_to = ip
+				if ip != null:
+					log_event("%s改追攔截點 (%.2f, %.2f)，從 (%.2f, %.2f)" % [f.name, ip.x, ip.z, f.pos.x, f.pos.z])
 			if ip == null:
 				f.set_state("giveup")
 				log_event("%s追不上了" % f.name)
 				pop_label("追不上了…", f.pos + Vector3(0, 3.0, 0), Color(0.85, 0.85, 0.85), 1500, f)
+				if not _told_giveup:
+					_told_giveup = true
+					toast("追不上了！家豪走得比工人快，被甩到後面就追不上", 2.2)
 				return
 			_walk(f, ip, RUSH_SPEED, dt)
 			anim(f, "Run")
@@ -714,7 +817,9 @@ func intercept_point(f: Fighter):
 	return null
 
 func _chase_line(f: Fighter) -> Array:
-	var ip = intercept_point(f)
+	var ip = f.data.get("chase_to")
+	if ip == null:
+		ip = intercept_point(f)
 	return [f.pos, ip] if ip != null else [f.pos]
 
 ## 滑行時撞到別人：兩個人一起往前滑（一片香蕉皮可以帶走兩個人）
@@ -728,6 +833,11 @@ func _tick_slide(f: Fighter, dt: float) -> void:
 				sn.node.remove_child(h)
 				world.add_child(h)
 				f.data.snow_hat = h
+				# 雪人剩下的身體也倒了（一眼看得出「雪人被撞爛、頭跑到他頭上」）
+				(sn.node as Node3D).rotation.z = 1.35
+				(sn.node as Node3D).position = (sn.pos as Vector3) + Vector3(0, 0.25, 0)
+				# 倒掉的雪人不再擋路（等他停下來才拿掉，不然這一步會直接穿過去）
+				f.data.knock_at = Vector2(sn.pos.x, sn.pos.z)
 				log_event("雪人的頭掉下來扣在%s頭上" % f.name)
 				pop_label("咚！", f.pos + Vector3(0, 3.4, 0), Color(1, 1, 1), 900, f)
 				sfx("crack")
@@ -771,6 +881,8 @@ func _process(dt: float) -> void:
 		hint.visible = not cut and (Time.get_ticks_msec() < _hint_until or Input.is_physical_key_pressed(KEY_H))
 	if crosshair:
 		crosshair.visible = not cut
+	if _phase_label:
+		_phase_label.visible = not cut   # 特寫時連計時器一起收起來
 	if cut and _preview:
 		_preview.visible = false
 		for d in _dots:
@@ -814,9 +926,9 @@ func _draw_path() -> void:
 	for i in range(path_i, path.size()):
 		pts.append(ground(path[i]))
 	pts.append(world.cage)
-	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	_vb.clear()
 	_dashes(im, pts, Color(1.0, 0.85, 0.25, 0.85), 0.11)
-	im.surface_end()
+	_flush(im)
 
 ## 工人的路線（紅色虛線、終點紅叉）、守衛的撲擊圈和撲過去的箭頭
 func _draw_routes() -> void:
@@ -824,7 +936,7 @@ func _draw_routes() -> void:
 	im.clear_surfaces()
 	if phase == Phase.ENDED:
 		return
-	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	_vb.clear()
 	var red := Color(1.0, 0.25, 0.2, 0.9)
 	for f in enemies:
 		if not f.alive() or f.state in ["kslide", "stunned", "slip"]:
@@ -835,7 +947,14 @@ func _draw_routes() -> void:
 				var a := k * TAU / 40.0
 				pts.append(ground(f.pos + Vector3(cos(a), 0, sin(a)) * LUNGE_R))
 			_dashes(im, pts, Color(red, 0.6), 0.06)
-		var route := planned_route(f) if f.state != "chase" else _chase_line(f)
+		var er := effective_route(f) if f.state != "chase" else {"main": _chase_line(f), "ghost": [], "ended": false}
+		var route: Array = er.main
+		var ghost: Array = er.ghost
+		if ghost.size() >= 2:
+			# 撞停爬起來之後改追的新紅線（粉紅）＋終點紅叉＋說明
+			_dashes(im, ghost, Color(1.0, 0.5, 0.6, 0.95), 0.1)
+			_cross(ghost.back(), Color(1.0, 0.5, 0.6, 0.95))
+			_reroute_tag(ghost[0])
 		if route.size() < 2:
 			continue
 		if f.data.get("guard", false) and f.state in ["guard", "idle", "patrol"]:
@@ -850,18 +969,30 @@ func _draw_routes() -> void:
 			var sidev := dirv.cross(Vector3.UP) * 0.75
 			var tip := a1 - dirv * 0.2 + Vector3(0, 0.13, 0)
 			for v in [tip + dirv * 1.0, tip + sidev, tip - sidev]:
-				im.surface_set_color(org)
-				im.surface_add_vertex(v)
+				_v(org, v)
 			continue
 		_dashes(im, route, red, 0.09)
+		if er.ended or not ghost.is_empty():
+			continue
 		var b: Vector3 = route.back()
 		for v in [b + Vector3(-0.4, 0.12, -0.4), b + Vector3(-0.28, 0.12, -0.52), b + Vector3(0.52, 0.12, 0.28),
 				b + Vector3(-0.4, 0.12, -0.4), b + Vector3(0.52, 0.12, 0.28), b + Vector3(0.4, 0.12, 0.4),
 				b + Vector3(0.4, 0.12, -0.4), b + Vector3(0.52, 0.12, -0.28), b + Vector3(-0.28, 0.12, 0.52),
 				b + Vector3(0.4, 0.12, -0.4), b + Vector3(-0.28, 0.12, 0.52), b + Vector3(-0.4, 0.12, 0.4)]:
-			im.surface_set_color(red)
-			im.surface_add_vertex(v)
-	im.surface_end()
+			_v(red, v)
+	if not _reroute_used and _reroute_label:
+		_reroute_label.visible = false
+	_reroute_used = false
+	_draw_time_dots()
+	_draw_timing_ghosts(im)
+	_flush(im)
+
+func _cross(b: Vector3, c: Color) -> void:
+	for v in [b + Vector3(-0.4, 0.12, -0.4), b + Vector3(-0.28, 0.12, -0.52), b + Vector3(0.52, 0.12, 0.28),
+			b + Vector3(-0.4, 0.12, -0.4), b + Vector3(0.52, 0.12, 0.28), b + Vector3(0.4, 0.12, 0.4),
+			b + Vector3(0.4, 0.12, -0.4), b + Vector3(0.52, 0.12, -0.28), b + Vector3(-0.28, 0.12, 0.52),
+			b + Vector3(0.4, 0.12, -0.4), b + Vector3(-0.28, 0.12, 0.52), b + Vector3(-0.4, 0.12, 0.4)]:
+		_v(c, v)
 
 func _dashes(im: ImmediateMesh, pts: Array, c: Color, w: float) -> void:
 	var dash := 0
@@ -881,8 +1012,7 @@ func _dashes(im: ImmediateMesh, pts: Array, c: Color, w: float) -> void:
 			var p0 := ground(a.lerp(b, float(k) / n)) + Vector3(0, 0.1, 0)
 			var p1 := ground(a.lerp(b, float(k + 1) / n)) + Vector3(0, 0.1, 0)
 			for v in [p0 - side, p0 + side, p1 + side, p0 - side, p1 + side, p1 - side]:
-				im.surface_set_color(c)
-				im.surface_add_vertex(v)
+				_v(c, v)
 
 ## 頭上只放一個小圖示，不放長字
 func _update_intents() -> void:
@@ -917,15 +1047,24 @@ func _update_intents() -> void:
 		l.position = f.pos + Vector3(0, 3.1 + f.air, 0)
 
 ## 一片香蕉皮放在 p，誰會踩到、會滑去哪（只預告到第一次撞到東西）
-func peel_outcome(p: Vector3) -> Array:
+func peel_outcome(p: Vector3, skip = null) -> Array:
 	var out: Array = []
 	for f in enemies:
 		if not f.alive() or f.state in ["kslide", "slip", "stunned"]:
 			continue
-		var route := planned_route(f) if f.state != "chase" else _chase_line(f)
-		for i in range(1, route.size()):
-			var a: Vector3 = route[i - 1]
-			var b: Vector3 = route[i]
+		var er := effective_route(f, skip) if f.state != "chase" else {"main": _chase_line(f), "ghost": []}
+		# 檢查的線段：還會走的紅線＋撞停之後的新紅線（不檢查他滑過去的那一段）
+		var segs: Array = []
+		var m: Array = er.main
+		for i in range(1, m.size()):
+			segs.append([m[i - 1], m[i], false])
+		var gh: Array = er.ghost
+		for i in range(1, gh.size()):
+			segs.append([gh[i - 1], gh[i], true])
+		for sg in segs:
+			var a: Vector3 = sg[0]
+			var b: Vector3 = sg[1]
+			var on_ghost: bool = sg[2]
 			var ab := Vector2(b.x - a.x, b.z - a.z)
 			var l := ab.length()
 			if l < 0.01:
@@ -938,7 +1077,22 @@ func peel_outcome(p: Vector3) -> Array:
 			if not world.on_ice(p.x, p.z):
 				out.append({"pts": [], "end": p, "text": "雪地：只會跌倒", "color": Color(0.9, 0.9, 0.9)})
 			else:
-				var pr: Array = predict_slide(f, dir, ground(q))
+				var start_p: Vector3 = ground(q - dir * minf(PEEL_STEP, flat_dist(a, q)))
+				if on_ghost:
+					# 新紅線上：他走到這裡時家豪在哪？已經被抓到就來不及了
+					var t_at: float = float(er.get("t0", 0.0)) + flat_dist(a, start_p) / RUSH_SPEED
+					var bp: Vector3 = _bird_route_at(t_at)[0]
+					if flat_dist(bp, start_p) < CATCH + 0.25:
+						out.append({"pts": [], "end": p, "text": "太晚了：他先抓到家豪", "color": Color(1.0, 0.4, 0.3)})
+						break
+				var knock: int = er.get("knock", -1) if on_ghost else -1
+				var keep_r := 0.0
+				if knock >= 0:
+					keep_r = world.obstacles[knock][1]
+					world.obstacles[knock][1] = 0.0
+				var pr: Array = predict_slide(f, dir, start_p)
+				if knock >= 0:
+					world.obstacles[knock][1] = keep_r
 				if not pr.is_empty():
 					var r: Dictionary = pr[0]
 					var tx := String(r.text)
@@ -989,7 +1143,7 @@ func _draw_placed_peels() -> void:
 		return
 	var results: Array = []
 	for pl in items[bi].peels:
-		results.append_array(_tier(peel_outcome(pl.pos)))
+		results.append_array(_tier(peel_outcome(pl.pos, pl.pos)))
 	_draw_slides(im, results, Color(1.0, 1.0, 1.0, 0.45), 0.07)
 
 func _draw_slides(im: ImmediateMesh, results: Array, col: Color, w: float) -> void:
@@ -999,7 +1153,7 @@ func _draw_slides(im: ImmediateMesh, results: Array, col: Color, w: float) -> vo
 		if pts.size() < 2:
 			continue
 		if not drew:
-			im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+			_vb.clear()
 			drew = true
 		for i in range(1, pts.size()):
 			var a: Vector3 = pts[i - 1] + Vector3(0, 0.12, 0)
@@ -1010,10 +1164,9 @@ func _draw_slides(im: ImmediateMesh, results: Array, col: Color, w: float) -> vo
 				continue
 			side = side.normalized().cross(Vector3.UP) * w
 			for v in [a - side, a + side, b + side, a - side, b + side, b - side]:
-				im.surface_set_color(col)
-				im.surface_add_vertex(v)
+				_v(col, v)
 	if drew:
-		im.surface_end()
+		_flush(im)
 
 # ---------------------------------------------------------------- 第五輪：演出細節
 
@@ -1031,8 +1184,15 @@ func _hold_bird(b: Fighter) -> void:
 		return
 	var fw := Vector3(sin(_catcher.yaw), 0, cos(_catcher.yaw))
 	var sd := fw.cross(Vector3.UP)
-	b.pos = ground(_catcher.pos + fw * 0.6 - sd * 0.45)
-	b.air = minf(b.air + 0.08, 1.1)
+	var hand = bone_pos(_catcher, "Wrist.R")
+	if hand != null and _catcher.data.get("frozen_pose", "") == "Interact":
+		# 掛在工人伸出去的右手上（手抓著帽T的帽子）
+		var g := ground(hand)
+		b.pos = g
+		b.air = minf(b.air + 0.12, maxf((hand as Vector3).y - g.y - HANG, 0.0))
+	else:
+		b.pos = ground(_catcher.pos + fw * 0.6 - sd * 0.45)
+		b.air = minf(b.air + 0.08, 1.1)
 	b.yaw = _catcher.yaw + sin(_clock * 40.0) * 0.3
 
 ## 被拎著的家豪：身體左右扭、翅膀狂拍
@@ -1079,6 +1239,12 @@ func _update_labels(now: int) -> void:
 
 ## 滑停的時候旁邊有雪堆：倒栽進雪堆，只露出兩條腿在空中亂踢（出局）
 func _stop_slide(f: Fighter, msg: String) -> void:
+	var ka = f.data.get("knock_at")
+	if ka != null:
+		f.data.erase("knock_at")
+		for ob in world.obstacles:
+			if (ob[0] as Vector2).distance_to(ka) < 0.05:
+				ob[1] = 0.0
 	if f.hp > 0.0:
 		for p in world.get("snow_piles"):
 			if flat_dist(p, f.pos) < PILE_R:
@@ -1092,6 +1258,10 @@ func _stop_slide(f: Fighter, msg: String) -> void:
 				mark("pile")
 				_shake_until = Time.get_ticks_msec() + 300
 				anim(f, "Run")
+				var away: Vector3 = (camera.global_position - f.pos) if camera else Vector3(0, 0, 1)
+				away.y = 0.0
+				away = away.normalized() if away.length() > 0.1 else Vector3.BACK
+				_cut_to(f.pos + Vector3(0, 1.1, 0), away * 3.6 + Vector3(0, 1.4, 0), 1.6)
 				return
 	super(f, msg)
 
@@ -1110,6 +1280,9 @@ func _tick_sunk(f: Fighter, dt: float) -> void:
 func _level_visuals() -> void:
 	super()
 	for f in enemies:
+		if f == _catcher and (bird.state == "lifted" or bird.data.get("held", false)):
+			_freeze_pose(f, "Interact", 0.7)   # 手往前伸：拎著家豪
+			continue
 		var pile = f.data.get("pile")
 		if pile != null:
 			f.node.global_position = (pile as Vector3) + Vector3(0, 1.45, 0)
@@ -1171,8 +1344,7 @@ func _solid(im: ImmediateMesh, a: Vector3, b: Vector3, c: Color, w: float) -> vo
 	var p0 := a + Vector3(0, 0.12, 0)
 	var p1 := b + Vector3(0, 0.12, 0)
 	for v in [p0 - side, p0 + side, p1 + side, p0 - side, p1 + side, p1 - side]:
-		im.surface_set_color(c)
-		im.surface_add_vertex(v)
+		_v(c, v)
 
 ## 預告分級：preview_full＝false 的關卡只給 1.5 公尺的方向箭頭（瞄準中和已經放下的都一樣）
 func _tier(results: Array) -> Array:
@@ -1192,6 +1364,17 @@ func _tier(results: Array) -> Array:
 	return results
 
 ## 這個人頭頂的位置（照骨架的頭骨算，坐下、仰倒都跟得上）
+func bone_pos(f: Fighter, bone: String):
+	var sk = f.data.get("skel")
+	if sk == null:
+		sk = f.node.find_child("Skeleton3D", true, false)
+		f.data.skel = sk if sk else false
+	if sk is Skeleton3D:
+		var bi: int = (sk as Skeleton3D).find_bone(bone)
+		if bi >= 0:
+			return (sk as Skeleton3D).global_transform * (sk as Skeleton3D).get_bone_global_pose(bi).origin
+	return null
+
 func head_pos(f: Fighter) -> Vector3:
 	var sk = f.data.get("skel")
 	if sk == null:
@@ -1202,3 +1385,235 @@ func head_pos(f: Fighter) -> Vector3:
 		if bi >= 0:
 			return (sk as Skeleton3D).global_transform * (sk as Skeleton3D).get_bone_global_pose(bi).origin + Vector3(0, 0.2, 0)
 	return f.pos + Vector3(0, HAT_Y - 0.42 + f.air, 0)
+
+# ---------------------------------------------------------------- 第六輪：畫線緩衝、改道預告、時機
+
+func _v(c: Color, v: Vector3) -> void:
+	_vb.append(c)
+	_vb.append(v)
+
+## 有頂點才開 surface（不然 Godot 會一直噴「No vertices were added」）
+func _flush(im: ImmediateMesh) -> void:
+	if _vb.is_empty():
+		return
+	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	for i in range(0, _vb.size(), 2):
+		im.surface_set_color(_vb[i])
+		im.surface_add_vertex(_vb[i + 1])
+	im.surface_end()
+	_vb.clear()
+
+## 準備階段：已經放下的香蕉皮會改變工人的路線。
+##   {"main": 還會走的紅線, "ghost": 撞停爬起來之後改追的新紅線（可能是空的）, "ended": 他在那片香蕉皮之後就出局了}
+## skip：算某一片香蕉皮自己的結果時，不要把它自己算進去
+func effective_route(f: Fighter, skip = null) -> Dictionary:
+	var route := planned_route(f)
+	var out := {"main": route, "ghost": [], "ended": false}
+	if phase != Phase.PREPARE or not preview_full or f.data.get("guard", f.get_meta("guard", false)):
+		return out
+	var bi := skill_index("banana")
+	if bi < 0:
+		return out
+	var walked := 0.0
+	for i in range(1, route.size()):
+		var a: Vector3 = route[i - 1]
+		var b: Vector3 = route[i]
+		var ab := Vector2(b.x - a.x, b.z - a.z)
+		var l := ab.length()
+		if l < 0.01:
+			continue
+		var best_t := 2.0
+		var best_q = null
+		for pl in items[bi].peels:
+			var pp: Vector3 = pl.pos
+			if skip != null and flat_dist(pp, skip) < 0.05:
+				continue
+			var t := clampf(Vector2(pp.x - a.x, pp.z - a.z).dot(ab) / (l * l), 0.0, 1.0)
+			var q := a.lerp(b, t)
+			if flat_dist(q, pp) <= ON_ROUTE and t < best_t:
+				best_t = t
+				best_q = q
+		if best_q != null and world.on_ice((best_q as Vector3).x, (best_q as Vector3).z):
+			var dir := Vector3(ab.x, 0, ab.y) / l
+			var pre: Array = route.slice(0, i)
+			pre.append(best_q)
+			out.main = pre
+			# 走到離香蕉皮 PEEL_R 公尺就踩到了：從那裡開始滑
+			var step_on: Vector3 = (best_q as Vector3) - dir * minf(PEEL_STEP, flat_dist(a, best_q))
+			var pr: Array = predict_slide(f, dir, ground(step_on))
+			if pr.is_empty():
+				return out
+			var r: Dictionary = pr[0]
+			var tx := String(r.text)
+			if not (tx.begins_with("撞到雪") or tx.begins_with("撞牆") or tx.begins_with("停")):
+				out.ended = true    # 掉洞、撞人：之後的事就不預告了
+				return out
+			var stop: Vector3 = r.end
+			for pile in world.get("snow_piles"):
+				if flat_dist(pile, stop) < PILE_R:
+					out.ended = true
+					return out
+			var slide_len := 0.0
+			var pts: Array = r.pts
+			for k in range(1, pts.size()):
+				slide_len += flat_dist(pts[k - 1], pts[k])
+			var t_stop: float = (walked + flat_dist(a, best_q) - PEEL_STEP) / RUSH_SPEED + slide_len / SLIDE_SPEED + STUN_TIME
+			var q2 = _intercept_from(stop, t_stop)
+			out.ghost = [stop, q2] if q2 != null else [stop]
+			out.t0 = t_stop
+			# 撞到的雪人到時候已經倒了：之後的預告不要再把它當牆
+			if tx.begins_with("撞到雪") or tx.begins_with("撞牆"):
+				for k in world.obstacles.size():
+					var ob: Array = world.obstacles[k]
+					if (ob[0] as Vector2).distance_to(Vector2(stop.x, stop.z)) < 1.6 and float(ob[1]) > 0.0:
+						out.knock = k
+						break
+			return out
+		walked += l
+	return out
+
+## 家豪在 t 秒時的位置和接下來的路（照黃線走，準備階段用）
+func _bird_route_at(t: float) -> Array:
+	var pts: Array = [bird.start_pos]
+	for p in path:
+		pts.append(ground(p))
+	pts.append(world.cage)
+	var d := t * BIRD_WALK
+	for i in range(1, pts.size()):
+		var seg := flat_dist(pts[i - 1], pts[i])
+		if d <= seg:
+			var out: Array = [(pts[i - 1] as Vector3).lerp(pts[i], d / maxf(seg, 0.001))]
+			out.append_array(pts.slice(i))
+			return out
+		d -= seg
+	return [world.cage]
+
+## 從 from 出發、t0 秒後開始追：攔得到家豪的第一個點（攔不到就 null）
+func _intercept_from(from: Vector3, t0: float):
+	var pts := _bird_route_at(t0)
+	var walked := 0.0
+	for i in range(1, pts.size()):
+		var a: Vector3 = pts[i - 1]
+		var b: Vector3 = pts[i]
+		var seg := flat_dist(a, b)
+		var n := maxi(int(seg / 0.5), 1)
+		for k in range(0, n + 1):
+			var q := a.lerp(b, float(k) / n)
+			if flat_dist(from, q) / RUSH_SPEED <= (walked + seg * float(k) / n) / BIRD_WALK:
+				return q
+		walked += seg
+	return null
+
+## 沿著折線走 d 公尺的位置
+func _along(pts: Array, d: float) -> Vector3:
+	for i in range(1, pts.size()):
+		var seg := flat_dist(pts[i - 1], pts[i])
+		if d <= seg:
+			return (pts[i - 1] as Vector3).lerp(pts[i], d / maxf(seg, 0.001))
+		d -= seg
+	return pts.back()
+
+## 第 3 關：紅線上每 1 秒一個點＋秒數
+func _draw_time_dots() -> void:
+	var used := 0
+	if show_timing and phase == Phase.PREPARE:
+		for f in enemies:
+			if not f.alive() or f.data.get("guard", false):
+				continue
+			var route := planned_route(f)
+			var total := 0.0
+			for i in range(1, route.size()):
+				total += flat_dist(route[i - 1], route[i])
+			var sec := 1
+			while sec * RUSH_SPEED <= total and used < 40:
+				var p := _along(route, sec * RUSH_SPEED)
+				var w := 0.22
+				for v in [p + Vector3(-w, 0.13, -w), p + Vector3(w, 0.13, -w), p + Vector3(w, 0.13, w),
+						p + Vector3(-w, 0.13, -w), p + Vector3(w, 0.13, w), p + Vector3(-w, 0.13, w)]:
+					_v(Color(1, 1, 1, 0.95), v)
+				if used >= _time_labels.size():
+					var l := Label3D.new()
+					l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+					l.no_depth_test = true
+					l.font_size = 60
+					l.pixel_size = 0.0005
+					l.fixed_size = true
+					l.outline_size = 12
+					world.add_child(l)
+					_time_labels.append(l)
+				var tl: Label3D = _time_labels[used]
+				tl.text = "%d" % sec
+				tl.position = p + Vector3(0, 0.6, 0)
+				tl.visible = not (_cut_cam != null and _cut_cam.current)
+				used += 1
+				sec += 1
+	for i in range(used, _time_labels.size()):
+		(_time_labels[i] as Label3D).visible = false
+
+## 第 3 關：瞄準某人的紅線時，標出「他踩到的那一刻，其他人在哪」（白圈＋名字）
+func _draw_timing_ghosts(im: ImmediateMesh) -> void:
+	if _ghost_label == null:
+		_ghost_label = Label3D.new()
+		_ghost_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_ghost_label.no_depth_test = true
+		_ghost_label.font_size = 64
+		_ghost_label.pixel_size = 0.0005
+		_ghost_label.fixed_size = true
+		_ghost_label.outline_size = 12
+		_ghost_label.modulate = Color(0.8, 0.95, 1.0)
+		world.add_child(_ghost_label)
+	_ghost_label.visible = false
+	var aiming: bool = show_timing and phase == Phase.PREPARE and aim_point != null and aim_error == "" \
+		and not items.is_empty() and items[selected].id == "banana" and charges[selected] != 0
+	if not aiming:
+		return
+	var p: Vector3 = aim_point
+	for f in enemies:
+		if f.data.get("guard", false):
+			continue
+		var route := planned_route(f)
+		var walked := 0.0
+		for i in range(1, route.size()):
+			var a: Vector3 = route[i - 1]
+			var b: Vector3 = route[i]
+			var ab := Vector2(b.x - a.x, b.z - a.z)
+			var l := ab.length()
+			if l < 0.01:
+				continue
+			var t := clampf(Vector2(p.x - a.x, p.z - a.z).dot(ab) / (l * l), 0.0, 1.0)
+			if flat_dist(a.lerp(b, t), p) <= ON_ROUTE:
+				var t_hit := (walked + l * t) / RUSH_SPEED
+				var names: PackedStringArray = []
+				for o in enemies:
+					if o == f or o.data.get("guard", false):
+						continue
+					var oq := _along(planned_route(o), t_hit * RUSH_SPEED)
+					var pts: Array = []
+					for k in 25:
+						var ang := k * TAU / 24.0
+						pts.append(ground(oq + Vector3(cos(ang), 0, sin(ang)) * 0.7))
+					_dashes(im, pts, Color(0.8, 0.95, 1.0, 0.95), 0.07)
+					names.append(o.name)
+					_ghost_label.position = oq + Vector3(0, 1.6, 0)
+				if not names.is_empty():
+					_ghost_label.text = "%s踩到時（%.1f 秒）\n%s在這" % [f.name, t_hit, "、".join(names)]
+					_ghost_label.visible = true
+				return
+			walked += l
+
+## 改追的新紅線起點：寫「撞停爬起來，改追這裡」
+func _reroute_tag(at: Vector3) -> void:
+	if _reroute_label == null:
+		_reroute_label = Label3D.new()
+		_reroute_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_reroute_label.no_depth_test = true
+		_reroute_label.font_size = 56
+		_reroute_label.pixel_size = 0.0005
+		_reroute_label.fixed_size = true
+		_reroute_label.outline_size = 14
+		_reroute_label.modulate = Color(1.0, 0.65, 0.75)
+		_reroute_label.text = "撞停→爬起來→改走粉紅線"
+		world.add_child(_reroute_label)
+	_reroute_used = true
+	_reroute_label.position = at + Vector3(0, 1.4, 0)
+	_reroute_label.visible = phase == Phase.PREPARE and not (_cut_cam != null and _cut_cam.current)

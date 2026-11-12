@@ -11,6 +11,7 @@ const DESC := "冰雪對雞友善，對人類不友善：雞不滑、人會滑�
 const STAGES := [
 	{"title": "【實驗C】救企鵝 1", "desc": "香蕉皮丟在紅線的哪一段，工人就往那一段的方向滑。", "scene": "stage_9/stage.tscn"},
 	{"title": "【實驗C】救企鵝 2", "desc": "守衛站著不動：把另一個工人撞過去。", "scene": "stage_10/stage.tscn"},
+	{"title": "【實驗C】救企鵝 3", "desc": "一片香蕉皮、兩個人：抓準時機，讓他們撞在一起。", "scene": "stage_11/stage.tscn"},
 	{"title": "【實驗A】冰上撞球", "desc": "家豪是球桿、工人是球、冰洞是球袋。等破綻，從對的方向啄。", "scene": "stage_5/stage.tscn"},
 	{"title": "【實驗A】連環撞", "desc": "被啄飛的工人會把別人一起撞出去。", "scene": "stage_6/stage.tscn"},
 	{"title": "【實驗B】冰湖＋倒帶", "desc": "原本的冰湖，多了「Q 倒帶 3 秒」。", "scene": "stage_7/stage.tscn"},

@@ -16,6 +16,7 @@ var _penguins: Array = []      # {node, home, out, t0}
 var _freed := false
 var _free_target := Vector3.ZERO
 var _free_t := 0.0             # 開籠之後過了幾秒（遊戲時間，由戰局每一步推進）
+var _spots := {}
 var _free_cam := Vector3.ZERO  # 過關鏡頭的位置：企鵝只站在家豪背後（不擋鏡頭），臉朝鏡頭
 
 func _build_extra() -> void:
@@ -66,6 +67,7 @@ func open_cage(target: Vector3, cam := Vector3.ZERO) -> void:
 	_free_target = target
 	_free_cam = cam
 	_free_t = 0.0
+	_pick_spots()
 	for b in _front_bars:
 		(b as Node3D).visible = false
 	_cage_label.text = "謝謝家豪！"
@@ -108,7 +110,7 @@ func _process(_dt: float) -> void:
 		away.y = 0.0
 		away = away.normalized() if away.length() > 0.1 else Vector3.FORWARD
 		var lateral := away.cross(Vector3.UP)
-		var spot_w: Vector3 = _free_target + away * 0.6 + lateral * [-1.4, 1.4, -2.6][k]
+		var spot_w: Vector3 = _spots.get(k, _free_target + lateral * 1.5)
 		var around: Vector3 = _cage_root.to_local(spot_w)
 		var hop := maxf(sin(_free_t * 7.0 - k * 1.3), 0.0) * 0.35
 		if t < 0.45:
@@ -120,6 +122,42 @@ func _process(_dt: float) -> void:
 			# 臉朝鏡頭
 			var to_cam := _cage_root.to_local(_free_cam) - n.position
 			n.rotation.y = atan2(to_cam.x, to_cam.z)
-		if k == 0 and t >= 0.45:
-			# 「謝謝家豪！」變成中間那隻企鵝說的
-			_cage_label.position = _cage_root.to_global(n.position) + Vector3(0, 1.6, 0)
+		if k == 0:
+			# 「謝謝家豪！」是左邊那隻企鵝說的：跑到定位才開口，字貼在牠頭上
+			_cage_label.text = "謝謝家豪！" if t >= 1.1 else ""
+			_cage_label.position = _cage_root.to_global(n.position) + Vector3(0, 2.0, 0)
+
+## 企鵝的站位（開籠時算一次）：雪地上、不在籠子裡、不擋鏡頭、彼此隔開；越靠家豪兩旁越好
+func _pick_spots() -> void:
+	_spots.clear()
+	var away := _free_target - _free_cam
+	away.y = 0.0
+	away = away.normalized() if away.length() > 0.1 else Vector3.FORWARD
+	var lateral := away.cross(Vector3.UP)
+	var cands: Array = []
+	for r in [1.5, 2.2, 2.9]:
+		for i in 18:
+			var a := i * TAU / 18.0
+			var d := Vector3(cos(a), 0, sin(a))
+			var q: Vector3 = _free_target + d * float(r)
+			if on_ice(q.x, q.z) or in_water(q.x, q.z):
+				continue
+			if Vector2(q.x - cage.x, q.z - cage.z).length() < 2.6:
+				continue
+			if d.dot(away) < -0.35:
+				continue   # 太靠鏡頭
+			cands.append({"p": q, "score": absf(d.dot(lateral)) * 2.0 + d.dot(away) * 0.5 - r * 0.6})
+	cands.sort_custom(func(x, y): return x.score > y.score)
+	for c in cands:
+		if _spots.size() >= 3:
+			break
+		var ok := true
+		for k in _spots:
+			if Vector2(c.p.x - _spots[k].x, c.p.z - _spots[k].z).length() < 1.2:
+				ok = false
+		if ok:
+			_spots[_spots.size()] = c.p
+	var k2 := _spots.size()
+	while k2 < 3:
+		_spots[k2] = _free_target + lateral * (1.5 + k2)
+		k2 += 1
