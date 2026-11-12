@@ -31,6 +31,10 @@
 - 不要用 `class_name`（四個人的類別名稱會撞在一起）。要用別的腳本就 `const X := preload("res://...")`。
 - 不要新增 autoload、不要改 Input Map、不要改 `project.godot` 的任何設定。需要的按鍵在自己的腳本裡用 `InputMap.add_action()` 加（先檢查 `has_action`）。
 - 戰局邏輯要可重演：放在 `_level_step()` 這類每 1/60 秒的函式裡，不要用 `randf()` 這種每次不一樣的亂數（要亂數就用固定 seed 的 `RandomNumberGenerator`）。
+- 不要直接改 `Engine.time_scale`；慢動作用 `begin_slow_motion()` / `end_slow_motion()`。
+- 每一畫面都會跑的函式裡不要 `find_child()`、不要 `XxxMaterial.new()`；特效用 `puff()`、`fx_material()`、`fx_sphere()`。
+- 家豪的新行為用 `_tick_bird_custom()`、`_on_bird_ate()`、`_bird_pose_custom()`、`_on_primary_click()`，不要整個覆寫 `_tick_bird()`、`_bird_pose()`、`_unhandled_input()`。
+- 目標平台是網頁（Compatibility 渲染器）：不要依賴 SSAO、體積霧、SDFGI；一個小關的點光源不超過 4 盞、不開陰影。
 - 註解和畫面上的文字用繁體中文。
 - 路徑一律寫 `res://levels/<名字>/...` 的完整路徑。
 

@@ -29,6 +29,29 @@ var _heights := PackedFloat32Array()
 var _n := 0
 var _cell := 0.0
 
+## 地形快取：算高度和組地形網格是進關卡時最花時間的兩步（幾乎全部的載入時間）。
+## 同一張地形在這次執行期間只算一次，之後再進同一關、或共用同一張地形的其他小關，直接拿來用。
+## 只留最近用到的幾張，免得一路玩下來越佔越多記憶體。
+const TERRAIN_CACHE_MAX := 4
+static var _terrain_cache := {}        # 快取鍵 → {heights, mesh, shape}
+static var _terrain_cache_order: Array[String] = []
+
+## 這張地形的快取鍵。預設是「場地腳本 + 種子」：同一個腳本生出來的地形一定一樣。
+## 好幾個小關共用同一張地形（高度和地面顏色都一樣）時，在各自的場地腳本覆寫成同一個字串，就只會生成一次。
+## 地形會依執行當下的東西改變（例如讀存檔決定地形）時，回傳空字串關掉快取。
+func _terrain_cache_key() -> String:
+	var sc := get_script() as Script
+	if sc == null or sc.resource_path == "":
+		return ""
+	return "%s#%d" % [sc.resource_path, world_seed]
+
+static func _terrain_cache_put(key: String, entry: Dictionary) -> void:
+	_terrain_cache[key] = entry
+	_terrain_cache_order.erase(key)
+	_terrain_cache_order.append(key)
+	while _terrain_cache_order.size() > TERRAIN_CACHE_MAX:
+		_terrain_cache.erase(_terrain_cache_order.pop_front())
+
 var _rock_material: ShaderMaterial
 var _far_rock_material: ShaderMaterial
 var _shrub_material: ShaderMaterial
@@ -150,6 +173,10 @@ func _make_materials() -> void:
 func _build_heights() -> void:
 	_n = TERRAIN_RES + 1
 	_cell = TERRAIN_SIZE / TERRAIN_RES
+	var cached: Variant = _terrain_cache.get(_terrain_cache_key())
+	if cached != null:
+		_heights = cached.heights
+		return
 	_heights.resize(_n * _n)
 	for j in _n:
 		var z := -TERRAIN_SIZE * 0.5 + j * _cell
@@ -158,6 +185,12 @@ func _build_heights() -> void:
 			_heights[j * _n + i] = _raw_height(x, z)
 
 func _build_terrain() -> void:
+	var key := _terrain_cache_key()
+	var cached: Variant = _terrain_cache.get(key)
+	if cached != null:
+		_terrain_cache_put(key, cached)   # 剛用過，排到最後面
+		_add_terrain(cached.mesh, cached.shape)
+		return
 	var verts := PackedVector3Array()
 	var normals := PackedVector3Array()
 	var colors := PackedColorArray()
@@ -182,13 +215,19 @@ func _build_terrain() -> void:
 
 			colors[k] = _terrain_weights(x, z, nrm)
 
+	indices.resize((_n - 1) * (_n - 1) * 6)
+	var w := 0
 	for j in _n - 1:
 		for i in _n - 1:
 			var a := j * _n + i
-			var b := a + 1
 			var c := a + _n
-			var d := c + 1
-			indices.append_array([a, b, c, b, d, c])
+			indices[w] = a
+			indices[w + 1] = a + 1
+			indices[w + 2] = c
+			indices[w + 3] = a + 1
+			indices[w + 4] = c + 1
+			indices[w + 5] = c
+			w += 6
 
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
@@ -198,7 +237,13 @@ func _build_terrain() -> void:
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	var shape := mesh.create_trimesh_shape()
+	if key != "":
+		_terrain_cache_put(key, {"heights": _heights, "mesh": mesh, "shape": shape})
+	_add_terrain(mesh, shape)
 
+## 把地形網格和碰撞放進場景（材質每次重新設定，因為各關的地面顏色可以不同）
+func _add_terrain(mesh: ArrayMesh, shape: Shape3D) -> void:
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/terrain.gdshader")
 	mat.set_shader_parameter("detail_tex", load(TEX + "gravelly_sand_diff_1k.jpg"))
@@ -213,7 +258,7 @@ func _build_terrain() -> void:
 	var body := StaticBody3D.new()
 	body.name = "TerrainCollision"
 	var cs := CollisionShape3D.new()
-	cs.shape = mesh.create_trimesh_shape()
+	cs.shape = shape
 	body.add_child(cs)
 	_layout.add_child(body)
 
