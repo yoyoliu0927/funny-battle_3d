@@ -31,6 +31,12 @@ const FAST_SCALE := 3.0
 var time_limit := 90.0
 ## 人會不會想繞開看得到的冰洞（路線版設成 false：人只盯著路線走）
 var avoid_holes := true
+## 人走路時在冰上會不會滑（實驗玩法可以關掉，改用自己的滑行規則）
+var walk_slides := true
+## 瞄準飼料時要不要標「誰追過來可能掉進冰洞」（這個預告只看直線，不準；實驗玩法關掉）
+var feed_hazard_marks := true
+## 倒帶重播中：不出聲、不跳字、不慢動作
+var silent := false
 var _warned_dark := false
 var _players := {}
 var _labels: Array = []        # 會自己消失的字 {node, until, start, follow, dy}
@@ -160,7 +166,7 @@ func _tick_enemy(f: Fighter, dt: float) -> void:
 	want.y = 0.0
 	if _avoids_holes(f):
 		want = _steer_around_holes(before, want)
-	var on_ice: bool = world.on_ice(before.x, before.z)
+	var on_ice: bool = walk_slides and world.on_ice(before.x, before.z)
 	var vel: Vector3 = f.data.get("vel", Vector3.ZERO)
 	vel = vel.lerp(want, 1.0 - exp(-(ICE_GRIP if on_ice else SNOW_GRIP) * dt))
 	if vel.length() > MAX_SLIDE:
@@ -217,8 +223,9 @@ func fall_in(f: Fighter) -> void:
 	toast("撲通！　落水 %d / %d" % [_fallen, enemies.size()], 1.6)
 	log_event("%s掉進冰洞，凍成冰棒了" % f.name)
 	sfx("splash")
-	_slowmo_until = Time.get_ticks_msec() + SLOWMO_MS
-	_shake_until = Time.get_ticks_msec() + 450
+	if not silent:
+		_slowmo_until = Time.get_ticks_msec() + SLOWMO_MS
+		_shake_until = Time.get_ticks_msec() + 450
 
 func _tick_sunk(f: Fighter, dt: float) -> void:
 	f.data.sink_t = f.data.sink_t + dt
@@ -313,7 +320,7 @@ func _update_feed_preview() -> void:
 				im.surface_set_color(Color(1.0, 0.85, 0.3, 0.6))
 				im.surface_add_vertex(v)
 		im.surface_end()
-		if aim_error == "":
+		if aim_error == "" and feed_hazard_marks:
 			if flat_dist(bird.pos, aim_point) > FEED_SENSE:
 				marks.append([aim_point, "家豪現在聞不到", Color(0.85, 0.85, 0.85)])
 			else:
@@ -361,12 +368,16 @@ func bird_near(p: Vector3, r: float) -> bool:
 	return bird.alive() and bird.air < 0.5 and flat_dist(bird.pos, p) <= r
 
 func sfx(name: String) -> void:
+	if silent:
+		return
 	var p: AudioStreamPlayer = _players.get(name)
 	if p:
 		p.play()
 
 ## 在空中跳出一行字（follow = 跟著某個角色）
 func pop_label(text: String, pos: Vector3, color: Color, ms: int, follow: Fighter = null) -> void:
+	if silent:
+		return
 	var l := Label3D.new()
 	l.text = text
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
