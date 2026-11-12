@@ -9,6 +9,8 @@ const ORDER := 10           # 地圖上的順序（小的排前面）
 const DESC := "冰雪對雞友善，對人類不友善：雞不滑、人會滑，雞不破、人會破。"
 ## 小關（3~6 個）。scene 寫相對於這個資料夾的路徑
 const STAGES := [
+	{"title": "【實驗C】救企鵝 1", "desc": "家豪會自己走去籠子，工人會來攔他。用香蕉皮讓工人滑走。", "scene": "stage_9/stage.tscn"},
+	{"title": "【實驗C】救企鵝 2", "desc": "兩個工人、兩個冰洞、一塊薄冰。", "scene": "stage_10/stage.tscn"},
 	{"title": "【實驗A】冰上撞球", "desc": "家豪是球桿、工人是球、冰洞是球袋。等破綻，從對的方向啄。", "scene": "stage_5/stage.tscn"},
 	{"title": "【實驗A】連環撞", "desc": "被啄飛的工人會把別人一起撞出去。", "scene": "stage_6/stage.tscn"},
 	{"title": "【實驗B】冰湖＋倒帶", "desc": "原本的冰湖，多了「Q 倒帶 3 秒」。", "scene": "stage_7/stage.tscn"},

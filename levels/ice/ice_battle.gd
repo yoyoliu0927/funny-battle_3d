@@ -35,6 +35,8 @@ var avoid_holes := true
 var walk_slides := true
 ## 瞄準飼料時要不要標「誰追過來可能掉進冰洞」（這個預告只看直線，不準；實驗玩法關掉）
 var feed_hazard_marks := true
+## 人走路時會不會也繞開看得到的薄冰（救企鵝模式打開：走路繞得開，滑出去就停不下來）
+var avoid_thin := false
 ## 倒帶重播中：不出聲、不跳字、不慢動作
 var silent := false
 var _warned_dark := false
@@ -206,6 +208,8 @@ func _hole_ahead(from: Vector3, dir: Vector3) -> bool:
 	for d in AVOID_LOOK:
 		var p: Vector3 = from + dir * d
 		if world.in_water(p.x, p.z):
+			return true
+		if avoid_thin and world.thin_at(p.x, p.z, -0.2) >= 0:
 			return true
 	return false
 

@@ -158,6 +158,10 @@ func start_slide(f: Fighter, dir: Vector3) -> void:
 	anim(f, "HitRecieve", 0.6)
 	sfx("yell")
 
+## 連環撞發生時（關卡可以覆寫，例如整人清單打勾）
+func _on_carom(_a: Fighter, _b: Fighter) -> void:
+	pass
+
 func _stop_slide(f: Fighter, msg: String) -> void:
 	if f.hp <= 0.0:
 		knock_out(f, "%s的心掉光了，倒下" % f.name)
@@ -208,6 +212,7 @@ func _tick_slide(f: Fighter, dt: float) -> void:
 		"hit":
 			var o: Fighter = r.other
 			log_event("%s撞到%s，連環撞！" % [f.name, o.name])
+			_on_carom(f, o)
 			pop_label("連環撞！", o.pos + Vector3(0, 3.2, 0), Color(1, 0.85, 0.2), 900, o)
 			start_slide(o, f.data.sdir)
 			o.data.hit_by = f
@@ -243,10 +248,10 @@ func slide_step(f: Fighter, pos: Vector3, dir: Vector3, snow: float, dt: float, 
 	return {"kind": "move", "pos": ground(nxt), "snow": snow}
 
 ## 預告：f 被從 dir 方向啄飛，會滑到哪裡（含連環撞）。回傳 [{pts, end, text, color}]
-func predict_slide(f: Fighter, dir: Vector3) -> Array:
+func predict_slide(f: Fighter, dir: Vector3, start = null) -> Array:
 	var out: Array = []
 	var who: Fighter = f
-	var pos: Vector3 = f.pos
+	var pos: Vector3 = f.pos if start == null else start
 	var snow := 0.0
 	var moved: Array = [f]
 	for chain in 3:
