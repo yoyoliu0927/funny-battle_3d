@@ -39,13 +39,16 @@ func _ensure_actions() -> void:
 			InputMap.action_add_event(action, ev)
 
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseMotion and looking:
+	# 瀏覽器裡游標鎖定可能被瀏覽器自己解除（按 Esc），或一開始還沒點過畫面所以鎖不起來，
+	# 這時 looking 還是 true 但其實沒鎖住。所以一律以實際的滑鼠模式為準
+	var locked := looking and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED
+	if event is InputEventMouseMotion and locked:
 		rotate_y(-event.relative.x * mouse_sensitivity)
 		var lim := deg_to_rad(pitch_limit_deg)
 		head.rotation.x = clampf(head.rotation.x - event.relative.y * mouse_sensitivity, -lim, lim)
 	elif event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
 		_set_looking(false)
-	elif event is InputEventMouseButton and event.pressed and not looking and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE]:
+	elif event is InputEventMouseButton and event.pressed and not locked and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE]:
 		# 游標被放開時，點一下視窗就回到視角操作（這一下不當作點擊）
 		_set_looking(true)
 		get_viewport().set_input_as_handled()

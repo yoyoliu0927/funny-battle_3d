@@ -92,6 +92,12 @@ var _path_cache_at := Vector3(INF, INF, INF)
 var _path_cache := PackedVector3Array()
 var _path_cache_item := -1
 var _acc := 0.0
+var interpolate_visuals := true  # 角色的畫面位置在兩步之間補間（慢動作、高更新率螢幕才不會一格一格跳）；關卡自己擺角色節點時可以關掉
+var _vis_prev := {}            # 每個角色上一步的畫面位置與朝向 {Fighter: [Vector3, yaw]}
+var _cone_key := {}            # 每個敵人的偵測扇形上次是照什麼畫的（沒變就不重畫）
+var _fx_mats := {}             # 特效共用的材質（依顏色）
+var _fx_spheres := {}          # 特效共用的球（依半徑）
+var _slow_owner: Variant = null  # 現在是誰在用慢動作（見 begin_slow_motion）
 var _pan_acc := 0.0
 var _pan_ms := -100000
 
@@ -176,6 +182,24 @@ func _check_end() -> String:
 ## 每個敵人每 1/60 秒的行為。自訂 kind 的敵人在這裡處理，其他交給一般近戰 AI
 func _tick_enemy(f: Fighter, dt: float) -> void:
 	_tick_melee(f, dt)
+
+## 家豪的自訂狀態（例如卡在砲管裡、爬梯子）：把 bird.state 設成自己取的名字，每一步引擎會先問這裡。
+## 回傳 true 代表這一步你處理完了，引擎就不跑內建的家豪 AI（也不會套用擊退）。
+func _tick_bird_custom(_dt: float) -> bool:
+	return false
+
+## 家豪吃完一把飼料的那一步呼叫（p = 那把飼料的位置）。
+## 回傳 true 代表關卡接手了（例如改成自訂狀態），引擎就不讓他進入「東張西望」。
+func _on_bird_ate(_p: Vector3) -> bool:
+	return false
+
+## 內建的姿勢擺好之後呼叫：自訂狀態的姿勢寫在這裡，直接改 bird.body 的 rotation / scale、bird.wings
+func _bird_pose_custom() -> void:
+	pass
+
+## 玩家按下滑鼠左鍵。回傳 true 代表關卡自己用掉這一下（例如發射大砲），引擎就不施放道具
+func _on_primary_click() -> bool:
+	return false
 
 ## 巨石滾動中每一步都會問一次：撞到關卡的機關就處理，回傳 true 讓巨石停下
 func _on_rock_rolling(_rock: Dictionary, _pos: Vector3, _speed: float) -> bool:
@@ -399,7 +423,10 @@ func reset() -> void:
 	for it in items:
 		it.reset(self)
 	_step_start.clear()
+	_vis_prev.clear()
+	_cone_key.clear()
 	_fx_timed.clear()
+	_force_end_slow_motion()
 	for f in all_fighters():
 		f.hp = f.max_hp
 		f.chip = 1.0
@@ -507,7 +534,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			_wheel_step(-1 if event.button_index == MOUSE_BUTTON_WHEEL_UP else 1)
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseButton and event.pressed and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
-		if event.button_index == MOUSE_BUTTON_LEFT:
+		if event.button_index == MOUSE_BUTTON_LEFT and not _on_primary_click():
 			try_cast()
 	elif event is InputEventPanGesture:
 		# Mac 觸控板兩指上下滑：累積到一定距離才換一格，避免一滑就跳好幾格
@@ -642,6 +669,8 @@ func _physics_process(delta: float) -> void:
 	_apply_visuals()
 
 func _step(dt: float) -> void:
+	for f in all_fighters():
+		_vis_prev[f] = [f.pos + Vector3(0, f.air, 0), f.yaw]
 	if phase == Phase.RUNNING:
 		time += dt
 		for f in all_fighters():
@@ -697,6 +726,7 @@ func _process(dt: float) -> void:
 			_show_defeat()
 	if phase == Phase.RUNNING:
 		_update_phase_label()
+	_interpolate_visuals()
 	_update_bars(dt)
 	for f in enemies:
 		_draw_cone(f)
@@ -709,6 +739,84 @@ func _process(dt: float) -> void:
 		if face.dead != (not f.alive()):
 			face.dead = not f.alive()
 			face.queue_redraw()
+
+## 戰局固定每 1/60 秒算一步，但畫面不一定剛好每 1/60 秒畫一張（慢動作時好幾張才算一步，
+## 高更新率螢幕則是一步畫好幾張）。這裡把角色畫在「上一步」和「這一步」之間，動作才連續。
+## 只改節點的位置和朝向，不碰戰局的資料，所以結果不受影響。
+func _interpolate_visuals() -> void:
+	if not interpolate_visuals or phase == Phase.PREPARE:
+		return
+	var a := clampf(_acc / SIM_DT, 0.0, 1.0)
+	for f in all_fighters():
+		var prev: Variant = _vis_prev.get(f)
+		if prev == null:
+			continue
+		var cur: Vector3 = f.pos + Vector3(0, f.air, 0)
+		var from: Vector3 = prev[0]
+		if from.distance_squared_to(cur) > 9.0:
+			continue   # 一步移動超過 3 公尺 = 瞬間移動，不補間
+		f.node.global_position = from.lerp(cur, a)
+		f.node.rotation.y = lerp_angle(prev[1], f.yaw, a)
+
+## 慢動作：關卡要放慢時間請用這一組，不要直接改 Engine.time_scale
+## （那是全域的，別的關卡、特寫鏡頭、共用介面同時改會互相蓋掉，忘了改回來整個遊戲就一直慢下去）。
+## who = 誰在用（通常傳 self）；已經有別人在用時回傳 false。重試、結束戰局、離開關卡時會自動恢復。
+func begin_slow_motion(scale: float, who: Variant = null) -> bool:
+	var by: Variant = who if who != null else self
+	if _slow_owner != null and not is_same(_slow_owner, by):
+		return false
+	_slow_owner = by
+	Engine.time_scale = clampf(scale, 0.05, 1.0)
+	return true
+
+## 同一個人可以在慢動作期間一直呼叫 begin_slow_motion 換倍率；用完呼叫這個恢復正常速度
+func end_slow_motion(who: Variant = null) -> void:
+	if _slow_owner == null:
+		return
+	var by: Variant = who if who != null else self
+	if not is_same(_slow_owner, by):
+		return
+	_force_end_slow_motion()
+
+func _force_end_slow_motion() -> void:
+	if _slow_owner != null:
+		_slow_owner = null
+		Engine.time_scale = 1.0
+
+func _exit_tree() -> void:
+	_force_end_slow_motion()
+
+## 特效共用的材質：不受光、半透明、同一個顏色只做一份（不要每放一次特效就 new 一份）
+func fx_material(color: Color) -> StandardMaterial3D:
+	if not _fx_mats.has(color):
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.albedo_color = color
+		_fx_mats[color] = m
+	return _fx_mats[color]
+
+## 特效共用的球：同一個半徑只做一份
+func fx_sphere(radius: float) -> SphereMesh:
+	if not _fx_spheres.has(radius):
+		var sm := SphereMesh.new()
+		sm.radius = radius
+		sm.height = radius * 2.0
+		_fx_spheres[radius] = sm
+	return _fx_spheres[radius]
+
+## 一團煙／塵土／水花：n 顆半徑 r 的球圍成一圈，往上飄、變大、自己消失
+func puff(p: Vector3, color: Color, n := 6, r := 0.35, life := 0.8) -> void:
+	var m := fx_material(color)
+	var sm := fx_sphere(r)
+	for k in n:
+		var a := k * TAU / n
+		var mi := MeshInstance3D.new()
+		mi.mesh = sm
+		mi.material_override = m
+		fx_root.add_child(mi)
+		mi.global_position = p + Vector3(cos(a) * r * 1.7, 0.2, sin(a) * r * 1.7)
+		spawn_timed(mi, life, "dust")
 
 ## 會自己消失的特效（灰塵、水花、子彈軌跡）
 func spawn_timed(node: Node3D, life: float, kind := "") -> void:
@@ -899,26 +1007,12 @@ func make_slip(f: Fighter, what := "香蕉皮") -> void:
 	toast("滑倒了！", 1.2)
 
 func spawn_splash(p: Vector3) -> void:
-	var m := StandardMaterial3D.new()
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.albedo_color = Color(0.85, 0.95, 1.0, 0.7)
 	var wy: float = world.get("water_y") if world.get("water_y") != null else p.y
-	for k in 6:
-		var a := k * TAU / 6.0
-		var mi := MeshInstance3D.new()
-		var sm := SphereMesh.new()
-		sm.radius = 0.35
-		sm.height = 0.7
-		mi.mesh = sm
-		mi.material_override = m
-		fx_root.add_child(mi)
-		mi.global_position = Vector3(p.x + cos(a) * 0.6, wy + 0.2, p.z + sin(a) * 0.6)
-		spawn_timed(mi, 0.9, "dust")
+	puff(Vector3(p.x, wy, p.z), Color(0.85, 0.95, 1.0, 0.7), 6, 0.35, 0.9)
 
 func _make_cone() -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
-	mi.mesh = ImmediateMesh.new()
+	mi.mesh = ArrayMesh.new()
 	var m := StandardMaterial3D.new()
 	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
@@ -927,62 +1021,93 @@ func _make_cone() -> MeshInstance3D:
 	m.render_priority = 1
 	mi.material_override = m
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.visible = false
 	world.add_child(mi)
 	return mi
 
-## 把偵測區畫成貼著地面的紅色扇形
+const CONE_SEGS := 20
+const CONE_RINGS := 8
+
+## 把偵測區畫成貼著地面的紅色扇形。
+## 每個敵人每一畫面都會問一次，所以：位置、朝向、範圍都沒變就不重畫；要重畫時一次把頂點交給引擎。
 func _draw_cone(f: Fighter) -> void:
 	if f.cone == null:
 		return
-	var im := f.cone.mesh as ImmediateMesh
-	im.clear_surfaces()
 	var show := f.alive() and not f.aggro and phase != Phase.ENDED
-	f.cone.visible = show
 	if not show:
+		if f.cone.visible:
+			f.cone.visible = false
+			(f.cone.mesh as ArrayMesh).clear_surfaces()
+			_cone_key.erase(f)
 		return
-	var segs := 20
-	var rings := 8
-	var pts := []
+	# 上次畫完之後幾乎沒動（不到 4 公分、不到 1 度）就沿用，站著不動的敵人完全不用重畫
+	var last: Variant = _cone_key.get(f)
+	if f.cone.visible and last != null and f.pos.distance_squared_to(last[0]) < 0.0016 			and absf(angle_difference(f.yaw, last[1])) < 0.015 and last[2] == f.vision_range and last[3] == f.vision_half:
+		return
+	_cone_key[f] = [f.pos, f.yaw, f.vision_range, f.vision_half]
+	f.cone.visible = true
+	var segs := CONE_SEGS
+	var rings := CONE_RINGS
+	var row_n := segs + 1
+	var verts := PackedVector3Array()
+	var cols := PackedColorArray()
+	var idx := PackedInt32Array()
+	verts.resize((rings + 1) * row_n)
+	cols.resize((rings + 1) * row_n)
+	# 扇面：一圈一圈往外，越外圈越淡
 	for r in rings + 1:
-		var row := []
 		var rad := f.vision_range * float(r) / rings
-		for k in segs + 1:
+		var col := Color(1.0, 0.1, 0.08, 0.5 - 0.03 * r)
+		for k in row_n:
 			var a := f.yaw - f.vision_half + 2.0 * f.vision_half * float(k) / segs
 			var x := f.pos.x + sin(a) * rad
 			var z := f.pos.z + cos(a) * rad
-			row.append(Vector3(x, world.height_at(x, z) + 0.15, z))
-		pts.append(row)
-	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+			var i := r * row_n + k
+			verts[i] = Vector3(x, world.height_at(x, z) + 0.15, z)
+			cols[i] = col
+	idx.resize(rings * segs * 6)
+	var w := 0
 	for r in rings:
-		var c0 := Color(1.0, 0.1, 0.08, 0.5 - 0.03 * r)
-		var c1 := Color(1.0, 0.1, 0.08, 0.5 - 0.03 * (r + 1))
 		for k in segs:
-			var a: Vector3 = pts[r][k]
-			var b: Vector3 = pts[r][k + 1]
-			var c: Vector3 = pts[r + 1][k]
-			var d: Vector3 = pts[r + 1][k + 1]
-			for v in [[a, c0], [c, c1], [d, c1], [a, c0], [d, c1], [b, c0]]:
-				im.surface_set_color(v[1])
-				im.surface_add_vertex(v[0])
-	im.surface_end()
+			var a := r * row_n + k
+			var c := a + row_n
+			idx[w] = a
+			idx[w + 1] = c
+			idx[w + 2] = c + 1
+			idx[w + 3] = a
+			idx[w + 4] = c + 1
+			idx[w + 5] = a + 1
+			w += 6
 	# 邊框：外緣弧線和兩條側邊，用細長條畫，遠看也清楚
-	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	var edge := Color(1.0, 0.2, 0.15, 0.95)
-	var border := []
+	var border := PackedVector3Array()
 	for r in rings + 1:
-		border.append(pts[r][0])
-	for k in range(1, segs + 1):
-		border.append(pts[rings][k])
+		border.append(verts[r * row_n])
+	for k in range(1, row_n):
+		border.append(verts[rings * row_n + k])
 	for r in range(rings - 1, -1, -1):
-		border.append(pts[r][segs])
+		border.append(verts[r * row_n + segs])
+	var up := Vector3(0, 0.02, 0)
 	for i in border.size() - 1:
-		var p0: Vector3 = border[i]
-		var p1: Vector3 = border[i + 1]
+		var p0 := border[i]
+		var p1 := border[i + 1]
 		var side := (p1 - p0).cross(Vector3.UP).normalized() * 0.07
-		for v in [p0 - side, p0 + side, p1 + side, p0 - side, p1 + side, p1 - side]:
-			im.surface_set_color(edge)
-			im.surface_add_vertex(v + Vector3(0, 0.02, 0))
-	im.surface_end()
+		var base := verts.size()
+		verts.append(p0 - side + up)
+		verts.append(p0 + side + up)
+		verts.append(p1 + side + up)
+		verts.append(p1 - side + up)
+		for q in 4:
+			cols.append(edge)
+		idx.append_array(PackedInt32Array([base, base + 1, base + 2, base, base + 2, base + 3]))
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_COLOR] = cols
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var am := f.cone.mesh as ArrayMesh
+	am.clear_surfaces()
+	am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 
 # ================================================================== 家豪（每關都一樣）
 
@@ -1012,6 +1137,8 @@ func _nearest_feed(from: Vector3, within: float) -> int:
 func _tick_bird(dt: float) -> void:
 	var b := bird
 	b.t += dt
+	if _tick_bird_custom(dt):
+		return
 	if b.state != "fly":
 		_apply_knockback(b, dt)
 	var tgt := nearest_enemy(b.pos)
@@ -1043,12 +1170,15 @@ func _tick_bird(dt: float) -> void:
 		"eat":
 			if b.t >= FEED_EAT_TIME:
 				var fi := _nearest_feed(b.pos, 0.8)
+				var ate_at := b.pos
 				if fi >= 0:
+					ate_at = feeds[fi].pos
 					(feeds[fi].node as Node3D).queue_free()
 					feeds.remove_at(fi)
 					b.hp = minf(b.hp + FEED_HEAL, b.max_hp)
 					log_event("家豪吃掉一把飼料（回到 %d）" % ceili(b.hp))
-				b.set_state("linger")
+				if not _on_bird_ate(ate_at):
+					b.set_state("linger")
 		"linger":
 			# 吃飽了在原地東張西望、啄啄地，過一會兒才想起來要打敵人
 			if b.t >= FEED_LINGER:
@@ -1528,6 +1658,7 @@ func _bird_pose() -> void:
 	for w in b.wings:
 		var sx := -1.0 if w.name == "WingL" else 1.0
 		w.rotation = Vector3(0, 0, sx * flap)
+	_bird_pose_custom()
 
 # ================================================================== HUD
 

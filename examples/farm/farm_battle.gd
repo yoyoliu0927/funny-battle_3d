@@ -40,6 +40,8 @@ var demo_i := 0
 var highlighted: Array = []    # 目前亮綠色的水塔索引
 var _green_mat: StandardMaterial3D
 var _napoleon_tex: Texture2D
+var _boss_arm: Node3D          # 老闆拿槍的手臂、身體：建好之後找一次存起來，不要每一畫面都在節點樹裡找
+var _boss_body: Node3D
 
 # 舊名字（自動測試在用）
 var rocks: Array:
@@ -74,6 +76,8 @@ func _level_setup() -> void:
 		if f.is_boss:
 			boss = f
 			f.gun = f.node.find_child("Gun", true, false)   # 胖商人模型自帶的槍
+			_boss_arm = f.node.find_child("ArmR", true, false) as Node3D
+			_boss_body = f.node.find_child("Body", true, false) as Node3D
 	for t in world.towers:
 		towers.append({"node": t.node, "pos": t.pos, "radius": t.radius, "height": t.height,
 			"state": "stand", "angle": 0.0, "omega": 0.0, "dir": Vector3.FORWARD, "crushed": false})
@@ -265,8 +269,8 @@ func _spawn_tracer(a: Vector3, b: Vector3) -> void:
 func _boss_pose() -> void:
 	if boss == null:
 		return
-	var arm := boss.node.find_child("ArmR", true, false) as Node3D
-	var body := boss.node.find_child("Body", true, false) as Node3D
+	var arm := _boss_arm
+	var body := _boss_body
 	if arm:
 		var want := 0.9
 		if boss.state == "aim":
