@@ -45,7 +45,8 @@ func _level_setup() -> void:
 		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		l.no_depth_test = true
 		l.font_size = 64
-		l.pixel_size = 0.008
+		l.pixel_size = 0.00062
+		l.fixed_size = true   # 固定在畫面上的大小，鏡頭拉近也不會變巨大
 		l.outline_size = 16
 		l.outline_modulate = Color(0, 0, 0, 0.85)
 		world.add_child(l)
@@ -66,7 +67,8 @@ func _level_setup() -> void:
 		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		l.no_depth_test = true
 		l.font_size = 64
-		l.pixel_size = 0.009
+		l.pixel_size = 0.00068
+		l.fixed_size = true   # 固定在畫面上的大小，鏡頭拉近也不會變巨大
 		l.outline_size = 18
 		l.outline_modulate = Color(0, 0, 0, 0.85)
 		l.visible = false

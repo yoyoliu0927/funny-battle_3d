@@ -21,7 +21,7 @@ const SNOW_GRIP := 14.0        # 人在雪地上的抓地力（幾乎馬上就�
 const MAX_SLIDE := 4.5         # 滑行速度上限
 const CRACK_TIME := 0.3        # 薄冰從裂開到破掉
 const SINK_TIME := 0.9
-const SINK_DEPTH := 2.05       # 掉進冰洞後沉多深（只剩頭露出來）
+const SINK_DEPTH := 1.55       # 掉進冰洞後沉多深（從水面算；頭和肩膀露在水面上）
 const AVOID_LOOK := [0.7, 1.4]   # 人往前看幾公尺有沒有冰洞
 const SLOWMO_SCALE := 0.25
 const SLOWMO_MS := 900
@@ -39,6 +39,9 @@ var feed_hazard_marks := true
 var avoid_thin := false
 ## 倒帶重播中：不出聲、不跳字、不慢動作
 var silent := false
+## 字和跳字用的時鐘：開打後跟著遊戲時間走，準備階段跟著真實時間走（慢動作、快轉、截圖都對得上）
+var _clock := 0.0
+var _toast_until := -1.0
 var _warned_dark := false
 var _players := {}
 var _labels: Array = []        # 會自己消失的字 {node, until, start, follow, dy}
@@ -84,7 +87,8 @@ func _level_setup() -> void:
 		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		l.no_depth_test = true
 		l.font_size = 72
-		l.pixel_size = 0.011
+		l.pixel_size = 0.00044
+		l.fixed_size = true   # 固定在畫面上的大小，鏡頭拉近也不會變巨大
 		l.outline_size = 22
 		l.outline_modulate = Color(0.1, 0.05, 0.05, 0.9)
 		l.visible = false
@@ -125,7 +129,7 @@ func _lose_line(left: int) -> String:
 	return super(left)
 
 func _defeat_title() -> String:
-	return "家豪被做成雞肉冰棒了……"
+	return "家豪被抓去當晚餐了……"
 
 func _defeat_tip() -> String:
 	return "提示：人在冰上轉不了彎。讓家豪在冰洞旁邊急轉彎，追過來的人就會滑進去。"
@@ -215,6 +219,9 @@ func _hole_ahead(from: Vector3, dir: Vector3) -> bool:
 
 ## 掉進冰洞：沉下去只剩頭，出局（慢動作、震動、撲通）
 func fall_in(f: Fighter) -> void:
+	# 冰洞底下的地形是挖下去的：從水面高度開始沉，頭才會留在水面上
+	if world.has_method("water_surface_y"):
+		f.pos.y = world.water_surface_y(f.pos.x, f.pos.z)
 	f.hp = 0.0
 	f.set_state("dead")
 	f.kb_vel = Vector3.ZERO
@@ -238,7 +245,24 @@ func _tick_sunk(f: Fighter, dt: float) -> void:
 
 # ---------------------------------------------------------------- 薄冰、慘叫
 
+## 字卡：同一時間只有一則，時間到就消失（用遊戲時鐘）
+func toast(text: String, dur: float) -> void:
+	super(text, dur)
+	_toast_until = _clock + dur if text != "" else -1.0
+
+func _tick_clock(dt: float) -> void:
+	_clock += dt
+	if _toast_until >= 0.0 and _clock >= _toast_until:
+		_toast_until = -1.0
+		if _toast_label:
+			_toast_label.text = ""
+
+func _level_step_ended(dt: float) -> void:
+	super(dt)
+	_tick_clock(dt)
+
 func _level_step(dt: float) -> void:
+	_tick_clock(dt)
 	for i in world.thin.size():
 		var th: Dictionary = world.thin[i]
 		match th.state:
@@ -282,6 +306,8 @@ func _level_visuals() -> void:
 
 func _process(dt: float) -> void:
 	super(dt)
+	if phase == Phase.PREPARE:
+		_tick_clock(dt)
 	var now := Time.get_ticks_msec()
 	var scale := 1.0
 	if phase == Phase.RUNNING and Input.is_physical_key_pressed(KEY_F):
@@ -387,25 +413,25 @@ func pop_label(text: String, pos: Vector3, color: Color, ms: int, follow: Fighte
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	l.no_depth_test = true
 	l.font_size = 72
-	l.pixel_size = 0.007
+	l.pixel_size = 0.00055
+	l.fixed_size = true   # 固定在畫面上的大小，鏡頭拉近也不會變巨大
 	l.outline_size = 16
 	l.modulate = color
 	l.position = pos
 	fx_root.add_child(l)
-	var now := Time.get_ticks_msec()
-	_labels.append({"node": l, "until": now + ms, "start": now, "follow": follow,
+	_labels.append({"node": l, "until": _clock + ms / 1000.0, "start": _clock, "follow": follow,
 		"dy": pos.y - (follow.pos.y if follow else pos.y)})
 
-func _update_labels(now: int) -> void:
+func _update_labels(_now: int) -> void:
 	for i in range(_labels.size() - 1, -1, -1):
 		var e: Dictionary = _labels[i]
 		var l = e.node
-		if not is_instance_valid(l) or now >= int(e.until):
+		if not is_instance_valid(l) or _clock >= float(e.until):
 			if is_instance_valid(l):
 				l.queue_free()
 			_labels.remove_at(i)
 			continue
-		var rise := float(now - int(e.start)) / 1000.0 * 0.5
+		var rise := (_clock - float(e.start)) * 0.5
 		if e.follow:
 			var f: Fighter = e.follow
 			l.position = f.pos + Vector3(0, float(e.dy) + f.air + rise, 0)

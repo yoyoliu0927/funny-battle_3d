@@ -14,6 +14,7 @@ static func make_all() -> Dictionary:
 		"caught": caught(),
 		"win": win(),
 		"undo": undo(),
+		"bgm": bgm(),
 	}
 
 static func _wav(s: PackedFloat32Array) -> AudioStreamWAV:
@@ -137,3 +138,37 @@ static func win() -> AudioStreamWAV:
 			ph += TAU * f / RATE
 			s.append((sin(ph) + 0.3 * sin(ph * 2.0)) * (1.0 - k * 0.7) * 0.35)
 	return _wav(s)
+
+## 背景音樂：輕快的 8 小節循環（五聲音階旋律＋低音），8 秒
+static func bgm() -> AudioStreamWAV:
+	var bpm := 120.0
+	var beat := 60.0 / bpm
+	var melody := [72, 74, 76, 79, 76, 74, 72, -1, 74, 76, 79, 81, 79, 76, 74, -1,
+		76, 79, 81, 84, 81, 79, 76, 74, 72, 74, 76, 74, 72, -1, 67, -1]
+	var bass := [48, 48, 55, 55, 50, 50, 55, 55, 52, 52, 57, 57, 53, 53, 55, 55]
+	var total := int(melody.size() * beat * 0.5 * RATE)
+	var s := PackedFloat32Array()
+	s.resize(total)
+	var step := int(beat * 0.5 * RATE)
+	for i in melody.size():
+		var note: int = melody[i]
+		if note < 0:
+			continue
+		var f := 440.0 * pow(2.0, (note - 69) / 12.0)
+		for j in step:
+			var k := float(j) / step
+			var env := minf(k * 30.0, 1.0) * (1.0 - k) * 0.9
+			var ph := f * float(j) / RATE
+			var sq := 1.0 if fmod(ph, 1.0) < 0.5 else -1.0
+			s[i * step + j] += sq * env * 0.12
+	var bstep := int(beat * RATE)
+	for i in bass.size():
+		var f := 440.0 * pow(2.0, (bass[i] - 69) / 12.0)
+		for j in bstep:
+			var k := float(j) / bstep
+			s[i * bstep + j] += sin(TAU * f * float(j) / RATE) * (1.0 - k * 0.7) * 0.22
+	var w := _wav(s)
+	w.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	w.loop_begin = 0
+	w.loop_end = total
+	return w

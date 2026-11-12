@@ -67,7 +67,8 @@ func _level_setup() -> void:
 		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		l.no_depth_test = true
 		l.font_size = 72
-		l.pixel_size = 0.011
+		l.pixel_size = 0.00044
+		l.fixed_size = true   # 固定在畫面上的大小，鏡頭拉近也不會變巨大
 		l.outline_size = 22
 		l.outline_modulate = Color(0.1, 0.05, 0.05, 0.9)
 		l.modulate = Color(1.0, 0.25, 0.2)

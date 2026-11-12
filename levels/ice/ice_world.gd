@@ -12,6 +12,8 @@ var lakes: Array = []
 var thin_spots: Array = []
 ## 雪人擺設（會擋路）：[Vector3, ...]
 var snowmen: Array = []
+## 建好的雪人：[{pos, node, head}]（head 是最上面那顆雪球，撞到時會掉下來）
+var snowman_nodes: Array = []
 ## 冰湖邊的松樹（裝飾，會擋路）：[Vector3, ...]
 var pines: Array = []
 
@@ -85,6 +87,29 @@ func in_water(x: float, z: float) -> bool:
 			return true
 	return false
 
+## 水面高度：冰洞底下的地形是挖下去的，水面取洞口外一圈的高度；不在冰洞裡就是地面
+func water_surface_y(x: float, z: float) -> float:
+	for p in ponds:
+		var c: Vector2 = p.center
+		var r: float = p.r
+		if Vector2(x, z).distance_to(c) < r + 0.3:
+			var y := -INF
+			for k in 8:
+				var a := k * TAU / 8.0
+				y = maxf(y, height_at(c.x + cos(a) * (r + 0.4), c.y + sin(a) * (r + 0.4)))
+			return y
+	return height_at(x, z)
+
+## 雪人頭掉下來（被撞到的時候）；重試時放回去
+func reset_snowmen() -> void:
+	for sn in snowman_nodes:
+		var h := sn.head as Node3D
+		if h.get_parent() != sn.node:
+			h.get_parent().remove_child(h)
+			(sn.node as Node3D).add_child(h)
+		h.position = Vector3(0, 1.65, 0)
+		h.rotation = Vector3.ZERO
+
 ## 這一點底下是哪一塊還沒破的薄冰（沒有回傳 -1）
 func thin_at(x: float, z: float, margin := 0.0) -> int:
 	for i in thin.size():
@@ -110,6 +135,7 @@ func add_thin(center: Vector2, r: float, parent: Node3D) -> int:
 
 ## 重試：薄冰恢復原狀，鹽做出來的薄冰拿掉
 func reset_ice() -> void:
+	reset_snowmen()
 	for i in range(thin.size() - 1, -1, -1):
 		var th: Dictionary = thin[i]
 		if th.dynamic:
@@ -304,6 +330,7 @@ func _snowman(parent: Node3D, p: Vector3) -> void:
 	node.position = Vector3(p.x, y, p.z)
 	node.rotation.y = p.x * 0.7
 	parent.add_child(node)
+	var top: MeshInstance3D
 	for b in [[0.55, 0.45], [0.4, 1.15], [0.28, 1.65]]:
 		var s := MeshInstance3D.new()
 		var sm := SphereMesh.new()
@@ -313,6 +340,8 @@ func _snowman(parent: Node3D, p: Vector3) -> void:
 		s.material_override = _snow_mat
 		s.position.y = b[1]
 		node.add_child(s)
+		top = s
+	snowman_nodes.append({"pos": Vector3(p.x, y, p.z), "node": node, "head": top})
 	var nose := MeshInstance3D.new()
 	var cn := CylinderMesh.new()
 	cn.top_radius = 0.0
@@ -320,12 +349,12 @@ func _snowman(parent: Node3D, p: Vector3) -> void:
 	cn.height = 0.3
 	nose.mesh = cn
 	nose.material_override = _toon(Color(0.95, 0.5, 0.15))
-	nose.position = Vector3(0, 1.65, 0.36)
+	nose.position = Vector3(0, 0.0, 0.36)
 	nose.rotation.x = PI * 0.5
-	node.add_child(nose)
+	top.add_child(nose)
 	var coal := _toon(Color(0.1, 0.1, 0.12))
 	for e in [-0.1, 0.1]:
-		_box(node, Vector3(0.06, 0.06, 0.04), Vector3(e, 1.75, 0.25), coal)
+		_box(top, Vector3(0.06, 0.06, 0.04), Vector3(e, 0.1, 0.25), coal)
 	obstacles.append([Vector2(p.x, p.z), 0.6])
 
 func _pine(parent: Node3D, p: Vector3) -> void:
