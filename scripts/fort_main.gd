@@ -74,6 +74,24 @@ func _shots(dir: String) -> void:
 		await _snap(dir, "fort_21_stuck")
 		_look(Vector3(-12.0, 4.0, 4.0), Vector3(10.6, 5.0, -9.2))
 		await _wait_until(func(): return bt.bird.state == "launch", 6.0)
+		# 射出去的瞬間會切到特寫鏡頭（慢動作），播完切回來
+		var cu: Node = null
+		for c in bt.get_children():
+			if c.has_method("shot_index"):
+				cu = c
+		if cu:
+			await _wait_until(func(): return cu.shot_index() >= 0, 2.0)
+			# 分鏡：1 背影一鏡到底（拍兩張：剛射出去、接近最高點）→ 2 落點那一頭 → 砸中
+			for step in [[0, 6, "a"], [0, 50, "b"], [1, 16, "c"], [2, 14, "d"]]:
+				await _wait_until(func(): return cu.shot_index() >= step[0] or cu.shot_index() < 0, 8.0)
+				if cu.shot_index() < 0:
+					break
+				for k in step[1]:
+					await get_tree().process_frame
+				await _snap(dir, "fort_22%s_closeup" % step[2])
+				print("[FORT] 特寫第 %d 鏡（time_scale %.2f，飛行進度 %.2f）" % [cu.shot_index() + 1, Engine.time_scale, cu._flight_k()])
+			await _wait_until(func(): return cu.shot_index() < 0, 8.0)
+		print("[FORT] 特寫結束，鏡頭切回：%s，家豪 %s" % [get_viewport().get_camera_3d().name, bt.bird.state])
 		_look(Vector3(-2.0, 14.0, 10.0), Vector3(2, 4, -6))
 		await get_tree().create_timer(0.6).timeout
 		await _snap(dir, "fort_22_launch")
@@ -100,8 +118,11 @@ func _shots(dir: String) -> void:
 		await get_tree().create_timer(1.6).timeout
 		await _snap(dir, "fort_30_climb")
 		await _wait_until(func(): return tb.side == "ally", 6.0)
+		# 家豪翻過矮牆站在塔頂上（不是浮在梯子外面）
+		_look(Vector3(tb.pos.x + 3.5, 10.5, tb.pos.y + 6.5), Vector3(tb.pos.x, 8.6, tb.pos.y))
 		await get_tree().create_timer(0.5).timeout
 		await _snap(dir, "fort_31_captured")
+		_look(Vector3(0.0, 9.0, 9.0), Vector3(6.5, 3.0, -0.5))
 	await get_tree().create_timer(10.0).timeout
 	_look(Vector3(0.0, 22.0, 16.0), Vector3(2, 0, -3))
 	await _snap(dir, "fort_32_after")

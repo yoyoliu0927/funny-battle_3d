@@ -88,6 +88,9 @@ const SHELL_BLAST := 1.5
 const SHELL_DMG_BIRD := 1.0
 const SHELL_DMG_FARMER := 4.0
 const CLIMB_TIME := 2.6        # 爬上梯子要多久
+const TOP_STEP := 0.45         # 從梯子頂端翻過矮牆、踏上塔頂要多久
+const TOP_HOLD := 1.0          # 在塔頂站多久（把砲手踢下去、得意一下）才跳回地面
+const TOP_STAND := 0.7         # 塔頂的站位：從塔中心往梯子那一側這麼遠（塔頂能站的範圍是矮牆以內）
 const LADDER_LURE := 1.4       # 飼料離梯子腳這麼近，家豪吃完就會往上爬
 
 var phase: Phase = Phase.PREPARE
@@ -540,6 +543,7 @@ func _ready() -> void:
 	_build_preview()
 	_build_hud()
 	_build_defeat()
+	add_child(preload("res://scripts/closeup_cam.gd").new())   # 搞笑特寫鏡頭（射出去、落水）
 	reset()
 	if not "--autotest" in OS.get_cmdline_user_args():
 		start_tutorial()
@@ -1367,7 +1371,8 @@ func _farmer_open(f: Fighter) -> bool:
 	return (f.heavy and f.state == "recover") or f.state in ["pant", "stagger", "down", "getup", "startled", "slip"]
 
 func _bird_targetable() -> bool:
-	return bird.alive() and bird.state != "fly"
+	# 飛行中、或已經站上塔頂時，地面上的人打不到
+	return bird.alive() and bird.state != "fly" and not (bird.state == "climb" and bird.t >= CLIMB_TIME)
 
 func _aggro(f: Fighter) -> void:
 	if f.aggro or not f.alive():
@@ -2035,7 +2040,7 @@ func _fire_cannon() -> void:
 	launch_from = m
 	launch_to = cannon_target
 	var dist := Vector2(launch_to.x - m.x, launch_to.z - m.z).length()
-	launch_dur = 0.7 + dist * 0.045
+	launch_dur = 0.6 + dist * 0.038
 	launch_peak = 2.5 + dist * 0.3 + maxf(launch_to.y - m.y, 0.0)
 	launch_hurt = true
 	cannon_t = -1.0
@@ -2260,17 +2265,32 @@ func _tick_climb(_dt: float) -> void:
 		b.set_state("land")
 		_log("炮塔倒了，家豪摔了下來")
 		return
-	var k := clampf(b.t / CLIMB_TIME, 0.0, 1.0)
 	var holder := t.node as Node3D
 	var l: Vector2 = t.ladder
 	var tp: Vector2 = t.pos
-	var foot := tp + (l - tp).normalized() * ((l - tp).length() - 0.35)
-	var gy: float = world.height_at(foot.x, foot.y)
-	b.pos = Vector3(foot.x, gy, foot.y)
-	b.air = maxf(holder.global_position.y + float(t.top_y) - gy, 0.0) * k
-	b.yaw = atan2(tp.x - foot.x, tp.y - foot.y)   # 面向塔
-	if k >= 1.0:
+	var out := (l - tp).normalized()
+	var foot := tp + out * ((l - tp).length() - 0.35)
+	var stand := tp + out * TOP_STAND          # 塔頂上的站位（矮牆以內）
+	var top_abs: float = holder.global_position.y + float(t.top_y)
+	if b.t < CLIMB_TIME:
+		# 第一段：順著梯子往上爬
+		var k := b.t / CLIMB_TIME
+		var gy: float = world.height_at(foot.x, foot.y)
+		b.pos = Vector3(foot.x, gy, foot.y)
+		b.air = maxf(top_abs - gy, 0.0) * k
+		b.yaw = atan2(tp.x - foot.x, tp.y - foot.y)   # 面向塔
+		return
+	# 第二段：翻過矮牆，踏上塔頂
+	var s := clampf((b.t - CLIMB_TIME) / TOP_STEP, 0.0, 1.0)
+	var p := foot.lerp(stand, s)
+	var gy2: float = world.height_at(p.x, p.y)
+	b.pos = Vector3(p.x, gy2, p.y)
+	b.air = maxf(top_abs - gy2, 0.0) + 0.9 * 4.0 * s * (1.0 - s)
+	if s >= 1.0 and t.side == "enemy":
 		_capture_tower(climb_k)
+	# 第三段：在塔頂站一下，再跳回地面
+	if b.t >= CLIMB_TIME + TOP_STEP + TOP_HOLD:
+		_jump_off_tower()
 
 func _capture_tower(k: int) -> void:
 	var b := bird
@@ -2281,14 +2301,19 @@ func _capture_tower(k: int) -> void:
 	(t.warn as Node3D).visible = false
 	if t.gunner:
 		var g := t.gunner as Node3D
-		var away := Vector3(t.pos.x, 0, t.pos.y) - b.pos
+		var away := g.global_position - (b.pos + Vector3(0, b.air, 0))
 		away.y = 0.0
 		away = away.normalized() if away.length() > 0.01 else Vector3.FORWARD
+		b.yaw = atan2(away.x, away.z)   # 轉向砲手，一腳踢出去
 		_fx_timed.append({"node": g, "t": 0.0, "life": 1.6, "kind": "gunner", "vel": away * 4.0 + Vector3.UP * 5.0})
 	_log("家豪把砲手踢下去，佔領了炮塔%s！" % _tower_name(k))
 	_toast("佔領炮塔%s！" % _tower_name(k), 1.8)
+
+## 從塔頂跳回地面（梯子前方 2.5 公尺）
+func _jump_off_tower() -> void:
+	var b := bird
+	var t: Dictionary = towers[climb_k]
 	climb_k = -1
-	# 從塔頂跳回地面（梯子前方 2.5 公尺）
 	var l: Vector2 = t.ladder
 	var tp: Vector2 = t.pos
 	var out := l + (l - tp).normalized() * 2.5
@@ -2686,14 +2711,31 @@ func _bird_pose() -> void:
 			rz = sin(b.t * 14.0) * 0.18
 			flap = 0.5 + 0.6 * absf(sin(b.t * 22.0))
 		"launch":
-			# 被射出去：在空中翻滾，翅膀張開（自己跳下來就不翻滾）
-			rx = b.t * 13.0 if launch_hurt else -0.3
+			# 被射出去：頭朝著拋物線的切線方向（上升抬頭、落下低頭），翅膀張開；自己跳下來就維持站姿
+			if launch_hurt:
+				var lk := clampf(b.t / maxf(launch_dur, 0.01), 0.0, 1.0)
+				var lh := Vector2(launch_to.x - launch_from.x, launch_to.z - launch_from.z).length()
+				var lvy := (launch_to.y - launch_from.y) + launch_peak * 4.0 * (1.0 - 2.0 * lk)
+				rx = PI * 0.5 - atan2(lvy, maxf(lh, 0.01))
+			else:
+				rx = -0.3
 			flap = 1.1
 		"climb":
-			# 抱著梯子一格一格往上爬
-			rx = -0.35
-			lift = absf(sin(b.t * 10.0)) * 0.05
-			flap = 0.3 + 0.3 * absf(sin(b.t * 10.0))
+			if b.t < CLIMB_TIME:
+				# 抱著梯子一格一格往上爬，身體左右晃
+				rx = -0.35
+				rz = sin(b.t * 10.0) * 0.16
+				lift = absf(sin(b.t * 10.0)) * 0.05
+				flap = 0.3 + 0.3 * absf(sin(b.t * 10.0))
+			elif b.t < CLIMB_TIME + TOP_STEP:
+				# 翻過矮牆
+				rx = 0.5
+				flap = 1.0
+			else:
+				# 站在塔頂得意地跳兩下
+				lift = absf(sin(b.t * 9.0)) * 0.2
+				rx = -0.25
+				flap = 0.6
 		"dead":
 			rz = minf(b.t * 6.0, 1.0) * 1.5
 		"cheer":
