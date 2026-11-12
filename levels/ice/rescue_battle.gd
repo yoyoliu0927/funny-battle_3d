@@ -480,8 +480,9 @@ func _start_win_show() -> void:
 	to_cage.y = 0.0
 	to_cage = to_cage.normalized() if to_cage.length() > 0.1 else Vector3.FORWARD
 	var side := to_cage.cross(Vector3.UP)
-	var focus: Vector3 = bird.pos + to_cage * 1.2 + Vector3(0, 0.9, 0)
-	var offset: Vector3 = side * 4.6 - to_cage * 1.4 + Vector3(0, 1.9, 0)
+	# 鏡頭在家豪正前方偏一點：打開的籠門在他身後入鏡，企鵝跑出來站到他左右兩邊
+	var focus: Vector3 = bird.pos + to_cage * 0.9 + Vector3(0, 0.8, 0)
+	var offset: Vector3 = -to_cage * 5.4 + side * 1.0 + Vector3(0, 2.0, 0)
 	if world.has_method("open_cage"):
 		world.open_cage(bird.pos, focus + offset)
 	bird.yaw = atan2(offset.x, offset.z)

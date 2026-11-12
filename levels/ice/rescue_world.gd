@@ -127,37 +127,16 @@ func _process(_dt: float) -> void:
 			_cage_label.text = "謝謝家豪！" if t >= 1.1 else ""
 			_cage_label.position = _cage_root.to_global(n.position) + Vector3(0, 2.0, 0)
 
-## 企鵝的站位（開籠時算一次）：雪地上、不在籠子裡、不擋鏡頭、彼此隔開；越靠家豪兩旁越好
+## 企鵝的站位（開籠時算一次）：固定在家豪左、右、更左邊（以鏡頭看過去的左右），只避開水
 func _pick_spots() -> void:
 	_spots.clear()
 	var away := _free_target - _free_cam
 	away.y = 0.0
 	away = away.normalized() if away.length() > 0.1 else Vector3.FORWARD
-	var lateral := away.cross(Vector3.UP)
-	var cands: Array = []
-	for r in [1.5, 2.2, 2.9]:
-		for i in 18:
-			var a := i * TAU / 18.0
-			var d := Vector3(cos(a), 0, sin(a))
-			var q: Vector3 = _free_target + d * float(r)
-			if on_ice(q.x, q.z) or in_water(q.x, q.z):
-				continue
-			if Vector2(q.x - cage.x, q.z - cage.z).length() < 2.6:
-				continue
-			if d.dot(away) < -0.35:
-				continue   # 太靠鏡頭
-			cands.append({"p": q, "score": absf(d.dot(lateral)) * 2.0 + d.dot(away) * 0.5 - r * 0.6})
-	cands.sort_custom(func(x, y): return x.score > y.score)
-	for c in cands:
-		if _spots.size() >= 3:
-			break
-		var ok := true
-		for k in _spots:
-			if Vector2(c.p.x - _spots[k].x, c.p.z - _spots[k].z).length() < 1.2:
-				ok = false
-		if ok:
-			_spots[_spots.size()] = c.p
-	var k2 := _spots.size()
-	while k2 < 3:
-		_spots[k2] = _free_target + lateral * (1.5 + k2)
-		k2 += 1
+	var right := away.cross(Vector3.UP)    # 畫面右邊
+	var want: Array = [-1.6, 1.6, -3.1]
+	for k in 3:
+		var q: Vector3 = _free_target + right * float(want[k]) + away * 0.3
+		if in_water(q.x, q.z):
+			q = _free_target - right * float(want[k]) + away * 0.3
+		_spots[k] = q
