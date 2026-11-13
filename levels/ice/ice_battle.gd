@@ -16,6 +16,8 @@ extends "res://scripts/battle/battle_base.gd"
 const FeedItem := preload("res://levels/ice/items/ice_feed_item.gd")
 const Sfx := preload("res://levels/ice/sfx.gd")
 
+## 有人掉進冰洞時要不要在畫面中間跳字卡（救企鵝模式改用洞口的跳字）
+var fall_toast := true
 const ICE_GRIP := 1.1          # 人在冰上的抓地力（越小越滑、越轉不了彎）
 const SNOW_GRIP := 14.0        # 人在雪地上的抓地力（幾乎馬上就能轉向）
 const MAX_SLIDE := 4.5         # 滑行速度上限
@@ -231,7 +233,8 @@ func fall_in(f: Fighter) -> void:
 	anim(f, "HitRecieve", 0.6)
 	spawn_splash(f.pos)
 	_fallen += 1
-	toast("撲通！　落水 %d / %d" % [_fallen, enemies.size()], 1.6)
+	if fall_toast:
+		toast("撲通！　落水 %d / %d" % [_fallen, enemies.size()], 1.6)
 	log_event("%s掉進冰洞，凍成冰棒了" % f.name)
 	sfx("splash")
 	if not silent:

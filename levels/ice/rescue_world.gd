@@ -78,14 +78,14 @@ func _build_cage() -> void:
 		var home := Vector3(-0.65 + k * 0.65, 0.15, 0.15 * k)
 		var p := make_penguin(_cage_root, Vector3.ZERO, 0.2 * (k - 1))
 		p.position = home
-		p.scale = Vector3.ONE * 1.2
+		p.scale = Vector3.ONE * 1.35
 		_penguins.append({"node": p, "home": home, "k": k})
 	obstacles.append([Vector2(cage.x, cage.z), 1.3 * CAGE_SCALE])
 	_cage_label = Label3D.new()
 	_cage_label.text = "救我！"
 	_cage_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_cage_label.no_depth_test = true
-	_cage_label.font_size = 60
+	_cage_label.font_size = 40
 	_cage_label.pixel_size = 0.00052
 	_cage_label.fixed_size = true   # 固定在畫面上的大小，鏡頭拉近也不會變巨大
 	_cage_label.outline_size = 24
@@ -118,7 +118,7 @@ func reset_cage() -> void:
 		_door.rotation.y = 0.0
 	if _cage_label:
 		_cage_label.text = "救我！"
-		_cage_label.font_size = 60
+		_cage_label.font_size = 40
 	for p in _penguins:
 		(p.node as Node3D).position = p.home
 
@@ -128,7 +128,7 @@ func _process(_dt: float) -> void:
 		return
 	var now := Time.get_ticks_msec()
 	if not _freed:
-		_cage_label.position = _cage_root.position + Vector3(0, 3.0 + sin(now * 0.004) * 0.12, 0)
+		_cage_label.position = _cage_root.position + Vector3(0, 3.3 + sin(now * 0.004) * 0.12, 0)
 	if _door:
 		# 開籠：籠門往外轉開（0.35 秒）
 		# 籠門轉 90 度貼到側邊；鎖掉到地上

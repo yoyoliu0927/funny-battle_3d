@@ -6,8 +6,9 @@ func _ice_configure() -> void:
 	play_min = Vector2(-20.0, -23.0)
 	play_max = Vector2(20.0, 18.0)
 	hero_start = Vector3(0.0, 0.0, 9.5)
-	camera_start = Vector3(0.0, 15.0, 18.0)
-	camera_look = Vector3(4.5, 0.0, -4.5)
+	camera_start = Vector3(1.5, 12.0, 15.5)
+	camera_look = Vector3(1.0, 0.0, -1.5)
+	mood = "morning"
 	cage = Vector3(0.0, 0.0, -11.6)
 	bird_path = [Vector3(0.0, 0, 6.0), Vector3(0.0, 0, -9.2)]
 	lakes = [{"center": Vector2(0.0, -1.5), "rx": 9.5, "rz": 6.5}]

@@ -9,6 +9,7 @@ func _ice_configure() -> void:
 	hero_start = Vector3(0.0, 0.0, 7.0)
 	camera_start = Vector3(-1.0, 12.5, 12.0)
 	camera_look = Vector3(-1.5, 0.0, -4.5)
+	mood = "dusk"
 	cage = Vector3(0.0, 0.0, -11.8)
 	bird_path = [Vector3(0.0, 0, 4.0), Vector3(0.0, 0, -9.4)]
 	# 冰湖往西延伸：阿土一出發就在冰上，香蕉皮丟太早也會失敗（他自己先滑過去）

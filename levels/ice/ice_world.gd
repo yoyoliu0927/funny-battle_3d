@@ -32,6 +32,8 @@ var decor := true
 ##   {"type": "lamps", "from", "to"}    路兩旁的燈籠
 ##   {"type": "creek", "from", "to"}    結冰的小溪
 var zones: Array = []
+## 這一關的時段：只換光線、霧、天空的顏色。"morning" 早晨／"sunset" 黃昏／"dusk" 藍調傍晚
+var mood := "morning"
 
 const KH := "res://levels/ice/assets/kenney_holiday/"
 const KS := "res://levels/ice/assets/kenney_survival/"
@@ -58,8 +60,8 @@ func _ice_configure() -> void:
 func _configure() -> void:
 	hill_amount = 0.35
 	grass_count = 0
-	ground_a = Color(0.93, 0.96, 1.0)
-	ground_b = Color(0.85, 0.90, 0.97)
+	ground_a = Color(0.87, 0.91, 0.98)    # 雪地不要純白：留一點藍，才看得出起伏和影子
+	ground_b = Color(0.78, 0.85, 0.95)
 	dirt_color = Color(0.80, 0.86, 0.94)
 	tree_green = Color(0.26, 0.45, 0.50)   # 外圈森林用深一點的藍綠色：把白色的場地框出來
 	_ice_configure()
@@ -181,8 +183,10 @@ func _build_extra() -> void:
 	_ice_mat = StandardMaterial3D.new()
 	_ice_mat.vertex_color_use_as_albedo = true
 	_ice_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_ice_mat.roughness = 0.35
-	_ice_mat.metallic_specular = 0.25
+	_ice_mat.roughness = 0.24
+	_ice_mat.metallic_specular = 0.32     # 反光不要太強：黃昏、傍晚時冰面還是要看得出是藍色
+	_ice_mat.rim_enabled = true
+	_ice_mat.rim = 0.18
 	_thin_mat = StandardMaterial3D.new()
 	_thin_mat.albedo_color = Color(0.90, 0.97, 1.0)
 	_thin_mat.roughness = 0.35
@@ -245,7 +249,9 @@ func _build_lake_sheet(parent: Node3D, l: Dictionary) -> void:
 			var z := c.y + sin(a) * rz * k
 			row.append(Vector3(x, height_at(x, z) + 0.04, z))
 			var edge := sstep(0.75, 1.0, k)
-			crow.append(Color(0.30, 0.60, 0.90).lerp(Color(0.14, 0.38, 0.70), edge))   # 冰湖要在雪地上跳出來
+			var ice_c := Color(0.14, 0.44, 0.86).lerp(Color(0.30, 0.62, 0.95), sstep(0.0, 0.85, k))   # 中心深、往岸邊變淺
+			ice_c = ice_c.lerp(Color(0.80, 0.92, 1.0), sstep(0.9, 1.0, k))                       # 岸邊一圈結霜的淺色
+			crow.append(ice_c)
 		pts.append(row)
 		cols.append(crow)
 	var st := SurfaceTool.new()
@@ -268,13 +274,37 @@ func _build_lake_sheet(parent: Node3D, l: Dictionary) -> void:
 	mi.material_override = _ice_mat
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(mi)
+	# 岸邊一圈高高低低的雪堤：把完美的橢圓邊蓋掉，冰湖才像是「雪地裡的湖」
+	var rb := RandomNumberGenerator.new()
+	rb.seed = world_seed + 91
+	var n_bank := int((rx + rz) * 2.6)
+	for k in n_bank:
+		if rb.randf() < 0.22:
+			continue                           # 隨機缺幾塊：不要像一串珍珠
+		var a := k * TAU / n_bank + rb.randf_range(-0.06, 0.06)
+		var kk := rb.randf_range(0.985, 1.085)
+		var bx := c.x + cos(a) * rx * kk
+		var bz := c.y + sin(a) * rz * kk
+		var lump := MeshInstance3D.new()
+		var sm := SphereMesh.new()
+		sm.radius = rb.randf_range(0.35, 1.15)
+		sm.height = sm.radius * rb.randf_range(0.7, 1.1)
+		sm.radial_segments = 7
+		sm.rings = 3
+		lump.mesh = sm
+		lump.material_override = _snow_mat
+		lump.position = Vector3(bx, height_at(bx, bz) + 0.02, bz)
+		lump.scale = Vector3(rb.randf_range(0.8, 1.4), rb.randf_range(0.32, 0.6), rb.randf_range(0.8, 1.4))
+		lump.rotation.y = rb.randf() * TAU
+		lump.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(lump)
 	# 冰面上的刮痕，看起來比較像冰
 	var r := RandomNumberGenerator.new()
 	r.seed = world_seed + 77
 	var scratch := StandardMaterial3D.new()
 	scratch.albedo_color = Color(0.85, 0.95, 1.0)
 	scratch.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	for k in int(rx * rz * 0.5):
+	for k in int(rx * rz * 0.18):
 		var a := r.randf() * TAU
 		var d := sqrt(r.randf()) * 0.9
 		var px := c.x + cos(a) * rx * d
@@ -304,8 +334,23 @@ func _build_hole(parent: Node3D, c: Vector2, r: float) -> void:
 	for k in 8:
 		var a := k * TAU / 8.0
 		rim_y = maxf(rim_y, height_at(c.x + cos(a) * (r + 0.4), c.y + sin(a) * (r + 0.4)))
-	water.position = Vector3(c.x, rim_y + 0.03, c.y)
+	water.position = Vector3(c.x, rim_y - 0.06, c.y)   # 水面比冰面低一點
 	parent.add_child(water)
+	# 洞口一圈淺青色的冰緣：看得出冰有厚度（不是浮在冰上的一片深色圓盤）
+	var lip := MeshInstance3D.new()
+	var tm := TorusMesh.new()
+	tm.inner_radius = r - 0.02
+	tm.outer_radius = r + 0.22
+	tm.rings = 28
+	tm.ring_segments = 6
+	lip.mesh = tm
+	var lm := StandardMaterial3D.new()
+	lm.albedo_color = Color(0.72, 0.90, 1.0)
+	lm.roughness = 0.2
+	lip.material_override = lm
+	lip.position = Vector3(c.x, rim_y + 0.0, c.y)
+	lip.scale = Vector3(1.0, 0.55, 1.0)
+	parent.add_child(lip)
 	var n := int(r * 7)
 	for k in n:
 		var a := k * TAU / n + 0.3 * sin(k * 2.3)
@@ -474,20 +519,44 @@ func make_penguin(parent: Node3D, pos: Vector3, yaw := 0.0) -> Node3D:
 
 ## 冷色調的霧和陽光
 func _cold_weather() -> void:
+	# 每一關一個時段（mood），只換光線、霧和天空的顏色：早晨／黃昏／藍調傍晚
+	var M := {
+		"morning": {"sun": Color(1.0, 0.92, 0.80), "energy": 1.25, "rot": Vector3(-0.72, 0.75, 0), "amb": Color(0.66, 0.78, 0.96), "amb_e": 0.8,
+			"fog": Color(0.80, 0.90, 1.0), "top": Color(0.36, 0.66, 0.90), "hor": Color(0.80, 0.91, 0.98)},
+		"sunset": {"sun": Color(1.0, 0.66, 0.42), "energy": 1.35, "rot": Vector3(-0.42, 1.25, 0), "amb": Color(0.78, 0.66, 0.84), "amb_e": 0.85,
+			"fog": Color(1.0, 0.78, 0.72), "top": Color(0.55, 0.52, 0.82), "hor": Color(1.0, 0.72, 0.58)},
+		"dusk": {"sun": Color(0.62, 0.74, 1.0), "energy": 0.8, "rot": Vector3(-0.62, -0.7, 0), "amb": Color(0.50, 0.60, 0.95), "amb_e": 1.1,
+			"fog": Color(0.40, 0.50, 0.85), "top": Color(0.10, 0.14, 0.38), "hor": Color(0.42, 0.52, 0.85)},
+	}
+	var m: Dictionary = M.get(mood, M.morning)
 	var env_node := get_parent().get_node_or_null("WorldEnvironment") as WorldEnvironment
 	if env_node and env_node.environment:
 		var env := env_node.environment.duplicate() as Environment
-		env.fog_light_color = Color(0.82, 0.90, 1.0)
+		env.fog_light_color = m.fog
 		env.fog_density = 0.0016
-		env.ambient_light_color = Color(0.70, 0.80, 0.96)
+		env.ambient_light_color = m.amb
+		env.ambient_light_energy = m.amb_e
 		env.adjustment_enabled = true
-		env.adjustment_saturation = 1.22
-		env.adjustment_contrast = 1.07
+		env.adjustment_saturation = 1.2
+		env.adjustment_contrast = 1.06
+		# 雪地很亮：泛光調小，白色才不會糊成一片（介面的 3D 牌子也不會被洗白）
+		env.glow_bloom = 0.02
+		env.glow_intensity = 0.3
+		env.glow_hdr_threshold = 1.15
+		if env.sky and env.sky.sky_material is ShaderMaterial:
+			var sky := env.sky.duplicate() as Sky
+			var sm := (env.sky.sky_material as ShaderMaterial).duplicate() as ShaderMaterial
+			sm.set_shader_parameter("top_color", m.top)
+			sm.set_shader_parameter("horizon_color", m.hor)
+			sky.sky_material = sm
+			env.sky = sky
 		env_node.environment = env
 	var sun := get_parent().get_node_or_null("Sun") as DirectionalLight3D
 	if sun:
-		sun.light_color = Color(1.0, 0.95, 0.88)
-		sun.light_energy = 1.55
+		sun.light_color = m.sun
+		sun.light_energy = m.energy
+		sun.rotation = m.rot
+		sun.shadow_blur = 1.6
 
 # ---------------------------------------------------------------- 裝飾（Kenney CC0 模型，見 assets/CREDITS.txt）
 

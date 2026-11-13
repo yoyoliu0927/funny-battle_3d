@@ -15,12 +15,13 @@ func _enemy_specs() -> Array:
 func _checklist() -> Array:
 	return [
 		{"id": "rescue", "text": "救出企鵝"},
-		{"id": "fall1", "text": "讓工人滑進冰洞", "hint": "瞄紅線的每一段，看哪一段的黃線通到冰洞"},
-		{"id": "snow_hole", "text": "讓他戴著雪人頭掉進冰洞", "hint": "先讓他撞雪人，再把第二片丟在粉紅線上"},
+		{"id": "fall1", "text": "工人掉進冰洞", "hint": "瞄紅線的每一段，看哪一段通到冰洞"},
+		{"id": "snow_hole", "text": "戴著雪人頭掉進冰洞", "hint": "先讓他撞雪人，再丟第二片在粉紅線上"},
 	]
 
 func _how_to() -> String:
-	return "怎麼玩\n・黃線：家豪自己走去籠子\n・紅線：工人衝過來抓他\n・香蕉皮丟在紅線上，他會順著那一段滑出去\n　（拿著香蕉皮瞄紅線，黃線＝他會滑去哪）"
+	return "把香蕉皮丟到紅線上"
 
 func _defeat_tip() -> String:
-	return "提示：試試紅線的別一段？每一段滑出去的方向都不一樣。"
+	return "換紅線的另一段試試"
+

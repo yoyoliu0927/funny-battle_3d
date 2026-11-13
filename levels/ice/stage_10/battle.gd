@@ -15,15 +15,15 @@ func _enemy_specs() -> Array:
 func _checklist() -> Array:
 	return [
 		{"id": "rescue", "text": "救出企鵝"},
-		{"id": "guard_carom", "text": "一片香蕉皮撞兩個人", "hint": "工人第一段紅線的延長線上站著誰？"},
-		{"id": "guard_slip", "text": "讓守衛自己撲上香蕉皮", "hint": "守衛撲過來的橘色箭頭上也能放"},
+		{"id": "guard_carom", "text": "一片香蕉皮撞兩個人", "hint": "工人第一段紅線的前方站著誰？"},
+		{"id": "guard_slip", "text": "守衛撲上香蕉皮", "hint": "橘色箭頭上也能放"},
 	]
 
 func _how_to() -> String:
-	return "新角色：守衛\n・平常站著不動（踩不到香蕉皮）\n・家豪走進紅圈，他會沿紅色箭頭撲過去\n・滑出去的人撞到別人，會一起滑走\n・被甩到家豪後面的人，就追不上了"
+	return "守衛：家豪走進紅圈才會撲"
 
 func _defeat_tip() -> String:
-	return "提示：站著不動的守衛踩不到香蕉皮……那他什麼時候會動？會被什麼撞到？"
+	return "守衛什麼時候會動？會被什麼撞到？"
 
 func _level_setup() -> void:
 	super()

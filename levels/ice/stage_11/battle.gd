@@ -16,15 +16,15 @@ func _enemy_specs() -> Array:
 func _checklist() -> Array:
 	return [
 		{"id": "rescue", "text": "救出企鵝"},
-		{"id": "snow_hole", "text": "讓阿水戴著雪人頭泡進冰洞", "hint": "提早約 0.3 秒撞到他，他會偏到雪人那邊"},
-		{"id": "clean_fall2", "text": "不碰雪人，兩個一起泡進冰洞", "hint": "算到阿土和阿水剛好同時到交叉點"},
+		{"id": "snow_hole", "text": "阿水戴雪人頭進冰洞", "hint": "早一點撞到他，他會偏到雪人那邊"},
+		{"id": "clean_fall2", "text": "不碰雪人，兩人一起進洞", "hint": "讓阿土和阿水剛好同時到"},
 	]
 
 func _how_to() -> String:
-	return "新規則：時機\n・白點＝他每秒走到哪；黃線一格＝滑 0.5 秒\n・讓阿土滑到交叉點時，阿水剛好經過\n・按住 Tab：從正上方看"
+	return "同時到，才撞得到（Tab：從上面看秒數）"
 
 func _defeat_tip() -> String:
-	return "提示：阿土滑到交叉點的時間＝踩到的秒數＋黃線格數×0.5，要等於阿水經過的秒數。"
+	return "阿土滑到交叉點時，阿水要剛好走到"
 
 func _level_setup() -> void:
 	super()
