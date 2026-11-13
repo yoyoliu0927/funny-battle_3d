@@ -18,6 +18,8 @@ const Sfx := preload("res://levels/ice/sfx.gd")
 
 ## 有人掉進冰洞時要不要在畫面中間跳字卡（救企鵝模式改用洞口的跳字）
 var fall_toast := true
+## 聲音總開關（音效＋背景音樂）。開發階段先關閉；換好正式音效後改成 true
+const SOUND_ON := false
 const ICE_GRIP := 1.1          # 人在冰上的抓地力（越小越滑、越轉不了彎）
 const SNOW_GRIP := 14.0        # 人在雪地上的抓地力（幾乎馬上就能轉向）
 const MAX_SLIDE := 4.5         # 滑行速度上限
@@ -63,7 +65,8 @@ func worker(name: String, route: Array, extra := {}) -> Dictionary:
 # ---------------------------------------------------------------- 建立、重置、輸贏
 
 func _level_setup() -> void:
-	var sounds := Sfx.make_all()
+	# 開發階段先關掉聲音（SOUND_ON = false）：目前的音效和背景音樂是程式合成的暫時版本，之後會整批換成正式素材
+	var sounds: Dictionary = Sfx.make_all() if SOUND_ON else {}
 	for k in sounds:
 		var p := AudioStreamPlayer.new()
 		p.stream = sounds[k]
