@@ -27,11 +27,19 @@ func _ice_configure() -> void:
 	clear_paths = [[Vector3(-11.0, 0, -6.8), Vector3(-3.0, 0, -6.8), Vector3(7.5, 0, -6.8)], [Vector3(-3.0, 0, -6.8), Vector3(-2.0, 0, -1.0), Vector3(-0.6, 0, 6.0)]]
 	# 工人的冰釣營地（裝飾）：在他們出發點後面
 	camps = [{"pos": Vector3(-15.0, 0, -12.5), "yaw": 1.0}, {"pos": Vector3(13.5, 0, -16.5), "yaw": -0.6}]
-	# 冰湖周圍的區域（純裝飾）。高的東西都離冰洞 9 公尺以上：過關特寫的鏡頭會繞著冰洞拍
+	# 冰湖周圍的擺設（純裝飾）。高的東西都離冰洞 9 公尺以上：過關特寫的鏡頭會繞著冰洞拍
+	front_props = false
 	zones = [
-		# 這一關的地標：西岸的冰雕廣場——一圈大冰雕圍著冰晶，夕陽照得透亮
-		{"type": "plaza", "pos": Vector3(-13.8, 0, 0.4), "yaw": 1.57},
+		# 這一關的地標：湖西南岸的冰雕廣場——大冰企鵝、冰魚圍著一簇冰晶，兩盞燈
+		{"type": "statue", "kind": "penguin", "pos": Vector3(-11.4, 0, 1.6), "yaw": 0.5, "scale": 1.8},
+		{"type": "statue", "kind": "fish", "pos": Vector3(-13.2, 0, -1.4), "yaw": 0.9, "scale": 2.4},
+		{"type": "statue", "kind": "penguin", "pos": Vector3(-9.4, 0, 4.0), "yaw": 0.2, "scale": 1.0},
+		{"type": "statue", "kind": "fish", "pos": Vector3(-13.0, 0, 4.4), "yaw": 0.6, "scale": 1.8},
+		{"type": "lantern", "pos": Vector3(-9.4, 0, 1.4)},
+		{"type": "lantern", "pos": Vector3(-11.6, 0, 4.6)},
+		# 廣場延伸到家豪出發點附近：兩座小冰雕（避開左下的道具格、右下的開始鈕、黃線）
+		{"type": "statue", "kind": "penguin", "pos": Vector3(-9.8, 0, 9.0), "yaw": 0.4, "scale": 0.8},
+		{"type": "statue", "kind": "fish", "pos": Vector3(-1.4, 0, 10.6), "yaw": -0.3, "scale": 1.5},
 		{"type": "pier", "pos": Vector3(9.0, 0, 3.6), "yaw": 1.57},
 		{"type": "crystals", "pos": Vector3(16.5, 0, -11.0)},
-		{"type": "crystals", "pos": Vector3(15.5, 0, 6.0)},
 	]

@@ -3,7 +3,7 @@
 
 kenney_holiday/   Holiday Kit (2.0) by Kenney — https://kenney.nl/assets/holiday-kit
                   授權：Creative Commons CC0（公眾領域，可商用、不需署名；這裡仍註明來源）
-                  使用：圓錐形的雪松（tree-snow-a／b／c）、燈籠（lantern）、雪橇（sled、sled-long）
+                  使用：圓錐形的雪松（tree-snow-a／b／c；載入時由 ice_world.gd 加上每一層的深淺，模型檔本身沒有改）、燈籠（lantern）、雪橇（sled、sled-long）
 
 kenney_survival/  Survival Kit by Kenney — https://kenney.nl/assets/survival-kit
                   授權：Creative Commons CC0
@@ -11,12 +11,12 @@ kenney_survival/  Survival Kit by Kenney — https://kenney.nl/assets/survival-k
 
 kenney_platformer/ Platformer Kit (4.1) by Kenney — https://kenney.nl/assets/platformer-kit
                   授權：Creative Commons CC0
-                  使用：地圖外圈的雪松（tree-pine-snow、tree-pine-snow-small）、地圖邊緣的繩欄（fence-rope）、
-                        旗子（flag）、木箱（crate、crate-strong）
+                  使用：地圖邊緣的繩欄（fence-rope）、旗子（flag）、木箱（crate、crate-strong）
 
 kenney_cubepets/  Cube Pets (2.0) by Kenney — https://kenney.nl/assets/cube-pets
                   授權：Creative Commons CC0
-                  使用：animal-penguin.glb（籠子裡的三隻企鵝，用模型自己帶的 idle／dance 動畫；冰雕廣場的冰企鵝也是同一個模型換成冰的材質）
+                  使用：animal-penguin.glb（籠子裡的三隻企鵝、收尾時在冰湖上滑的企鵝；冰雕廣場的冰企鵝也是同一個模型換成冰的材質）
+                  修改：顯示時由著色器把灰藍色的身體改成接近黑色、加輪廓光；模型檔本身沒有改
 
 各資料夾內附原始的 License.txt，資料夾裡只放有用到的模型。
 （以前用的 Poly Pizza 企鵝（sugamo，CC-BY）已經換掉，檔案刪了。）
@@ -29,7 +29,7 @@ faces/            工人的表情貼圖（凍僵、暈、嚇到）：本組用 C
 
 blender/（地圖）  雪堆 snow_drift_a~d、碎冰塊 ice_chunk_a~e、冰洞口 ice_hole_rim_a~b（破冰邊緣＋冰的斷面＋水面）、薄冰片 thin_ice、
                   浮冰 ice_floe_a~c、冰柱 icicles_a~c、石頭 snow_rock_a~b、火焰 flame、雲朵 cloud_puff_a~c、釣竿 fishing_rod、冰台座 ice_pedestal、
-                  地標：小木船 rowboat（漁村）、夜市攤位 market_stall 和一串燈籠 lantern_string（燈籠夜市）：
+                  地標：小木船 rowboat、曬漁網的架子 fish_net（漁村）、夜市攤位 market_stall 和一串燈籠 lantern_string（燈籠夜市）：
                   本組用 Blender 4.5 腳本建模（blender/src/build_isle_props.py），自製
                   （小屋 fishing_hut、棧道 pier、冰晶 ice_crystals 是之前做的，見 blender/src/build_zone_props.py）
 

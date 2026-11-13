@@ -13,6 +13,7 @@ const UISkin := preload("res://scripts/ui/ui_style.gd")
 var _cage_root: Node3D
 var _cage_label: Label3D
 const LABEL_SIZE := 32         # 「救我！」的字級（泡泡會跟著字的大小畫）
+const LABEL_PIXEL := 0.00076   # 字在螢幕上的大小：主鏡頭（視角 45 度）下大約 24 px 高。_process 會照現在鏡頭的視角換算，特寫、結算也差不多這麼大
 var _front_bars: Array = []    # （舊版用方塊拼的欄杆；現在籠子是模型，這個陣列是空的）
 var _door: Node3D             # 籠門（模型版）
 var _lock: Node3D             # 門上的鎖
@@ -23,6 +24,8 @@ var _free_target := Vector3.ZERO
 var _free_t := 0.0             # 開籠之後過了幾秒（遊戲時間，由戰局每一步推進）
 var _spots := {}
 var _free_cam := Vector3.ZERO  # 過關鏡頭的位置：企鵝只站在家豪背後（不擋鏡頭），臉朝鏡頭
+var _slide_trail: Decal        # 滑出去的那隻企鵝在雪地上拖出來的痕跡
+var _finale_cheer := false     # 全章收尾：三隻都面向鏡頭歡呼
 
 func _build_extra() -> void:
 	keep_clear.append(cage)
@@ -69,7 +72,7 @@ func _build_cage() -> void:
 		var p := make_penguin(_cage_root, Vector3.ZERO, 0.2 * (k - 1))
 		p.position = home
 		p.scale = Vector3.ONE * 0.9
-		_penguins.append({"node": p, "home": home, "k": k})
+		_penguins.append({"node": p, "home": home, "k": k, "wl": p.find_child("wing-left", true, false), "wr": p.find_child("wing-right", true, false)})
 	# 籠子裡補一盞柔光：屋頂底下才不會黑成一片，看不到企鵝的臉
 	var fill := OmniLight3D.new()
 	fill.light_color = Color(0.95, 0.97, 1.0)
@@ -103,7 +106,7 @@ func open_cage(target: Vector3, cam := Vector3.ZERO) -> void:
 	_cage_label.text = "謝謝家豪！"
 	_cage_label.font_size = LABEL_SIZE + 2
 	for p in _penguins:
-		penguin_anim(p.node, "dance")
+		penguin_anim(p.node, "")        # 出籠後的姿勢由下面的程式擺（面向鏡頭、舉手、上下跳），不播模型自己的動畫
 
 ## 開籠動畫往前推一步（戰局每 1/60 秒呼叫一次）
 func tick_cage(dt: float) -> void:
@@ -122,13 +125,36 @@ func reset_cage() -> void:
 	for p in _penguins:
 		(p.node as Node3D).position = p.home
 		(p.node as Node3D).rotation = Vector3(0, 0.2 * (int(p.k) - 1), 0)
+		_wings(p, 0.0)
 		penguin_anim(p.node, "idle")
+	if _slide_trail:
+		_slide_trail.visible = false
+
+## 全章收尾（見 ice_world.gd 的 finale_show）：加上三隻企鵝面向鏡頭歡呼
+func finale_show(on: bool) -> void:
+	super(on)
+	_finale_cheer = on
+
+## 企鵝的翅膀舉多高（0 = 垂著，1 = 舉手歡呼）
+func _wings(p: Dictionary, up: float) -> void:
+	if p.get("wl"):
+		(p.wl as Node3D).rotation.z = 1.0 * up
+	if p.get("wr"):
+		(p.wr as Node3D).rotation.z = -1.0 * up
 
 func _process(_dt: float) -> void:
 	super(_dt)
 	if _cage_label == null:
 		return
 	var now := Time.get_ticks_msec()
+	var cam := get_viewport().get_camera_3d()
+	if cam:
+		# 標籤在螢幕上維持差不多的大小：視角越寬（特寫、結算鏡頭）字會被畫得越小，照視角補回來
+		var ps := LABEL_PIXEL * tan(deg_to_rad(cam.fov * 0.5)) / tan(deg_to_rad(22.5))
+		_cage_label.pixel_size = ps
+		var plate := _cage_label.get_node_or_null("Plate") as Sprite3D
+		if plate:
+			plate.pixel_size = ps
 	UISkin.refresh(_cage_label)          # 字變了泡泡要重畫
 	if not _freed:
 		_cage_label.position = _cage_root.position + Vector3(0, 3.75 + sin(now * 0.004) * 0.12, 0)
@@ -141,15 +167,17 @@ func _process(_dt: float) -> void:
 			_lock.visible = not _freed
 		if _lock_drop:
 			_lock_drop.visible = _freed
+	# 企鵝要面向「現在這個鏡頭」（過關後鏡頭會換位置，不能只記開籠那一刻的）
+	var cam_local := _cage_root.to_local(cam.global_position if cam else _free_cam)
 	for p in _penguins:
 		var n := p.node as Node3D
 		var k: int = p.k
 		if not _freed:
-			# 在籠子裡跳上跳下、拍翅膀（求救）
+			# 在籠子裡跳上跳下求救（身體只微微晃，不會歪到像倒了）
 			n.position = p.home + Vector3(0, absf(sin(now * 0.008 + k * 1.7)) * 0.12, 0)
-			n.rotation.z = sin(now * 0.012 + k) * 0.25
+			n.rotation = Vector3(0, 0.2 * (k - 1), sin(now * 0.012 + k) * 0.10)
 			continue
-		# 一隻接一隻：先走到籠門口，再跑到家豪身邊繞圈圈跳
+		# 一隻接一隻：先走到籠門口，再跑到家豪身邊，面向鏡頭舉手上下跳
 		var t := maxf(_free_t - k * 0.2, 0.0)
 		var door: Vector3 = Vector3(p.home.x * 0.6, 0.0, 1.35)
 		# 站位：家豪兩旁排成一排（稍微在後面一點，不擋家豪也不擋鏡頭），一隻一隻輪流跳
@@ -159,30 +187,48 @@ func _process(_dt: float) -> void:
 		var lateral := away.cross(Vector3.UP)
 		var spot_w: Vector3 = _spots.get(k, _free_target + lateral * 1.5)
 		var around: Vector3 = _cage_root.to_local(spot_w)
-		var hop := maxf(sin(_free_t * 7.0 - k * 1.3), 0.0) * 0.35
+		var hop := maxf(sin(_free_t * 7.0 - k * 1.3), 0.0) * (0.45 if _finale_cheer else 0.32)
 		if t < 0.45:
 			n.position = p.home.lerp(door, t / 0.45) + Vector3(0, hop, 0)
-			n.rotation.y = 0.0
+			n.rotation = Vector3.ZERO
+			_wings(p, 0.3)
 		else:
 			var s2 := clampf((t - 0.45) / 0.6, 0.0, 1.0)
 			n.position = door.lerp(around, s2) + Vector3(0, hop, 0)
-			# 臉朝鏡頭
-			var to_cam := _cage_root.to_local(_free_cam) - n.position
-			n.rotation.y = atan2(to_cam.x, to_cam.z)
-		# 收尾小動作：最後一隻企鵝撲倒，用肚子往前滑一段
-		if k == 2 and _free_t > 2.4:
-			var sl := clampf((_free_t - 2.4) / 0.6, 0.0, 1.0)
-			# 往畫面的側邊滑（從鏡頭看是橫著滑過去），仰躺露出白肚子
-			var to_cam := (_cage_root.to_local(_free_cam) - around)
+			var to_cam := cam_local - n.position
+			n.rotation = Vector3(0, atan2(to_cam.x, to_cam.z), 0)          # 站得直直的，臉朝鏡頭
+			_wings(p, 0.85 + 0.25 * sin(_free_t * 9.0 + k * 2.0))
+		# 收尾小動作：最後一隻企鵝往旁邊溜出去（站得直直地滑），雪地上拖一道痕跡
+		if k == 2 and _free_t > 2.4 and not _finale_cheer:
+			var sl := clampf((_free_t - 2.4) / 0.7, 0.0, 1.0)
+			var to_cam := cam_local - around
 			to_cam.y = 0.0
 			to_cam = to_cam.normalized() if to_cam.length() > 0.01 else Vector3.BACK
 			var side := to_cam.cross(Vector3.UP)
-			n.position = around + side * (sl * 1.6) + Vector3(0, 0.08, 0)
-			n.rotation = Vector3(-1.35 * minf(sl * 3.0, 1.0), atan2(to_cam.x, to_cam.z), sin(_free_t * 12.0) * 0.08)
+			var ease_k := 1.0 - (1.0 - sl) * (1.0 - sl)
+			n.position = around + side * (ease_k * 2.4)
+			n.rotation = Vector3(0, atan2(to_cam.x, to_cam.z), 0)
+			_wings(p, 0.6)
+			_trail_between(_cage_root.to_global(around), _cage_root.to_global(n.position))
 		if k == 1:
 			# 「謝謝家豪！」是左邊那隻企鵝說的：跑到定位才開口，字貼在牠頭上
-			_cage_label.text = "謝謝家豪！" if t >= 1.1 else ""
-			_cage_label.position = _cage_root.to_global(n.position) + Vector3(0, 1.95, 0)
+			_cage_label.text = "謝謝家豪！" if (t >= 1.1 and not _finale_cheer) else ""     # 收尾的大遠景不放對話框
+			_cage_label.position = _cage_root.to_global(n.position) + Vector3(0, 2.0, 0)
+
+## 企鵝滑過去在雪地上留下的痕跡（一張拉長的軟陰影貼在地上，從起點拉到現在的位置）
+func _trail_between(a: Vector3, b: Vector3) -> void:
+	if _slide_trail == null:
+		_slide_trail = Decal.new()
+		_slide_trail.texture_albedo = load(TX + "shadow_blob.png")
+		_slide_trail.albedo_mix = 0.55
+		add_child(_slide_trail)
+	var d := b - a
+	d.y = 0.0
+	var length := maxf(d.length(), 0.05)
+	_slide_trail.visible = true
+	_slide_trail.size = Vector3(1.0, 1.2, length + 0.8)
+	_slide_trail.global_position = (a + b) * 0.5
+	_slide_trail.rotation.y = atan2(d.x, d.z)
 
 ## 企鵝的站位（開籠時算一次）：固定在家豪左、右、更左邊（以鏡頭看過去的左右），只避開水
 func _pick_spots() -> void:

@@ -7,8 +7,8 @@ func _ice_configure() -> void:
 	play_max = Vector2(20.0, 18.0)
 	hero_start = Vector3(0.0, 0.0, 9.5)
 	# 鏡頭：視角收窄到 45 度、退遠一點（像看一個小模型）。家豪在畫面最下面、籠子在最上面、冰湖佔中間一半以上
-	camera_start = Vector3(0.5, 11.0, 20.3)
-	camera_look = Vector3(0.5, -2.6, -1.2)       # y 只用來調俯角：家豪腳下留一點空間
+	camera_start = Vector3(-1.0, 11.0, 20.3)      # 鏡頭往西偏一點：西岸的漁村才整個在畫面裡
+	camera_look = Vector3(-1.0, -2.6, -1.2)       # y 只用來調俯角：家豪腳下留一點空間
 	camera_fov = 45.0
 	mood = "morning"
 	cage = Vector3(0.0, 0.0, -11.6)
@@ -27,13 +27,18 @@ func _ice_configure() -> void:
 	clear_paths = [[Vector3(-9.0, 0, -8.0), Vector3(-6.0, 0, -8.0), Vector3(-3.0, 0, -4.0), Vector3(0.0, 0, -2.5)]]
 	# 工人的冰釣營地（裝飾）：在他們出發點後面
 	camps = [{"pos": Vector3(-14.5, 0, -14.5), "yaw": 0.9}, {"pos": Vector3(13.5, 0, -16.0), "yaw": -0.7}]
-	# 冰湖周圍的區域（純裝飾）。高的東西都離冰洞 9 公尺以上：過關特寫的鏡頭會繞著冰洞拍
+	# 冰湖周圍的擺設（純裝飾）。高的東西都離冰洞 9 公尺以上：過關特寫的鏡頭會繞著冰洞拍
+	front_props = false
 	zones = [
-		# 這一關的地標：西岸的碼頭漁村——伸進湖裡的棧道、三間小屋、拖上岸的漁船
+		# 這一關的地標：西岸的碼頭漁村——伸進湖裡的棧道、一排三間小屋、拖上岸的漁船、曬著的漁網
 		{"type": "pier", "pos": Vector3(-8.6, 0, 0.0), "yaw": -1.57},
-		{"type": "village", "pos": Vector3(-13.6, 0, -3.2), "yaw": 1.57},
-		{"type": "boats", "pos": Vector3(-10.8, 0, 4.6), "yaw": 1.2},
+		{"type": "village", "pos": Vector3(-12.6, 0, -3.6), "yaw": 1.57, "huts": [[0.0, 0.0, 0.0, 1.1], [-0.5, -3.4, -0.25, 1.0], [-0.3, 6.0, 0.3, 0.9]]},
+		{"type": "boat", "pos": Vector3(-10.4, 0, 2.3), "yaw": 0.25},
+		{"type": "net", "pos": Vector3(-10.0, 0, 5.0), "yaw": 1.3},
+		# 漁村延伸到家豪出發點附近：一艘拖上岸的小船、一堆魚貨、曬魚架（避開左下的道具格和右下的開始鈕）
+		{"type": "boat", "pos": Vector3(-5.0, 0, 10.6), "yaw": 1.0, "tilt": -0.14, "scale": 0.95},
+		{"type": "crates", "pos": Vector3(3.6, 0, 10.4), "yaw": 0.3},
+		{"type": "rack", "pos": Vector3(5.6, 0, 9.2), "yaw": -0.4},
 		{"type": "crystals", "pos": Vector3(14.5, 0, -9.5)},
-		{"type": "crystals", "pos": Vector3(14.0, 0, 2.0)},
 		{"type": "creek", "from": Vector3(16.5, 0, -17.0), "to": Vector3(8.6, 0, -5.2)},
 	]

@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://prpjbo3x1yty"
-path="res://.godot/imported/tree-pine-snow.glb-e4901a6dcb32f033008f3b793a0375ff.scn"
+uid="uid://dp8ee5wk6t0ui"
+path="res://.godot/imported/fish_net.glb-bec8271d8139348989592ce061f41b64.scn"
 
 [deps]
 
-source_file="res://levels/ice/assets/kenney_platformer/tree-pine-snow.glb"
-dest_files=["res://.godot/imported/tree-pine-snow.glb-e4901a6dcb32f033008f3b793a0375ff.scn"]
+source_file="res://levels/ice/assets/blender/fish_net.glb"
+dest_files=["res://.godot/imported/fish_net.glb-bec8271d8139348989592ce061f41b64.scn"]
 
 [params]
 

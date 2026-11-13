@@ -574,14 +574,16 @@ def local_blob(parts, voxel, smooth_it, seed, amp, m, name, ratio=0.35, freq=1.3
     return o
 
 
-# ------------------------------------------------------------------ 雪人：Body（兩顆雪球＋圍巾＋樹枝手＋扣子）和 Head（頭＋紅蘿蔔＋煤炭眼＋水桶帽）分開
-# Head 的原點在頭的球心（戰局會把 Head 整個拿起來、放大、扣到工人頭上）。水桶帽跟著頭走，戴在誰頭上都認得出是雪人。
+# ------------------------------------------------------------------ 雪人：Body（兩顆雪球＋圍巾的領子和尾巴＋樹枝手＋扣子）和 Head（頭＋紅蘿蔔＋煤炭眼＋水桶帽＋圍巾的一圈和結）分開
+# Head 的原點在頭的球心（戰局會把 Head 整個拿起來、放大、扣到工人頭上）。水桶帽、紅蘿蔔、圍巾的那一圈紅色都跟著頭走，
+# 戴在誰頭上都認得出是雪人。身體上的 Scarf／ScarfTail 這兩個名字戰局會用（雪人倒下時藏起來），不要改。
 def build_snowman():
     clear()
     rnd = random.Random(21)
     snow = mat("snowman", (0.96, 0.98, 1.0), 0.95)
     coal = mat("coal", (0.07, 0.07, 0.09), 0.6)
-    carrot = mat("carrot", (1.0, 0.42, 0.06), 0.7)
+    carrot = mat("carrot", (0.93, 0.29, 0.02), 0.7)
+    carrot_dark = mat("carrot_dark", (0.70, 0.19, 0.02), 0.7)
     scarf = mat("scarf", (0.88, 0.14, 0.16), 0.85)
     stripe = mat("scarf_stripe", (0.98, 0.93, 0.85), 0.85)
     stick = mat("stick", (0.40, 0.25, 0.14), 0.9)
@@ -594,7 +596,7 @@ def build_snowman():
     for i, z in enumerate((0.98, 1.14, 1.28)):
         ball(0.05, (0, -0.42 + abs(z - 1.12) * 0.22, z), 1.0, coal, "Button%d" % i, body, amp=0.0, sub=2)
     # 圍巾：脖子上一圈＋垂下來的兩條尾巴（尾端有白條紋）
-    bpy.ops.mesh.primitive_torus_add(major_radius=0.30, minor_radius=0.085, location=(0, 0, 1.43), major_segments=20, minor_segments=8)
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.31, minor_radius=0.06, location=(0, 0, 1.44), major_segments=20, minor_segments=8)
     ring = bpy.context.object
     ring.scale = (1.0, 1.0, 0.8)
     apply_scale(ring)
@@ -621,14 +623,39 @@ def build_snowman():
     # 頭
     head = empty("Head", (0, 0, 1.68), root)
     ball(0.31, (0, 0, 1.68), 0.94, snow, "HeadBall", head, 11.0)
-    nose = tube([Vector((0, -0.24, 1.665)), Vector((0, -0.42, 1.66)), Vector((0, -0.62, 1.645)), Vector((0.01, -0.80, 1.63))], [0.082, 0.070, 0.045, 0.006], 10, "Nose")
+    # 紅蘿蔔：長長一根，往上、往旁邊翹（從正面看也是一根斜斜的紅蘿蔔，不是一顆圓點），上面幾道深色環紋
+    n0 = Vector((0.0, -0.24, 1.665))
+    ndir = Vector((0.40, -0.84, 0.30)).normalized()
+    npath = [n0 + ndir * t for t in (0.0, 0.14, 0.30, 0.46, 0.60)]
+    nose = tube(npath, [0.095, 0.082, 0.058, 0.032, 0.006], 10, "NoseBody")
     setmat(nose, carrot, True)
+    parts = [nose]
+    for t, r in ((0.13, 0.086), (0.26, 0.068), (0.39, 0.047)):
+        g = tube([n0 + ndir * (t - 0.012), n0 + ndir * (t + 0.012)], [r, r * 0.97], 10, "Groove")
+        setmat(g, carrot_dark, True)
+        parts.append(g)
+    nose = join(parts)
+    nose.name = "Nose"
     adopt(nose, head)
+    # 圍巾跟著頭走的那一圈（繞在頭的下緣）和一個結：頭扣到工人頭上時，球和頭頂之間看得到一圈紅色
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.295, minor_radius=0.078, location=(0, 0, 1.55), major_segments=22, minor_segments=8)
+    hs = bpy.context.object
+    hs.scale = (1.0, 1.0, 0.85)
+    apply_scale(hs)
+    hs.name = "HeadScarf"
+    setmat(hs, scarf, True)
+    adopt(hs, head)
+    knot = ball(0.10, (0.24, -0.26, 1.55), 0.9, scarf, "ScarfKnot", None, amp=0.0, sub=2)
+    k1 = beam((0.12, 0.05, 0.20), (0.33, -0.31, 1.47), scarf, "K1", None, rot=(0.5, 0.5, 0.2), bev=0.018)
+    k2 = beam((0.125, 0.055, 0.06), (0.375, -0.345, 1.395), stripe, "K2", None, rot=(0.5, 0.5, 0.2), bev=0.018)
+    knot = join([knot, k1, k2])
+    knot.name = "ScarfKnot"
+    adopt(knot, head)
     for x in (-0.115, 0.115):
-        ball(0.052, (x, -0.262, 1.775), 1.0, coal, "Eye", head, amp=0.0, sub=2)
+        ball(0.052, (x, -0.250, 1.80), 1.0, coal, "Eye", head, amp=0.0, sub=2)
     for k in range(5):
-        a = math.radians(-52 + k * 26)
-        ball(0.028, (math.sin(a) * 0.15, -0.262 - 0.02 * math.cos(a), 1.565 - math.cos(a) * 0.035), 1.0, coal, "Mouth", head, amp=0.0, sub=1)
+        a = math.radians(-44 + k * 22)
+        ball(0.024, (-0.02 + math.sin(a) * 0.13, -0.272 - 0.02 * math.cos(a), 1.652 - math.cos(a) * 0.03), 1.0, coal, "Mouth", head, amp=0.0, sub=1)
     # 水桶帽：倒扣在頭上、歪一邊
     bpy.ops.mesh.primitive_cone_add(vertices=16, radius1=0.255, radius2=0.19, depth=0.30, location=(0.03, 0.03, 2.03), rotation=(math.radians(-10), math.radians(12), 0))
     bucket = bpy.context.object
@@ -786,6 +813,44 @@ def build_boat():
     export("rowboat")
 
 
+# ------------------------------------------------------------------ 曬漁網的架子（第 9 關漁村）：兩個 A 字腳架一根橫桿，掛著一張網，下緣一排浮球
+def build_net():
+    clear()
+    rnd = random.Random(52)
+    wood_dark = mat("wood_dark", (0.52, 0.33, 0.19), 0.9)
+    rope = mat("net_rope", (0.86, 0.78, 0.60), 0.9)
+    f_red = mat("float_red", (0.92, 0.26, 0.20), 0.6)
+    f_white = mat("float_white", (0.97, 0.96, 0.92), 0.6)
+    half = 1.5
+    objs = []
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            objs.append(tube([Vector((sx * half, sy * 0.45, 0.0)), Vector((sx * half, 0.0, 1.75))], [0.055, 0.045], 6, "Leg"))
+    objs.append(tube([Vector((-half - 0.25, 0, 1.72)), Vector((half + 0.25, 0, 1.72))], [0.05, 0.05], 6, "Bar"))
+    frame = join(objs)
+    frame.name = "Frame"
+    setmat(frame, wood_dark, True)
+    # 網：直的線從橫桿垂下來（中間下垂多一點、往前鼓一點），橫的線串起來
+    nx, nz = 9, 5
+    def pt(i, j):
+        x = -half + 0.12 + (2 * half - 0.24) * i / (nx - 1)
+        t = j / (nz - 1.0)
+        sag = 0.10 * math.sin(math.pi * i / (nx - 1))
+        return Vector((x, -0.06 - 0.30 * t * t - sag * t, 1.68 - (1.28 + sag) * t))
+    lines = []
+    for i in range(nx):
+        lines.append(tube([pt(i, j) for j in range(nz)], [0.014] * nz, 4, "V"))
+    for j in range(1, nz):
+        lines.append(tube([pt(i, j) for i in range(nx)], [0.014] * nx, 4, "H"))
+    net = join(lines)
+    net.name = "Net"
+    setmat(net, rope, True)
+    for i in range(0, nx, 2):
+        p = pt(i, nz - 1)
+        ball(0.085, (p.x, p.y, p.z - 0.06), 0.85, f_red if (i // 2) % 2 == 0 else f_white, "Float", None, amp=0.0, sub=2)
+    export("fish_net")
+
+
 # ------------------------------------------------------------------ 夜市攤位、一串燈籠（第 11 關燈籠夜市的地標）
 def build_market():
     clear()
@@ -856,4 +921,5 @@ build_snowman()
 build_cage()
 build_boulders()
 build_boat()
+build_net()
 build_market()

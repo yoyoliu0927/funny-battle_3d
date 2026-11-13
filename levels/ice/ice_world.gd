@@ -32,13 +32,19 @@ var camps: Array = []
 var keep_clear: Array = []
 ## 要不要自動擺外圈裝飾、冰洞釣具、下雪
 var decor := true
-## 冰湖周圍的區域（純裝飾，讓地圖不只是中間一個湖）：
-##   {"type": "village", "pos", "yaw"}  冰釣小村（小屋、柴堆、雪橇、燈）
-##   {"type": "pier", "pos", "yaw"}     伸進湖裡的木棧道（往 yaw 方向）
-##   {"type": "crystals", "pos"}        發光的冰晶簇
-##   {"type": "sculptures", "pos", "yaw"}  冰雕公園（冰做的企鵝、魚）
-##   {"type": "lamps", "from", "to"}    路兩旁的燈籠
-##   {"type": "creek", "from", "to"}    結冰的小溪（from 是源頭，to 通常接到湖邊；最多 3 條）
+## 冰湖周圍的擺設（純裝飾）。每一項 {"type": 種類, "pos": Vector3, "yaw": 弧度（可省）, …}：
+##   "village"   冰釣小村（小屋、柴堆、雪橇、燈）。"huts": [[往前, 往右, 轉幾度, 大小], ...] 可以自己排小屋
+##   "pier"      伸進湖裡的木棧道（往 yaw 方向）
+##   "crystals"  發光的冰晶簇
+##   "sculptures" 一排三座小冰雕
+##   "statue"    一座冰雕。"kind": "penguin"／"fish"，"scale": 大小
+##   "boat"      拖上岸的小木船。"scale"、"tilt"（歪幾度）
+##   "net"       曬漁網的架子      "rack" 曬魚架      "crates" 一小堆木箱木桶
+##   "stall"     夜市攤位（有一盞暖光）。"scale"
+##   "string"    一串圓燈籠（兩根柱子中間）
+##   "lantern"   一盞立燈（有一圈暖光）
+##   "lamps"     路兩旁的燈籠："from"、"to"
+##   "creek"     結冰的小溪："from" 是源頭，"to" 通常接到湖邊；最多 3 條
 var zones: Array = []
 ## 這一關的時段：只換光線、天空、海的顏色。"morning" 早晨／"sunset" 黃昏／"dusk" 藍調傍晚
 var mood := "morning"
@@ -50,6 +56,13 @@ var camera_fov := 0.0
 var isle: Dictionary = {}
 ## 裝飾要讓開的路線（工人的紅線；家豪的黃線 rescue_world 會自己加）：[[Vector3, Vector3, ...], ...]
 var clear_paths: Array = []
+## 冰面上要保持乾淨的點（例如兩條路線的交叉點）：周圍 4 公尺不放碎冰之類的小東西。[Vector3, ...]
+var clear_spots: Array = []
+## 全章收尾（finale_show）建議的鏡頭：站在哪、看哪。不設就照地圖自動算（從南邊高處看整張地圖和北邊的天空）
+var finale_cam_pos := Vector3.ZERO
+var finale_cam_look := Vector3.ZERO
+## 鏡頭前面那片雪地要不要自動放一小堆東西（雪橇、木頭）。關卡自己在 zones 裡擺了前景就關掉；腳印還是會有
+var front_props := true
 
 const KH := "res://levels/ice/assets/kenney_holiday/"
 const KS := "res://levels/ice/assets/kenney_survival/"
@@ -80,6 +93,18 @@ var _wall_mat: ShaderMaterial      # 冰洞口的斷面（比較藍、比較亮�
 var _water_mat: ShaderMaterial     # 冰洞裡的水
 var _cloud_mat: ShaderMaterial
 var _toon_cache := {}              # 模型原本的材質 → 卡通材質（kit_prop.gdshader）
+var _tree_cache := {}              # 雪松原本的網格 → 加了頂點色（每層深淺）的網格
+var _tree_mats := {}
+var _penguin_mats := {}
+var _statue_mat: ShaderMaterial    # 冰雕（比冰湖暗一點、帶一點時段的顏色，不跟冰湖搶）
+var _sky_mat: ShaderMaterial
+var _glow_mats: Array = []         # 會發光的燈籠材質 {mat, base}（收尾時閃爍）
+var _finale_on := false
+var _finale_t := 0.0
+var _finale_root: Node3D           # 收尾時才有的東西（煙火、肚滑的企鵝）
+var _finale_next := 0.0            # 下一發煙火的時間
+var _sliders: Array = []           # 收尾時在冰湖上肚滑的企鵝 {node, k}
+var _finale_rng := RandomNumberGenerator.new()
 
 ## 每個時段的顏色
 ##   hor = 天空靠近地平線的顏色，band = 地平線那一條亮帶（海的遠處也是這個顏色），cliff = 冰崖上／中／下的顏色
@@ -97,13 +122,15 @@ const MOODS := {
 		"snow_lit": Color(0.95, 0.94, 0.98), "snow_shade": Color(0.76, 0.76, 0.98), "exposure": 1.0,
 		"ice_glow": 0.70, "ice_lit": 0.40, "sky_tint": Color(0.86, 0.94, 1.0), "water": 1.0, "lamp": 1.5,
 		"ice_mid": Color(0.14, 0.72, 0.86), "ice_deep": Color(0.04, 0.38, 0.68),
+		"statue": [Color(0.44, 0.40, 0.76), Color(0.90, 0.80, 0.96)],
 		"sea_deep": Color(0.20, 0.22, 0.54), "sea_near": Color(0.42, 0.36, 0.68), "sea_stroke": Color(1.0, 0.80, 0.74), "sea_stroke2": Color(0.66, 0.50, 0.78),
 		"cliff": [Color(0.86, 0.92, 0.98), Color(0.36, 0.72, 0.90), Color(0.16, 0.40, 0.72)], "cliff_glow": 0.40},
 	# 夜晚：深靛色到青綠的夜空、星星、一條極光；桃紅只留在地平線。海是深青色，跟黃昏的紫色海分得出來。
-	"dusk": {"sun": Color(0.70, 0.84, 1.0), "energy": 0.80, "rot": Vector3(-0.62, -0.7, 0), "amb": Color(0.34, 0.46, 0.72), "amb_e": 0.95,
+	"dusk": {"sun": Color(0.74, 0.84, 1.0), "energy": 0.80, "rot": Vector3(-0.62, -0.7, 0), "amb": Color(0.42, 0.48, 0.64), "amb_e": 0.95,
+		"aurora_refl": 1.0, "center_lift": 0.14, "statue": [Color(0.16, 0.40, 0.66), Color(0.60, 0.84, 0.94)],
 		"top": Color(0.02, 0.04, 0.20), "hor": Color(0.06, 0.34, 0.44), "band": Color(1.0, 0.58, 0.56), "glow_band": 0.85, "band_thin": 26.0,
 		"cloud": Color(0.34, 0.50, 0.66), "cloud_sh": Color(0.08, 0.16, 0.34), "sun_glow": Color(0.6, 0.75, 1.0), "stars": 1.0, "aurora": 1.0,
-		"snow_lit": Color(0.88, 0.93, 1.0), "snow_shade": Color(0.54, 0.70, 0.94), "exposure": 1.05,
+		"snow_lit": Color(0.90, 0.93, 1.0), "snow_shade": Color(0.60, 0.70, 0.90), "exposure": 1.05,
 		"ice_glow": 0.46, "ice_lit": 0.60, "sky_tint": Color(0.50, 0.82, 0.92), "water": 1.25, "lamp": 2.6,
 		"sea_deep": Color(0.02, 0.09, 0.22), "sea_near": Color(0.04, 0.25, 0.38), "sea_stroke": Color(0.40, 0.88, 0.84), "sea_stroke2": Color(0.08, 0.40, 0.54),
 		"sea_far": Color(0.16, 0.24, 0.40), "fog": Color(0.10, 0.28, 0.42),
@@ -184,6 +211,11 @@ func _fit_isle() -> void:
 	if worst > 0.86:
 		isle.rx = float(isle.rx) * worst / 0.86
 		isle.rz = float(isle.rz) * worst / 0.86
+	if finale_cam_pos == Vector3.ZERO:
+		# 收尾鏡頭：站在地圖南邊外面的高處往北看，整張地圖在畫面下半、北邊的天空（極光）在上半
+		var south := c.y + float(isle.rz)
+		finale_cam_pos = Vector3(c.x + 3.0, 15.0, south + 19.0)
+		finale_cam_look = Vector3(c.x, 15.0 - 60.0 * tan(deg_to_rad(7.5)), finale_cam_pos.z - 60.0)
 
 ## 地圖頂面看起來的高度：跟 height_at 一樣，但冰洞底下不挖坑（冰面一路平到洞口），湖岸多一圈鼓起來的雪堤
 func _top_y(x: float, z: float) -> float:
@@ -378,6 +410,10 @@ func _toon_mat(src: Material) -> ShaderMaterial:
 		m.set_shader_parameter("albedo_tex", sm.albedo_texture)
 	m.set_shader_parameter("tint", sm.albedo_color)
 	m.set_shader_parameter("detail_tex", load(TX + "snow_soft.png"))
+	if String(sm.resource_name).begins_with("carrot"):
+		m.set_shader_parameter("emission_c", sm.albedo_color * (0.10 + 0.14 * (_lamp_gain() - 1.0)))
+		m.set_shader_parameter("ground_shade", 0.0)
+		m.set_shader_parameter("detail", 0.0)
 	if String(sm.resource_name) == "snowman":
 		# 雪人自己帶一點白：夜裡背光的時候才不會變成一顆藍球（頭戴在工人頭上也認得出是雪）
 		m.set_shader_parameter("emission_c", Color(0.9, 0.95, 1.0) * (0.06 + 0.12 * (_lamp_gain() - 1.0)))
@@ -386,6 +422,8 @@ func _toon_mat(src: Material) -> ShaderMaterial:
 		# 會發光的（燈籠）：白天收斂一點，晚上亮一點
 		var k := lerpf(0.5, 1.6, clampf((_lamp_gain() - 1.0) / 1.6, 0.0, 1.0)) if String(sm.resource_name).begins_with("lantern_glow") else 1.0
 		m.set_shader_parameter("emission_c", sm.emission * sm.emission_energy_multiplier * k)
+		if String(sm.resource_name).begins_with("lantern_glow"):
+			_glow_mats.append({"mat": m, "base": sm.emission * sm.emission_energy_multiplier * k})
 	_toon_cache[sm] = m
 	return m
 
@@ -533,6 +571,15 @@ func _make_materials() -> void:
 	_water_mat.shader = load(SH + "hole_water.gdshader")
 	_water_mat.set_shader_parameter("wave_tex", load(TX + "sea_waves.png"))
 	_water_mat.set_shader_parameter("brightness", md.water)
+	# 冰雕：比冰湖暗、帶一點這個時段的顏色（黃昏是粉紫），在畫面邊上才不會跟冰湖搶焦點
+	var sc: Array = md.get("statue", [Color(0.18, 0.44, 0.72), Color(0.64, 0.84, 0.96)])
+	_statue_mat = _ice_solid.duplicate() as ShaderMaterial
+	_statue_mat.set_shader_parameter("inner", sc[0])
+	_statue_mat.set_shader_parameter("outer", sc[1])
+	_statue_mat.set_shader_parameter("glow", float(md.ice_glow) * 0.35)
+	_statue_mat.set_shader_parameter("crack_amount", 0.2)
+	_top_mat.set_shader_parameter("aurora_refl", md.get("aurora_refl", 0.0))
+	_top_mat.set_shader_parameter("center_lift", md.get("center_lift", 0.0))
 	_cloud_mat = ShaderMaterial.new()
 	_cloud_mat.shader = load(SH + "cloud_puff.gdshader")
 	_cloud_mat.set_shader_parameter("light_c", md.cloud)
@@ -612,6 +659,12 @@ func _build_hole(root: Node3D, i: int) -> void:
 			continue
 		var px := c.x + cos(a) * rr
 		var pz := c.y + sin(a) * rr
+		var keep_out := false
+		for sp in clear_spots:
+			if Vector2(px - sp.x, pz - sp.z).length() < 4.2:
+				keep_out = true
+		if keep_out:
+			continue
 		var ch := _prop(root, MB + "ice_chunk_" + kind + ".glb", Vector3(px, _top_y(px, pz) - 0.03, pz), yaw, 1.0)
 		if ch:
 			ch.scale = Vector3(s, s * rng.randf_range(0.8, 1.2), s)
@@ -667,13 +720,83 @@ func _snowman(parent: Node3D, p: Vector3) -> void:
 
 ## 會擋路的雪松（Kenney Holiday Kit）
 func _pine(parent: Node3D, p: Vector3, low := false) -> void:
-	var y := height_at(p.x, p.z)
-	_prop(parent, KH + "tree-snow-a.glb", Vector3(p.x, y, p.z), p.x, 1.45 if low else 2.8)
-	_blob_shadow(parent, Vector3(p.x, y, p.z), 1.0 if low else 1.7)
+	_tree(parent, 0, Vector3(p.x, height_at(p.x, p.z), p.z), p.x, 1.45 if low else 2.8)
 	obstacles.append([Vector2(p.x, p.z), 0.7])
 
+## 放一棵雪松（Kenney Holiday Kit 的 tree-snow-a／b／c），加上每一層的深淺和腳下的陰影
+func _tree(root: Node3D, kind: int, pos: Vector3, yaw: float, scale: float) -> Node3D:
+	var n := _prop(root, KH + ["tree-snow-a", "tree-snow-b", "tree-snow-c"][kind % 3] + ".glb", pos, yaw, scale)
+	_shade_tree(n)
+	_blob_shadow(root, pos, 0.6 * scale)
+	return n
+
+## 雪松不要平塗：每一層樹葉的底部一圈深綠、積雪的下緣一條亮邊。
+## 做法：載入時把每個三角形「在這一層裡的高度」寫進頂點色（同一個網格只算一次），卡通材質再照頂點色上深淺。
+func _shade_tree(n: Node3D) -> void:
+	if n == null:
+		return
+	for m in n.find_children("*", "MeshInstance3D", true, false):
+		var mi := m as MeshInstance3D
+		var src := mi.mesh
+		if src == null:
+			continue
+		if not _tree_cache.has(src):
+			_tree_cache[src] = _tree_mesh(src)
+		for i in src.get_surface_count():
+			mi.set_surface_override_material(i, null)
+		mi.mesh = _tree_cache[src]
+
+func _tree_mesh(src: Mesh) -> Mesh:
+	var out := ArrayMesh.new()
+	for s in src.get_surface_count():
+		var arr := src.surface_get_arrays(s)
+		var v: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var nrm: PackedVector3Array = arr[Mesh.ARRAY_NORMAL] if arr[Mesh.ARRAY_NORMAL] != null else PackedVector3Array()
+		var uv: PackedVector2Array = arr[Mesh.ARRAY_TEX_UV] if arr[Mesh.ARRAY_TEX_UV] != null else PackedVector2Array()
+		var idx: PackedInt32Array = arr[Mesh.ARRAY_INDEX] if arr[Mesh.ARRAY_INDEX] != null else PackedInt32Array()
+		var mat := src.surface_get_material(s) as BaseMaterial3D
+		var img: Image = null
+		if mat and mat.albedo_texture:
+			img = mat.albedo_texture.get_image()
+			if img and img.is_compressed():
+				img.decompress()
+		var col := PackedColorArray()
+		col.resize(v.size())
+		col.fill(Color(1, 0, 0))
+		var n_tri := (idx.size() if not idx.is_empty() else v.size()) / 3
+		for t in n_tri:
+			var ia: Array = [t * 3, t * 3 + 1, t * 3 + 2]
+			if not idx.is_empty():
+				ia = [idx[t * 3], idx[t * 3 + 1], idx[t * 3 + 2]]
+			var y0 := minf(v[ia[0]].y, minf(v[ia[1]].y, v[ia[2]].y))
+			var y1 := maxf(v[ia[0]].y, maxf(v[ia[1]].y, v[ia[2]].y))
+			var snow := 0.0
+			if img and not uv.is_empty():
+				var u: Vector2 = uv[ia[0]]
+				var c := img.get_pixel(clampi(int(u.x * img.get_width()), 0, img.get_width() - 1), clampi(int(u.y * img.get_height()), 0, img.get_height() - 1))
+				snow = 1.0 if minf(c.r, minf(c.g, c.b)) > 0.7 else 0.0
+			for k in 3:
+				var vi: int = ia[k]
+				var h := 1.0
+				if y1 - y0 > 0.02:
+					h = (v[vi].y - y0) / (y1 - y0)
+				elif not nrm.is_empty() and nrm[vi].y < 0.0:
+					h = 0.0                     # 每一層朝下的底面：整片深色
+				col[vi] = Color(h, snow, 0.0)
+		arr[Mesh.ARRAY_COLOR] = col
+		out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+		if not _tree_mats.has(mat):
+			var tm := _toon_mat(mat)
+			if tm:
+				tm = tm.duplicate() as ShaderMaterial
+				tm.set_shader_parameter("tree_shade", 1.0)
+			_tree_mats[mat] = tm
+		out.surface_set_material(s, _tree_mats[mat] if _tree_mats[mat] else mat)
+	return out
+
 ## 企鵝（Kenney Cube Pets，CC0）：方塊身體、大眼睛，跟工人同一家的造型。高度大約 1，臉朝 +Z。
-## 模型自己帶動畫（idle／dance／walk…）：平常播 idle，要換就找裡面的 AnimationPlayer。
+## 素材包裡身體是灰藍色，這裡改成接近黑色（白肚子、橘色嘴和腳不動），加一圈輪廓光：夜裡站在籠子前面也看得出是企鵝。
+## 模型自己帶動畫（idle／dance／walk…）：平常播 idle，要換就呼叫 penguin_anim()。
 func make_penguin(parent: Node3D, pos: Vector3, yaw := 0.0) -> Node3D:
 	var node := Node3D.new()
 	node.position = Vector3(pos.x, height_at(pos.x, pos.z), pos.z)
@@ -681,13 +804,36 @@ func make_penguin(parent: Node3D, pos: Vector3, yaw := 0.0) -> Node3D:
 	parent.add_child(node)
 	var m := _prop(node, KC + "animal-penguin.glb", Vector3.ZERO, 0.0, 0.6)
 	if m:
+		for c in m.find_children("*", "MeshInstance3D", true, false):
+			var mi := c as MeshInstance3D
+			for i in mi.mesh.get_surface_count():
+				var src := mi.mesh.surface_get_material(i)
+				if not _penguin_mats.has(src):
+					var pm := _toon_mat(src)
+					if pm:
+						pm = pm.duplicate() as ShaderMaterial
+						var night := clampf((_lamp_gain() - 1.0) / 1.6, 0.0, 1.0)
+						pm.set_shader_parameter("dark_body", 1.0)
+						pm.set_shader_parameter("rim", 0.30 + 0.45 * night)
+						pm.set_shader_parameter("ground_shade", 0.1)
+						pm.set_shader_parameter("emission_c", Color(0.9, 0.95, 1.0) * 0.05 * night)
+					_penguin_mats[src] = pm
+				if _penguin_mats[src]:
+					mi.set_surface_override_material(i, _penguin_mats[src])
 		penguin_anim(node, "idle")
 	return node
 
-## 讓企鵝播某個動畫（循環）
+## 讓企鵝播某個動畫（循環）。anim 給空字串 = 停在站好的姿勢（之後由程式自己擺翅膀）
 func penguin_anim(penguin: Node3D, anim: String) -> void:
 	var ap := penguin.find_child("AnimationPlayer", true, false) as AnimationPlayer
-	if ap and ap.has_animation(anim) and ap.current_animation != anim:
+	if ap == null:
+		return
+	if anim == "":
+		if ap.has_animation("static"):
+			ap.play("static")
+			ap.advance(0.0)
+		ap.pause()
+	elif ap.has_animation(anim) and (ap.current_animation != anim or not ap.is_playing()):
 		ap.get_animation(anim).loop_mode = Animation.LOOP_LINEAR
 		ap.play(anim, 0.2)
 
@@ -787,6 +933,7 @@ func _weather() -> void:
 		sm.set_shader_parameter("stars", m.stars)
 		sm.set_shader_parameter("aurora", m.aurora)
 		sky.sky_material = sm
+		_sky_mat = sm
 		env.sky = sky
 		env_node.environment = env
 	var sun := get_parent().get_node_or_null("Sun") as DirectionalLight3D
@@ -811,22 +958,54 @@ func _build_decor(root: Node3D) -> void:
 	for c in camps:
 		_camp(root, c.pos, float(c.get("yaw", 0.0)))
 	for z in zones:
-		var yaw: float = z.get("yaw", 0.0)
-		match String(z.type):
-			"village": _village(root, z.pos, yaw)
-			"pier":
-				_prop(root, MB + "pier.glb", _g(z.pos.x, z.pos.z), yaw, 1.0)
-			"crystals": _crystals(root, z.pos)
-			"sculptures": _sculptures(root, z.pos, yaw)
-			"lamps": _lamps(root, z.from, z.to)
-			"creek": _creek_banks(root, z.from, z.to)
-			"boats": _boats(root, z.pos, yaw)
-			"plaza": _plaza(root, z.pos, yaw)
-			"market": _market(root, z.pos, yaw)
+		_zone_item(root, z)
 	_foreground(root)
 	_snowfall(root)
 
-## 這個位置能不能放外圈的裝飾（在地圖上、不在湖上、冰洞旁、路線上、籠子和出發點旁、其他區域裡）
+## zones 裡的一項擺設（種類見最上面的說明）
+func _zone_item(root: Node3D, z: Dictionary) -> void:
+	var yaw: float = z.get("yaw", 0.0)
+	var sc: float = z.get("scale", 1.0)
+	var g := Vector3.ZERO
+	if z.has("pos"):
+		g = _g(z.pos.x, z.pos.z)
+	match String(z.type):
+		"village": _village(root, z.pos, yaw, z.get("huts", []))
+		"pier": _prop(root, MB + "pier.glb", g, yaw, 1.0)
+		"crystals": _crystals(root, z.pos)
+		"sculptures": _sculptures(root, z.pos, yaw)
+		"lamps": _lamps(root, z.from, z.to)
+		"creek": _creek_banks(root, z.from, z.to)
+		"statue":
+			_ice_statue(root, g, (KS + "fish-large.glb") if String(z.get("kind", "penguin")) == "fish" else (KC + "animal-penguin.glb"), yaw, sc)
+		"boat":
+			var b := _prop(root, MB + "rowboat.glb", g + Vector3(0, -0.12, 0), yaw, sc)
+			if b:
+				b.rotation.z = float(z.get("tilt", 0.10))
+			_blob_shadow(root, g, 2.1 * sc)
+		"net":
+			_prop(root, MB + "fish_net.glb", g, yaw, sc)
+			_blob_shadow(root, g, 1.7 * sc, 0.4)
+		"rack":
+			_prop(root, KS + "campfire-fishing-stand.glb", g, yaw, 2.2 * sc)
+			_blob_shadow(root, g, 0.9 * sc, 0.4)
+		"crates":
+			_prop(root, KP + "crate.glb", g, yaw + 0.5, 1.7 * sc)
+			_prop(root, KS + "barrel.glb", _g(z.pos.x + 1.0 * sc, z.pos.z + 0.35 * sc), yaw, 1.6 * sc)
+			_prop(root, KS + "fish-large.glb", g + Vector3(0, 0.86 * sc, 0), yaw + 1.2, 1.2 * sc)
+			_blob_shadow(root, g + Vector3(0.4, 0, 0.1), 1.2 * sc)
+		"stall":
+			_prop(root, MB + "market_stall.glb", g, yaw, 1.25 * sc)
+			_blob_shadow(root, g, 1.9 * sc)
+			_warm_light(root, g + Vector3(sin(yaw), 0, cos(yaw)) * 1.2 + Vector3(0, 1.9, 0), 1.0, 4.0)
+		"string":
+			_prop(root, MB + "lantern_string.glb", g, yaw, sc)
+			_warm_light(root, g + Vector3(0, 2.3, 0), 1.2, 5.5)
+		"lantern":
+			_prop(root, KH + "lantern.glb", g, yaw, 1.6 * sc)
+			_warm_light(root, g + Vector3(0, 1.7, 0), 1.3, 4.6)
+
+## 這個位置能不能放外圈的裝飾（在地圖上、不在湖上、冰洞旁、路線上、籠子和出發點旁、其他擺設旁）
 func _decor_ok(x: float, z: float, room := 3.4) -> bool:
 	if not Isle.inside(isle, x, z, 1.1):
 		return false                       # 海灣把岸邊凹進去的地方
@@ -843,10 +1022,8 @@ func _decor_ok(x: float, z: float, room := 3.4) -> bool:
 			return false
 	for zn in zones:
 		if zn.has("pos"):
-			var need := 3.6
-			match String(zn.type):
-				"village", "plaza", "market": need = 6.5
-				"boats": need = 5.0
+			var need: float = {"village": 7.0, "boat": 3.4, "net": 2.8, "stall": 3.2, "string": 3.4, "statue": 2.4 * float(zn.get("scale", 1.0)) + 1.0,
+				"crystals": 3.6, "sculptures": 3.6}.get(String(zn.type), 2.6)
 			if Vector2(x - zn.pos.x, z - zn.pos.z).length() < need:
 				return false
 		if zn.has("from"):
@@ -898,14 +1075,8 @@ func _rim_decor(root: Node3D, rng: RandomNumberGenerator) -> void:
 			if roll < 0.3:
 				_drift(root, p - Vector3(0, 0.07, 0), ["a", "c", "d"][int(sc * 2.99)], yaw, Vector3(1, 0.7, 1) * lerpf(0.6, 1.0, sc))
 			continue
-		if roll < 0.50:
-			var s := lerpf(1.9, 2.9, sc)
-			_prop(root, KH + ["tree-snow-a", "tree-snow-b", "tree-snow-c"][int(sc * 2.99)] + ".glb", p, yaw, s)
-			_blob_shadow(root, p, 0.6 * s)
-		elif roll < 0.66:
-			var s := lerpf(1.6, 2.4, sc)
-			_prop(root, KP + ["tree-pine-snow", "tree-pine-snow-small"][int(sc * 1.99)] + ".glb", p, yaw, s)
-			_blob_shadow(root, p, 0.55 * s)
+		if roll < 0.66:
+			_tree(root, int(sc * 2.99), p, yaw, lerpf(1.7, 2.9, fposmod(sc * 3.7, 1.0)))
 		elif roll < 0.80:
 			var s := lerpf(0.9, 1.5, sc)
 			_prop(root, MB + ["snow_rock_a", "snow_rock_b"][int(sc * 1.99)] + ".glb", p - Vector3(0, 0.12, 0), yaw, s)
@@ -977,25 +1148,25 @@ func _camp(root: Node3D, p: Vector3, yaw: float) -> void:
 	_restyle(flame, false)
 	_fires.append({"light": light, "flame": flame})
 
-## 冰釣小村：三間小屋（Blender 自製）、柴堆、雪橇、雪堆、掛燈、木箱
-func _village(root: Node3D, p: Vector3, yaw: float) -> void:
+## 冰釣小村：幾間小屋（Blender 自製）、柴堆、雪橇、木桶木箱、掛燈。
+## huts = [[往前, 往右, 多轉幾度, 大小], ...]（不給就用預設的三間）
+func _village(root: Node3D, p: Vector3, yaw: float, huts: Array = []) -> void:
 	var fw := Vector3(sin(yaw), 0, cos(yaw))
 	var rt := fw.cross(Vector3.UP)
 	var at := func(f: float, r: float) -> Vector3: return _g(p.x + fw.x * f + rt.x * r, p.z + fw.z * f + rt.z * r)
-	for h in [[0.0, 0.0, 0.0, 1.15], [-2.2, 3.0, 0.35, 1.0], [-1.0, -3.2, -0.3, 0.95]]:
+	if huts.is_empty():
+		huts = [[0.0, 0.0, 0.0, 1.15], [-2.2, 3.0, 0.35, 1.0], [-1.0, -3.2, -0.3, 0.95]]
+	for h in huts:
 		_prop(root, MB + "fishing_hut.glb", at.call(h[0], h[1]), yaw + float(h[2]), float(h[3]))
 		_blob_shadow(root, at.call(h[0], h[1]), 2.2 * float(h[3]))
-	_prop(root, KS + "resource-wood.glb", at.call(1.4, 1.8), yaw + 0.5, 1.8)
-	_prop(root, KH + "sled.glb", at.call(1.8, -1.6), yaw + 1.2, 1.6)
-	_prop(root, KS + "barrel.glb", at.call(1.3, 2.9), yaw, 1.5)
-	_prop(root, KP + "crate.glb", at.call(2.0, 3.6), yaw + 0.5, 1.8)
-	_drift(root, (at.call(-2.8, -0.6) as Vector3) - Vector3(0, 0.05, 0), "b", yaw, Vector3.ONE * 1.3)
-	_prop(root, KH + "lantern.glb", at.call(1.6, 0.4), yaw, 1.8)
-	_warm_light(root, at.call(1.6, 0.4) + Vector3(0, 1.4, 0))
-	if _lamp_gain() > 1.2:
-		# 黃昏、傍晚：每間小屋門口一盞暖光
-		for hp in [at.call(1.2, 0.0), at.call(-1.0, 3.0), at.call(0.2, -3.2)]:
-			_warm_light(root, (hp as Vector3) + Vector3(0, 1.0, 0), 0.7, 3.0)
+		if _lamp_gain() > 1.2:
+			# 黃昏、傍晚：每間小屋門口一盞暖光
+			_warm_light(root, (at.call(float(h[0]) + 1.2, h[1]) as Vector3) + Vector3(0, 1.0, 0), 0.7, 3.0)
+	_prop(root, KS + "resource-wood.glb", at.call(-1.9, 1.7), yaw + 0.5, 1.8)
+	_prop(root, KH + "sled.glb", at.call(1.9, -1.9), yaw + 1.2, 1.6)
+	_prop(root, KS + "barrel.glb", at.call(1.7, 1.5), yaw, 1.5)
+	_prop(root, KH + "lantern.glb", at.call(2.0, 0.2), yaw, 1.8)
+	_warm_light(root, at.call(2.0, 0.2) + Vector3(0, 1.4, 0))
 
 ## 冰晶簇（Blender 自製，半透明會發光）＋淡藍色的光
 func _crystals(root: Node3D, p: Vector3) -> void:
@@ -1013,7 +1184,14 @@ func _crystals(root: Node3D, p: Vector3) -> void:
 
 ## 一座冰雕：冰台座（Blender 模型）上放一個冰做的模型
 func _ice_statue(root: Node3D, q: Vector3, model: String, yaw: float, scale: float) -> void:
-	_restyle(_prop(root, MB + "ice_pedestal.glb", q + Vector3(0, -0.04, 0), yaw + q.x, 1.0 * maxf(scale / 1.2, 1.0)))
+	var ped := _prop(root, MB + "ice_pedestal.glb", q + Vector3(0, -0.04, 0), yaw + q.x, 1.0 * maxf(scale / 1.2, 1.0))
+	if ped:
+		for m in ped.find_children("*", "MeshInstance3D", true, false):
+			var pmi := m as MeshInstance3D
+			for i in pmi.mesh.get_surface_count():
+				var pmat := pmi.mesh.surface_get_material(i)
+				if pmat and String(pmat.resource_name) == "ice":
+					pmi.set_surface_override_material(i, _statue_mat)
 	_blob_shadow(root, q, 0.95 * maxf(scale / 1.2, 1.0), 0.4)
 	var st := _prop(root, model, q + Vector3(0, 0.5 * maxf(scale / 1.2, 1.0), 0), yaw, scale)
 	if st:
@@ -1021,7 +1199,7 @@ func _ice_statue(root: Node3D, q: Vector3, model: String, yaw: float, scale: flo
 		if ap:
 			ap.stop()                 # 冰雕不會動
 		for m in st.find_children("*", "MeshInstance3D", true, false):
-			(m as MeshInstance3D).material_override = _ice_solid
+			(m as MeshInstance3D).material_override = _statue_mat
 
 ## 冰雕（小）：三座排一排——兩隻冰企鵝、一條冰魚
 func _sculptures(root: Node3D, p: Vector3, yaw: float) -> void:
@@ -1029,65 +1207,6 @@ func _sculptures(root: Node3D, p: Vector3, yaw: float) -> void:
 	for sp in [[-1.6, KC + "animal-penguin.glb", 0.9], [0.0, KC + "animal-penguin.glb", 1.2], [1.6, KS + "fish-large.glb", 2.2]]:
 		var q: Vector3 = p + rt * float(sp[0])
 		_ice_statue(root, _g(q.x, q.z), String(sp[1]), yaw, float(sp[2]))
-
-## 【地標】冰雕廣場：一圈大冰雕（正中間一隻特大的冰企鵝）圍著一簇冰晶，兩旁掛燈，前面一段矮繩欄
-func _plaza(root: Node3D, p: Vector3, yaw: float) -> void:
-	var fw := Vector3(sin(yaw), 0, cos(yaw))
-	var rt := fw.cross(Vector3.UP)
-	var at := func(f: float, r: float) -> Vector3: return _g(p.x + fw.x * f + rt.x * r, p.z + fw.z * f + rt.z * r)
-	_ice_statue(root, at.call(-1.6, 0.0), KC + "animal-penguin.glb", yaw, 2.3)
-	_ice_statue(root, at.call(-0.4, -3.0), KC + "animal-penguin.glb", yaw + 0.35, 1.3)
-	_ice_statue(root, at.call(-0.4, 3.0), KS + "fish-large.glb", yaw - 0.35, 3.0)
-	_ice_statue(root, at.call(1.4, -4.6), KS + "fish-large.glb", yaw + 0.8, 2.2)
-	_ice_statue(root, at.call(1.4, 4.6), KC + "animal-penguin.glb", yaw - 0.6, 1.1)
-	_prop(root, MB + "ice_crystals.glb", at.call(1.2, 0.0), yaw, 1.2)
-	for sgn in [-1.0, 1.0]:
-		var lp: Vector3 = at.call(2.6, 2.2 * sgn)
-		_prop(root, KH + "lantern.glb", lp, yaw, 1.7)
-		_warm_light(root, lp + Vector3(0, 1.6, 0), 1.2, 4.5)
-	var l := OmniLight3D.new()
-	l.light_color = Color(0.55, 0.88, 1.0)
-	l.light_energy = 1.6
-	l.omni_range = 6.5
-	l.light_specular = 0.0
-	l.position = (at.call(0.0, 0.0) as Vector3) + Vector3(0, 2.2, 0)
-	root.add_child(l)
-
-## 【地標】碼頭漁村的漁船：兩艘拖上岸的小木船（Blender 模型）、曬魚架、木桶木箱
-func _boats(root: Node3D, p: Vector3, yaw: float) -> void:
-	var fw := Vector3(sin(yaw), 0, cos(yaw))
-	var rt := fw.cross(Vector3.UP)
-	var at := func(f: float, r: float) -> Vector3: return _g(p.x + fw.x * f + rt.x * r, p.z + fw.z * f + rt.z * r)
-	var b1 := _prop(root, MB + "rowboat.glb", (at.call(0.0, 0.0) as Vector3) + Vector3(0, -0.12, 0), yaw + 0.25, 1.05)
-	if b1:
-		b1.rotation.z = 0.10
-	_blob_shadow(root, at.call(0.0, 0.0), 2.3)
-	var b2 := _prop(root, MB + "rowboat.glb", (at.call(-0.6, 3.0) as Vector3) + Vector3(0, -0.10, 0), yaw - 0.45, 0.95)
-	if b2:
-		b2.rotation.z = -0.16
-	_blob_shadow(root, at.call(-0.6, 3.0), 2.0)
-	_prop(root, KS + "campfire-fishing-stand.glb", at.call(2.2, 1.4), yaw + 0.4, 2.2)
-	_prop(root, KS + "barrel.glb", at.call(2.0, -1.6), yaw, 1.6)
-	_prop(root, KP + "crate.glb", at.call(2.9, -1.0), yaw + 0.6, 1.7)
-	_prop(root, KS + "fish-large.glb", (at.call(2.9, -1.0) as Vector3) + Vector3(0, 0.86, 0), yaw + 1.2, 1.2)
-	_blob_shadow(root, at.call(2.4, -1.3), 1.2)
-	_prop(root, KP + "flag.glb", at.call(-2.2, 1.4), yaw + 0.5, 3.4)
-
-## 【地標】燈籠夜市：三個紅白條紋的攤位（Blender 模型）排成弧形，上面拉兩串圓燈籠，每攤一盞暖光
-func _market(root: Node3D, p: Vector3, yaw: float) -> void:
-	var fw := Vector3(sin(yaw), 0, cos(yaw))
-	var rt := fw.cross(Vector3.UP)
-	var at := func(f: float, r: float) -> Vector3: return _g(p.x + fw.x * f + rt.x * r, p.z + fw.z * f + rt.z * r)
-	for st in [[-1.2, -3.6, 0.45], [-1.8, 0.0, 0.0], [-1.2, 3.6, -0.45]]:
-		var q: Vector3 = at.call(st[0], st[1])
-		_prop(root, MB + "market_stall.glb", q, yaw + float(st[2]), 1.25)
-		_blob_shadow(root, q, 1.9)
-		_warm_light(root, q + fw * 1.2 + Vector3(0, 1.9, 0), 1.0, 4.0)
-	for ls in [[1.6, -2.4, 0.3], [1.6, 2.4, -0.3]]:
-		_prop(root, MB + "lantern_string.glb", at.call(ls[0], ls[1]), yaw + float(ls[2]), 1.0)
-	_warm_light(root, (at.call(1.6, 0.0) as Vector3) + Vector3(0, 2.4, 0), 1.3, 6.0)
-	_prop(root, KP + "crate.glb", at.call(0.6, -5.4), yaw + 0.4, 1.7)
-	_prop(root, KS + "barrel.glb", at.call(0.4, 5.4), yaw, 1.6)
 
 ## 鏡頭前面那一片空雪地放一點東西（都矮矮的，不擋家豪和路線）：家豪走過來的一串腳印、左右各一小堆露營的東西
 func _foreground(root: Node3D) -> void:
@@ -1106,6 +1225,8 @@ func _foreground(root: Node3D) -> void:
 		d.position = Vector3(q.x, height_at(q.x, q.y), q.y)
 		d.rotation.y = atan2(-(h.x - south.x), -(h.y - south.y)) + sin(k * 2.7) * 0.12
 		root.add_child(d)
+	if not front_props:
+		return
 	# 左右各一小堆：雪橇＋睡袋、木頭＋鏟子（離路線遠一點）
 	# （位置照鏡頭的左右算，不是照家豪：家豪不一定站在畫面正中間；左下角是道具格、右下角是開始鈕，都要讓開）
 	for sgn in [-1.0, 1.0]:
@@ -1201,8 +1322,189 @@ func _snowfall(root: Node3D) -> void:
 	root.add_child(ps)
 	_snow_ps = ps
 
-func _process(_dt: float) -> void:
+func _process(dt: float) -> void:
 	_animate_decor()
+	if _finale_on:
+		_tick_finale(dt)
+
+# ---------------------------------------------------------------- 全章收尾的場景效果
+
+## 全章收尾：on = 極光變亮流動（夜晚才有）、夜市（沒有夜市就是營地）上空放煙火、燈籠閃爍、四隻企鵝在冰湖上排成一排肚滑；off = 還原。
+## 任何時段都可以呼叫。鏡頭建議擺在 finale_cam_pos、看向 finale_cam_look（從南邊高處看整張地圖和北邊的天空）。
+func finale_show(on: bool) -> void:
+	if on == _finale_on:
+		return
+	_finale_on = on
+	_finale_t = 0.0
+	_finale_next = 0.35
+	var m := _mood()
+	if _sky_mat:
+		_sky_mat.set_shader_parameter("aurora", float(m.aurora) * (1.6 if on else 1.0))
+		_sky_mat.set_shader_parameter("aurora_elev", 0.15 if on else 0.28)       # 壓低一點，整條極光才進得了收尾鏡頭
+		_sky_mat.set_shader_parameter("aurora_speed", 4.0 if on else 1.0)
+	if _top_mat:
+		_top_mat.set_shader_parameter("aurora_refl", float(m.get("aurora_refl", 0.0)) * (1.8 if on else 1.0))
+	if not on:
+		if _finale_root:
+			_finale_root.queue_free()
+			_finale_root = null
+		_sliders.clear()
+		for g in _glow_mats:
+			(g.mat as ShaderMaterial).set_shader_parameter("emission_c", g.base)
+		return
+	_finale_root = Node3D.new()
+	_finale_root.name = "Finale"
+	add_child(_finale_root)
+	_finale_rng.seed = 20261117
+	# 四隻企鵝排成一排，肚子貼著冰面滑過湖（後面拖一道雪痕、濺起冰屑）
+	if lakes.is_empty():
+		return
+	for k in 4:
+		var node := make_penguin(_finale_root, Vector3(lakes[0].center.x, 0, lakes[0].center.y), 0.0)
+		node.scale = Vector3.ONE * 1.5            # 收尾鏡頭很遠：放大一點才看得到
+		var trail := Decal.new()
+		trail.texture_albedo = load(TX + "shadow_blob.png")
+		trail.size = Vector3(0.9, 1.0, 3.4)
+		trail.albedo_mix = 0.5
+		trail.position = Vector3(0, -1.7, 0.0)       # 企鵝趴下之後，自己的 +Y 朝前（頭的方向）：雪痕拖在腳後面
+		trail.rotation.x = -PI * 0.5
+		node.add_child(trail)
+		var spray := GPUParticles3D.new()
+		spray.amount = 18
+		spray.lifetime = 0.6
+		spray.local_coords = false
+		var pm := ParticleProcessMaterial.new()
+		pm.direction = Vector3(0, 1, 0)
+		pm.spread = 55.0
+		pm.initial_velocity_min = 1.2
+		pm.initial_velocity_max = 2.6
+		pm.gravity = Vector3(0, -6.0, 0)
+		pm.scale_min = 0.5
+		pm.scale_max = 1.1
+		spray.process_material = pm
+		spray.draw_pass_1 = _spark_quad(Color(0.9, 0.98, 1.0), 0.34, false)
+		spray.position = Vector3(0, 0.3, 0)
+		node.add_child(spray)
+		_sliders.append({"node": node, "k": k})
+	_tick_finale(0.0)
+
+func _tick_finale(dt: float) -> void:
+	_finale_t += dt
+	var t := _finale_t
+	for i in _glow_mats.size():
+		var g: Dictionary = _glow_mats[i]
+		(g.mat as ShaderMaterial).set_shader_parameter("emission_c", (g.base as Color) * (0.80 + 0.55 * sin(t * 7.0 + i * 2.1)))
+	if not lakes.is_empty():
+		var l: Dictionary = lakes[0]
+		var c: Vector2 = l.center
+		# 滑的那條線：湖的南半邊；剛好有冰洞擋著就換北半邊
+		var zline := c.y + float(l.rz) * 0.36
+		for p in ponds:
+			if absf(p.center.y - zline) < float(p.r) + 1.8:
+				zline = c.y - float(l.rz) * 0.36
+		var x0 := c.x - float(l.rx) * 0.74
+		var span := float(l.rx) * 1.42
+		for sl in _sliders:
+			var u := fposmod(t * 3.8 + (3 - int(sl.k)) * 1.9, span * 2.0)       # 一隻跟一隻，滑到頭再滑回來
+			var fwd := 1.0 if u < span else -1.0
+			var x := x0 + (u if u < span else span * 2.0 - u)
+			var z := zline + sin(x * 0.45 + int(sl.k)) * 0.35
+			var n := sl.node as Node3D
+			n.position = Vector3(x, height_at(x, z) + 0.6, z)
+			n.basis = Basis(Vector3.UP, PI * 0.5 * fwd) * Basis(Vector3.RIGHT, 1.35)      # 臉朝前、整隻趴下
+	if t >= _finale_next and _finale_root:
+		_firework()
+		_finale_next = t + _finale_rng.randf_range(0.65, 1.05)
+
+## 煙火的中心：夜市上空；沒有夜市就在第一個營地、再沒有就在地圖北邊
+func _firework_origin() -> Vector3:
+	var sum := Vector3.ZERO
+	var n := 0
+	for z in zones:
+		if String(z.type) in ["stall", "string"]:
+			sum += z.pos
+			n += 1
+	if n > 0:
+		return sum / n
+	if not camps.is_empty():
+		return camps[0].pos
+	return Vector3(isle.c.x, 0, isle.c.y - float(isle.rz) * 0.5)
+
+## 一發煙火：一團往四面八方散開、慢慢落下淡掉的亮點（貼圖粒子），加一下子照亮雪地的光
+func _firework() -> void:
+	var rng := _finale_rng
+	var o := _firework_origin()
+	var pos := Vector3(o.x + rng.randf_range(-7.0, 12.0), rng.randf_range(13.0, 22.0), o.z + rng.randf_range(-12.0, 0.0))
+	var col: Color = [Color(0.35, 1.0, 0.80), Color(1.0, 0.42, 0.82), Color(1.0, 0.84, 0.38)][rng.randi() % 3]     # 青綠、洋紅、金（配極光）
+	var ps := GPUParticles3D.new()
+	ps.one_shot = true
+	ps.explosiveness = 1.0
+	ps.amount = 72
+	ps.lifetime = 1.7
+	ps.visibility_aabb = AABB(Vector3(-14, -14, -14), Vector3(28, 28, 28))
+	var pm := ParticleProcessMaterial.new()
+	pm.direction = Vector3.UP
+	pm.spread = 180.0
+	pm.initial_velocity_min = 8.0
+	pm.initial_velocity_max = 13.0
+	pm.gravity = Vector3(0, -3.0, 0)
+	pm.damping_min = 2.4
+	pm.damping_max = 3.4
+	pm.scale_min = 0.8
+	pm.scale_max = 1.5
+	pm.color = col
+	var fade := Gradient.new()
+	fade.set_color(0, Color(1, 1, 1, 1))
+	fade.set_color(1, Color(1, 1, 1, 0))
+	var ramp := GradientTexture1D.new()
+	ramp.gradient = fade
+	pm.color_ramp = ramp
+	ps.process_material = pm
+	ps.draw_pass_1 = _spark_quad(Color(1, 1, 1), 0.95, true)
+	ps.position = pos
+	_finale_root.add_child(ps)
+	ps.emitting = true
+	var l := OmniLight3D.new()
+	l.light_color = col
+	l.light_energy = 2.6
+	l.omni_range = 30.0
+	l.light_specular = 0.0
+	l.position = pos
+	_finale_root.add_child(l)
+	var tw := l.create_tween()
+	tw.tween_property(l, "light_energy", 0.0, 0.9)
+	tw.tween_interval(0.9)
+	tw.tween_callback(func() -> void:
+		if is_instance_valid(ps):
+			ps.queue_free()
+		l.queue_free())
+
+## 粒子用的小方片：朝著鏡頭的一張軟圓點貼圖（煙火是加亮混合，冰屑是一般混合）
+func _spark_quad(col: Color, size: float, additive: bool) -> QuadMesh:
+	var q := QuadMesh.new()
+	q.size = Vector2(size, size)
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+	m.billboard_keep_scale = true
+	m.vertex_color_use_as_albedo = true
+	m.albedo_color = col
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	if additive:
+		m.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	var grad := Gradient.new()
+	grad.set_color(0, Color(1, 1, 1, 1))
+	grad.set_color(1, Color(1, 1, 1, 0))
+	var gt := GradientTexture2D.new()
+	gt.gradient = grad
+	gt.fill = GradientTexture2D.FILL_RADIAL
+	gt.fill_from = Vector2(0.5, 0.5)
+	gt.fill_to = Vector2(0.5, 0.02)
+	gt.width = 32
+	gt.height = 32
+	m.albedo_texture = gt
+	q.material = m
+	return q
 
 ## 裝飾的動畫（純畫面，不影響戰局）：魚跳出冰洞、營火閃爍、碎冰和浮冰輕輕晃、雲慢慢飄
 func _animate_decor() -> void:

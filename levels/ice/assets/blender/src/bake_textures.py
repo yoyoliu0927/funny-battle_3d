@@ -3,7 +3,7 @@
 # 產出：
 #   ice_cracks.png   R=粗的冰裂紋  G=細節（小裂紋、冰刀刮痕、小氣泡；離鏡頭遠就淡掉）  B=冰層深處的雲霧塊
 #   cliff_strata.png 一層一層的岩壁（明暗＋一點冷暖色偏），著色器再依深度上色
-#   snow_soft.png    R=雪地的大起伏  G=風吹的細紋  B=亮晶晶的雪粒位置
+#   snow_soft.png    R=雪地的大起伏  G=風痕（順著貼圖 x 方向拉長的軟筆觸）  B=亮晶晶的雪粒位置
 #   sea_waves.png    R=海面的波浪筆觸（又大又疏的弧形亮筆）  G=筆觸外面一圈比較寬的中間色  B=打散浪花用的雜訊
 #   shadow_blob.png  東西腳下的一團軟陰影（有透明度）
 #   bird_tracks.png  雪地上的一對雞腳印（有透明度）
@@ -118,7 +118,7 @@ def bake_ice():
     # 細節：小裂紋＋刮痕（一條條細長、微彎的線）＋小氣泡
     g = small.copy()
     sr = np.random.default_rng(303)
-    for _ in range(70):
+    for _ in range(34):
         cx, cy = sr.random(2)
         ang = sr.random() * np.pi
         ln = 0.06 + sr.random() * 0.22
@@ -132,9 +132,9 @@ def bake_ice():
         line = np.clip(1.0 - np.abs(v) / wd, 0.0, 1.0) * smooth(along)
         g = np.maximum(g, line * (0.45 + 0.55 * sr.random()))
     # 小氣泡：一小群一小群的圓點
-    for _ in range(26):
+    for _ in range(11):
         cx, cy = sr.random(2)
-        for _k in range(sr.integers(4, 11)):
+        for _k in range(sr.integers(3, 7)):
             bx = cx + sr.normal() * 0.02
             by = cy + sr.normal() * 0.02
             rad = 0.0025 + sr.random() * 0.004
@@ -201,9 +201,18 @@ def bake_cliff():
 def bake_snow():
     x, y = grid()
     dunes = fbm(x, y, 3, 901, 4)
-    wxx = x + (fbm(x, y, 3, 905) - 0.5) * 0.25
-    ripple = 0.5 + 0.5 * np.sin((wxx * 0.6 + y) * np.pi * 2.0 * 14.0 + fbm(x, y, 6, 906) * 6.0)
-    ripple = ripple * smooth(np.clip((fbm(x, y, 4, 907) - 0.35) * 3.0, 0.0, 1.0))
+    # 風痕：一條一條順著風向（貼圖的 x 方向）拉長的軟筆觸，長寬大約 6:1，疏疏的
+    ripple = np.zeros_like(x)
+    wr = np.random.default_rng(905)
+    for _ in range(46):
+        cx, cy = wr.random(2)
+        ln = 0.07 + wr.random() * 0.07
+        wd = ln / 6.0 * (0.7 + 0.6 * wr.random())
+        bend = (wr.random() - 0.5) * 0.02
+        dx = wrap_d(x - cx)
+        dy = wrap_d(y - cy) - bend * np.cos(dx / ln * np.pi * 0.5)
+        k = np.clip(1.0 - (dx / ln) ** 2, 0.0, 1.0) * np.clip(1.0 - (dy / wd) ** 2, 0.0, 1.0)
+        ripple = np.maximum(ripple, smooth(k) * (0.5 + 0.5 * wr.random()))
     sp = np.zeros_like(x)
     sr = np.random.default_rng(909)
     pts = sr.random((900, 2))
