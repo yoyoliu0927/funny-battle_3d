@@ -411,7 +411,10 @@ func _toon_mat(src: Material) -> ShaderMaterial:
 	m.set_shader_parameter("tint", sm.albedo_color)
 	m.set_shader_parameter("detail_tex", load(TX + "snow_soft.png"))
 	if String(sm.resource_name).begins_with("carrot"):
-		m.set_shader_parameter("emission_c", sm.albedo_color * (0.10 + 0.14 * (_lamp_gain() - 1.0)))
+		# 大太陽底下橘色會被曬成金黃色（戴在工人頭上像一根角）：把綠色壓低，怎麼曬都還是紅蘿蔔的橘
+		var cc := Color(sm.albedo_color.r * 0.92, sm.albedo_color.g * 0.58, sm.albedo_color.b)
+		m.set_shader_parameter("tint", cc)
+		m.set_shader_parameter("emission_c", cc * (0.10 + 0.14 * (_lamp_gain() - 1.0)))
 		m.set_shader_parameter("ground_shade", 0.0)
 		m.set_shader_parameter("detail", 0.0)
 	if String(sm.resource_name) == "snowman":
