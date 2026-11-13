@@ -8,7 +8,7 @@ extends Node3D
 ##
 ## 版面（盡量不用字，留白讓背景小島露出來）：
 ##   標題緞帶 → 島的卡片（開放的是大卡片：島名＋圓徽章＋總星數「★ 7/9」；還沒做好的是小卡片：鎖頭＋？？？）
-##   → 這座島的小關：同一條路上的編號圓點，每個圓點底下三顆小星＋名字
+##   → 這座島的小關：同一條路上的編號圓點，每個圓點底下三顆小星（名字只寫在下方面板，不重複）
 ##   → 下方面板：編號徽章＋關名＋三顆星＋綠色「開始」按鈕（Enter 鍵帽畫在按鈕裡）
 ##   「範例關」（農場範例、範本大關）是開發測試用的：預設收起來，按 F1 才顯示／收起。
 ##
@@ -16,6 +16,7 @@ extends Node3D
 ## chapter.gd 可以多寫兩個選用的常數：
 ##   const ICON := "冰"                                   # 卡片圓徽章上的字（不寫：冰雪島畫雪花，其他畫旗子）
 ##   const STARS_SCRIPT := "res://levels/xxx/battle.gd"   # 有 static var best_stars 的腳本（不寫：找大關資料夾裡的 rescue_battle.gd）
+##   const MAP_LOOK := "snow"                             # 選到這個大關時背景小島的樣子（MAP_LOOKS 的鍵；不寫：冰雪島是 snow，其他是 green）
 ## 沒有三星紀錄的大關，過關就用打勾表示。
 ##
 ## 操作：← → 選島、↑ ↓ 或數字鍵選小關、Enter 開始、Esc 回到開場、F1 範例關；
@@ -63,6 +64,23 @@ const LOCKED_EDGE := Color("9c968a")
 const GREEN := Color("5cb85c")
 const GOLD := Color("f2c230")
 
+## 背景小島和海的配色：選到哪個大關就慢慢換成那個大關的樣子（雪白的島配偏冷的海、綠色的島配暖一點的海）
+const MAP_LOOKS := {
+	"green": {
+		"ground_a": Color(0.58, 0.65, 0.33), "ground_b": Color(0.50, 0.60, 0.29), "grassy": Color(0.44, 0.58, 0.27),
+		"sand_c": Color(0.90, 0.80, 0.56), "dirt_c": Color(0.76, 0.66, 0.40), "rock_c": Color(0.66, 0.64, 0.58),
+		"deep": Color(0.24, 0.52, 0.60), "light_c": Color(0.55, 0.80, 0.80),
+		"tree_a": Color(1, 1, 1), "tree_b": Color(1, 1, 1), "tree_mix": 0.0,
+	},
+	"snow": {
+		"ground_a": Color(0.84, 0.93, 1.0), "ground_b": Color(0.75, 0.88, 1.0), "grassy": Color(0.68, 0.83, 0.98),
+		"sand_c": Color(0.66, 0.85, 0.96), "dirt_c": Color(0.80, 0.90, 0.98), "rock_c": Color(0.56, 0.66, 0.80),
+		"deep": Color(0.19, 0.43, 0.63), "light_c": Color(0.66, 0.85, 0.96),
+		"tree_a": Color(0.92, 0.96, 1.0), "tree_b": Color(0.30, 0.62, 0.56), "tree_mix": 1.0,   # 積雪的樹和露出來的松綠
+	},
+}
+const LOOK_TIME := 0.45        # 換配色要幾秒
+
 ## 大關（照 Registry 排好）
 var LEVELS: Array = []
 ## 選單上的每一格：{"ch": 大關 Dictionary（或 {}）, "slot": 第幾座島（範例是 -1）, "example": bool}
@@ -89,6 +107,14 @@ var _shake_t := 0.0          # 鎖頭還要抖多久
 var _shake_i := -1           # 哪一張卡片的鎖頭在抖
 var _star_src := {}          # 大關 id -> 星星紀錄表（Dictionary）或 null
 var _consts := {}            # 大關 id -> chapter.gd 的常數
+var _island_mat: ShaderMaterial
+var _sea_mat: ShaderMaterial
+var _tree_mm: MultiMesh
+var _tree_cols: Array[Color] = []   # 樹原本的顏色（綠色的島）
+var _look := ""              # 背景現在是哪一種配色
+var _look_from := {}
+var _look_to := {}
+var _look_k := 1.0
 
 # ================================================================== 啟動
 
@@ -245,6 +271,7 @@ func _build_island() -> void:
 	mat.set_shader_parameter("sand_c", Color(0.90, 0.80, 0.56))
 	mat.set_shader_parameter("dirt_c", Color(0.76, 0.66, 0.40))
 	mat.set_shader_parameter("rock_c", Color(0.66, 0.64, 0.58))
+	_island_mat = mat
 	var mi := MeshInstance3D.new()
 	mi.name = "Island"
 	mi.mesh = mesh
@@ -259,6 +286,7 @@ func _build_sea() -> void:
 	mi.mesh = plane
 	var m := ShaderMaterial.new()
 	m.shader = load("res://shaders/water.gdshader")
+	_sea_mat = m
 	mi.material_override = m
 	mi.position.y = -0.05
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
@@ -295,6 +323,8 @@ func _build_trees() -> void:
 	for i in xf.size():
 		mm.set_instance_transform(i, xf[i])
 		mm.set_instance_color(i, cs[i])
+	_tree_mm = mm
+	_tree_cols = cs
 	var mmi := MultiMeshInstance3D.new()
 	mmi.name = "Trees"
 	mmi.multimesh = mm
@@ -302,6 +332,47 @@ func _build_trees() -> void:
 	m.shader = load("res://shaders/forest_crown.gdshader")
 	mmi.material_override = m
 	add_child(mmi)
+
+## 這個大關的背景配色：chapter.gd 有寫 MAP_LOOK 就用它；沒寫的話冰雪島是雪白的，其他是綠色的。
+## 上鎖／還沒做的格子回傳空字串（背景維持原樣）
+func _look_of(ch: Dictionary) -> String:
+	if ch.is_empty():
+		return ""
+	var want := String(_chapter_consts(ch).get("MAP_LOOK", "snow" if String(ch.id) == "ice" else "green"))
+	return want if MAP_LOOKS.has(want) else "green"
+
+## 把背景換成某一種配色（instant：直接換，不做漸變）
+func _set_look(name: String, instant := false) -> void:
+	if name == "" or name == _look or not MAP_LOOKS.has(name):
+		return
+	_look_from = _blend_look(_look_k) if not _look_to.is_empty() else MAP_LOOKS["green"]
+	_look_to = MAP_LOOKS[name]
+	_look = name
+	_look_k = 1.0 if instant else 0.0
+	_apply_look(_blend_look(_look_k))
+
+func _blend_look(k: float) -> Dictionary:
+	var e := k * k * (3.0 - 2.0 * k)
+	var out := {}
+	for key in _look_to:
+		var a = _look_from.get(key, _look_to[key])
+		var b = _look_to[key]
+		out[key] = (a as Color).lerp(b, e) if b is Color else lerpf(float(a), float(b), e)
+	return out
+
+func _apply_look(l: Dictionary) -> void:
+	if _island_mat:
+		for key in ["ground_a", "ground_b", "grassy", "sand_c", "dirt_c", "rock_c"]:
+			_island_mat.set_shader_parameter(key, l[key])
+	if _sea_mat:
+		_sea_mat.set_shader_parameter("deep", l.deep)
+		_sea_mat.set_shader_parameter("light_c", l.light_c)
+	if _tree_mm:
+		var mix: float = l.tree_mix
+		for i in _tree_cols.size():
+			# 五棵裡面三棵積雪、兩棵露出松綠（固定照編號分，不用亂數）
+			var snowy: Color = l.tree_a if i % 5 < 3 else l.tree_b
+			_tree_mm.set_instance_color(i, _tree_cols[i].lerp(snowy, mix))
 
 # ================================================================== 星星、圖示的資料
 
@@ -404,17 +475,22 @@ func _build_ui() -> void:
 	_detail.on_click = func(_p, e: InputEventMouseButton):
 		if _start_rect.has_point(e.position):
 			start_selected()
-	# 操作說明（只留最少的字）
-	var hint := Label.new()
-	hint.text = "←→ 島　　↑↓ 關　　Esc 返回"
-	hint.label_settings = UIStyle.ls(16)
-	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	# 操作說明（只留最少的字）：一張米色小紙片，按鍵畫成鍵帽
+	var hint := PanelContainer.new()
+	UIStyle.slip(hint, Vector2(16, 6))
+	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var hrow := HBoxContainer.new()
+	hrow.add_theme_constant_override("separation", 24)
+	hrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	hint.add_child(hrow)
+	hrow.add_child(UIStyle.key_hint("←／→", "島", 14))
+	hrow.add_child(UIStyle.key_hint("↑／↓", "關", 14))
+	hrow.add_child(UIStyle.key_hint("Esc", "返回", 14))
+	_layer.add_child(hint)
 	hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	hint.offset_bottom = -12
-	UIStyle.pill(hint, Color(0.1, 0.13, 0.2, 0.7), Color(1, 1, 1, 0.3), Color(1, 1, 1))
-	_layer.add_child(hint)
+	hint.offset_bottom = -10
 	# 提示字卡
 	_toast = Label.new()
 	_toast.label_settings = UIStyle.ls(26)
@@ -434,7 +510,7 @@ func _layout() -> void:
 	var u := minf(vs.x / 1600.0, vs.y / 900.0)
 	# 上排：開放的島是大卡片（主角），還沒做好的島是小卡片（只有鎖頭）
 	var big := Vector2(230.0, 200.0) * u
-	var small := Vector2(140.0, 180.0) * u
+	var small := Vector2(112.0, 144.0) * u   # 上鎖的卡片小一號、淡一點，讓可以玩的那張更突出
 	var gap := 20.0 * u
 	var y0 := 112.0 * u
 	var total := 0.0
@@ -502,7 +578,7 @@ func _rebuild_stage_pads() -> void:
 	var step := minf(170.0 * u, (area.size.x - 2.0 * r - 40.0 * u) / maxf(n - 1, 1))
 	var span := step * (n - 1)
 	var sx := area.position.x + (area.size.x - span) * 0.5
-	var base_y := area.position.y + area.size.y * 0.5 - 26.0 * u
+	var base_y := area.position.y + area.size.y * 0.5 - 12.0 * u
 	var pw := minf(step - 6.0 * u, r * 4.4) if n > 1 else r * 4.4
 	var pts: Array = []
 	for k in n:
@@ -510,7 +586,7 @@ func _rebuild_stage_pads() -> void:
 		pts.append(Vector2(cx, base_y))
 		var p := _pad(_layer, _paint_stage)
 		p.position = Vector2(cx - pw * 0.5, base_y - r * 1.3)
-		p.size = Vector2(pw, r * 2.3 + 74.0 * u)
+		p.size = Vector2(pw, r * 2.3 + 40.0 * u)
 		p.data = {"k": k, "r": r, "u": u}
 		p.on_hover = func(_p, _e): _hover_stage(k)
 		p.on_click = func(_p, _e):
@@ -652,9 +728,11 @@ func _paint_dim(c: Control) -> void:
 		c.draw_rect(Rect2(Vector2(0, h * i / bands), Vector2(c.size.x, h / bands + 1.0)), Color(0.05, 0.09, 0.16, a))
 
 func _paint_ex_box(c: Control) -> void:
-	c.draw_style_box(_box(Color(0.1, 0.13, 0.2, 0.72), Color(1, 1, 1, 0.3), 12, 2.0, false), Rect2(Vector2.ZERO, c.size))
+	c.draw_style_box(_box(Color(PAPER, 0.94), PAPER_EDGE, 12, 2.0), Rect2(Vector2.ZERO, c.size))
 	var u := c.size.x / 224.0
-	_text(c, Vector2(14 * u, 27 * u), "範例關（F1 收起）", 16 * u, Color(1, 0.95, 0.8))
+	_text(c, Vector2(14 * u, 27 * u), "範例關", 16 * u, INK)
+	var ks := UIStyle.keycap_size("F1", 13 * u)
+	UIStyle.draw_keycap(c, Vector2(c.size.x - 14 * u - ks.x, 8 * u), "F1", 13 * u)
 
 ## 一座島的卡片
 func _paint_card(c: Control) -> void:
@@ -679,6 +757,7 @@ func _paint_card(c: Control) -> void:
 		var rot := 0.0
 		if _shake_i == k and _shake_t > 0.0:
 			rot = sin(_shake_t * 42.0) * 0.28 * (_shake_t / SHAKE_TIME)
+		c.modulate.a = 1.0 if sel else 0.72
 		c.draw_style_box(_box(Color(LOCKED, 0.9), Color("f7d35a") if sel else LOCKED_EDGE, 14, 4.0 if sel else 2.0), r)
 		_lock_icon(c, Vector2(r.get_center().x, 70 * us), 40 * us, Color("8a857a"), rot)
 		_text(c, Vector2(0, 136 * us), "？？？", 22 * us, Color("7d776c"), r.size.x, HORIZONTAL_ALIGNMENT_CENTER)
@@ -732,13 +811,14 @@ func _paint_path(c: Control) -> void:
 	var ch := _cur()
 	var a0: Vector2 = pts[0] - c.position
 	var b0: Vector2 = pts[pts.size() - 1] - c.position
-	c.draw_line(a0 + Vector2(0, 4 * u), b0 + Vector2(0, 4 * u), Color(0, 0, 0, 0.22), 14 * u, true)
-	c.draw_line(a0, b0, Color(1, 1, 1, 0.6), 12 * u, true)
+	c.draw_line(a0 + Vector2(0, 4 * u), b0 + Vector2(0, 4 * u), Color(0, 0, 0, 0.22), 16 * u, true)
+	c.draw_line(a0, b0, Color(INK, 0.55), 16 * u, true)   # 深色描邊：背景是草地或雪地都看得清楚
+	c.draw_line(a0, b0, Color(1, 1, 1, 0.95), 11 * u, true)
 	for k in range(1, pts.size()):
 		if Progress.is_cleared(ch.stages[k - 1].id):
-			c.draw_line(pts[k - 1] - c.position, pts[k] - c.position, Color("ffe9a8"), 12 * u, true)
+			c.draw_line(pts[k - 1] - c.position, pts[k] - c.position, Color("ffd76a"), 11 * u, true)
 
-## 一個小關：編號圓點＋三顆小星＋名字
+## 一個小關：編號圓點＋三顆小星（名字寫在下方面板，這裡不重複）
 func _paint_stage(c: Control) -> void:
 	var k: int = c.data.k
 	var r: float = c.data.r
@@ -762,20 +842,15 @@ func _paint_stage(c: Control) -> void:
 		_lock_icon(c, ctr + Vector2(0, -rr * 0.15), rr * 0.72, Color("8a857a"))
 	# 三顆小星（拿到幾顆亮幾顆）；沒有三星制度的大關：過關就在右上角打勾
 	var stars := _stars(ch, st)
-	var y := ctr.y + r + 20 * u
+	var y := ctr.y + r + 22 * u
 	if stars >= 0:
-		_star_row(c, Vector2(ctr.x, y), 8.0 * u, stars, true)
+		# 星星墊一小塊米色紙片（背景是雪地時白色的空心星會看不到）
+		var chip := Rect2(Vector2(ctr.x - 36 * u, y - 12 * u), Vector2(72 * u, 24 * u))
+		c.draw_style_box(_box(Color(PAPER, 0.96), PAPER_EDGE, 12 * u, 2.0, false), chip)
+		_star_row(c, Vector2(ctr.x, y), 8.0 * u, stars)
 	elif cleared:
 		c.draw_circle(ctr + Vector2(rr * 0.75, -rr * 0.75), rr * 0.36, Color(1, 1, 1))
 		_check_icon(c, ctr + Vector2(rr * 0.75, -rr * 0.75), rr * 0.4, GREEN)
-	# 名字：墊一塊深色小牌（選到的是黃牌），太寬就縮字不截斷
-	var name := String(st.title)
-	var fs := _fit(name, 17 * u, c.size.x - 20 * u)
-	var tw := _font().get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, int(fs)).x
-	var ty := y + 14 * u
-	var plate := Rect2(Vector2((c.size.x - tw) * 0.5 - 9 * u, ty), Vector2(tw + 18 * u, fs + 12 * u))
-	c.draw_style_box(_box(Color("f7d35a") if sel else Color(0.08, 0.11, 0.18, 0.82), Color(0, 0, 0, 0), 9, 0.0, false), plate)
-	_text(c, Vector2(0, ty + fs + 3 * u), name, fs, INK if sel else Color(1, 0.97, 0.9), c.size.x, HORIZONTAL_ALIGNMENT_CENTER)
 
 ## 下方面板：編號徽章＋關名＋三顆星＋開始按鈕（Enter 鍵帽畫在按鈕裡）
 func _paint_detail(c: Control) -> void:
@@ -823,10 +898,9 @@ func _paint_detail(c: Control) -> void:
 		_text(c, Vector2(bb.position.x + 22 * u, cy + 13 * u), "開始", 36 * u, Color(1, 1, 1))
 		var tri := Vector2(bb.position.x + 112 * u, cy)
 		c.draw_colored_polygon(PackedVector2Array([tri + Vector2(-8, -13) * u, tri + Vector2(12, 0) * u, tri + Vector2(-8, 13) * u]), Color(1, 1, 1))
-		# Enter 鍵帽
-		var key := Rect2(Vector2(bb.end.x - 86 * u, cy - 17 * u), Vector2(68 * u, 34 * u))
-		c.draw_style_box(_box(Color(1, 1, 1, 0.95), Color("2f7a2f"), 8, 2.0, false), key)
-		_text(c, Vector2(key.position.x, key.position.y + 23 * u), "Enter", 16 * u, Color("2f7a2f"), key.size.x, HORIZONTAL_ALIGNMENT_CENTER)
+		# Enter 鍵帽（全遊戲共用的那一顆）
+		var ks := UIStyle.keycap_size("Enter", 17 * u)
+		UIStyle.draw_keycap(c, Vector2(bb.end.x - 18 * u - ks.x, cy - ks.y * 0.5), "Enter", 17 * u)
 		_start_rect = bb
 	else:
 		c.draw_style_box(_box(LOCKED, LOCKED_EDGE, 24, 3.0), br)
@@ -858,6 +932,8 @@ func select(i: int) -> void:
 		stage_sel = _first_open_stage()
 	if not _playable(_cur()):
 		_shake(selected)            # 上鎖的島：鎖頭抖一下
+	else:
+		_set_look(_look_of(_cur()), _t <= 0.0)   # 背景的島和海跟著選到的大關換（一進畫面直接是那個樣子）
 	_rebuild_stage_pads()
 	_redraw_all()
 
@@ -957,6 +1033,9 @@ func _process(dt: float) -> void:
 	_t += dt
 	# 背景小島慢慢晃
 	_cam.position = _cam_base + Vector3(sin(_t * 0.12) * 6.0, 0, cos(_t * 0.09) * 1.5)
+	if _look_k < 1.0:
+		_look_k = minf(_look_k + dt / LOOK_TIME, 1.0)
+		_apply_look(_blend_look(_look_k))
 	# 選到的卡片、圓點、開始按鈕會輕輕動；鎖頭抖動中的卡片也要重畫
 	if selected < _cards.size():
 		(_cards[selected] as _Pad).queue_redraw()
