@@ -39,3 +39,13 @@ textures/         ice_cracks.png（冰裂紋／刮痕／冰層雲霧）、cliff_
 
 
 （介面字型 jf 粉圓體已搬到共用的 assets/fonts/，授權寫在那裡的 CREDITS.txt）
+
+kenney_mini/      Mini Characters (2.0) by Kenney — https://kenney.nl/assets/mini-characters
+                  授權：Creative Commons CC0（公眾領域，可商用、不需署名；這裡仍註明來源；資料夾內附原始的 License.txt）
+                  使用：character-worker.glb（工人、阿土、阿水：戴安全帽的 Q 版小人）、character-male-c.glb（守衛：戴警帽的小人）、Textures/colormap.png
+                  修改：載入時由 rescue_battle.gd 重新上色（安全帽、工作服一人一色）、帽子和臉拆成獨立零件（嚇到、暈、凍僵時改貼 faces/ 的手繪表情）；模型檔本身沒有改
+
+blender/          救企鵝模式的小道具和特效零件：本組用 Blender 4.5 腳本建模，自製
+                  banana_peel.glb（香蕉皮）、fx_star.glb（暈倒的星星）、fx_shard.glb（滑行的碎冰）、fx_drop.glb（水花的水滴）→ blender/src/build_fx_props.py
+                  rescue/aim_ring.glb（落點圈）、rescue/rooster_comb.glb、rescue/rooster_beak.glb（家豪的雞冠和嘴）、
+                  rescue/banana_peel_icon.png（道具格圖示：用 banana_peel.glb 算出來的圖）→ blender/src/build_rescue_props.py

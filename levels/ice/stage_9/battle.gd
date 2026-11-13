@@ -15,8 +15,8 @@ func _enemy_specs() -> Array:
 func _checklist() -> Array:
 	return [
 		{"id": "rescue", "text": "救出企鵝"},
-		{"id": "fall1", "text": "工人掉進冰洞", "hint": "瞄紅線的每一段，看哪一段通到冰洞"},
-		{"id": "snow_hole", "text": "戴著雪人頭掉進冰洞", "hint": "先讓他撞雪人，再丟第二片在粉紅線上"},
+		{"id": "fall1", "text": "工人進冰洞", "hint": "瞄紅線的每一段，看哪一段通到冰洞"},
+		{"id": "snow_hole", "text": "戴雪人頭進冰洞", "hint": "先讓他撞雪人，再丟第二片在粉紅線上"},
 	]
 
 func _how_to() -> String:
@@ -24,4 +24,8 @@ func _how_to() -> String:
 
 func _defeat_tip() -> String:
 	return "換紅線的另一段試試"
+
+func _level_setup() -> void:
+	super()
+	show_goal = true    # 紅色大標題「救出企鵝！」只在第一關、第一次進來時出現
 

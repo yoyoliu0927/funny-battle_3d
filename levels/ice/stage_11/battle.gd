@@ -17,14 +17,14 @@ func _checklist() -> Array:
 	return [
 		{"id": "rescue", "text": "救出企鵝"},
 		{"id": "snow_hole", "text": "阿水戴雪人頭進冰洞", "hint": "早一點撞到他，他會偏到雪人那邊"},
-		{"id": "clean_fall2", "text": "不碰雪人，兩人一起進洞", "hint": "讓阿土和阿水剛好同時到"},
+		{"id": "clean_fall2", "text": "不碰雪人，兩人進冰洞", "hint": "讓阿土和阿水剛好同時到"},
 	]
 
 func _how_to() -> String:
 	return "同時到，才撞得到（Tab：從上面看秒數）"
 
 func _defeat_tip() -> String:
-	return "阿土滑到交叉點時，阿水要剛好走到"
+	return "要兩人同時到交叉點"
 
 func _level_setup() -> void:
 	super()
