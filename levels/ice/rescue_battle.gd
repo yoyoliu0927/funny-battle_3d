@@ -58,6 +58,7 @@ var _stars := {}               # 暈倒的人 -> 頭上轉圈的星星 [Label3D 
 var _vb: Array = []            # 要畫的三角形：[顏色, 頂點, 顏色, 頂點…]（沒有頂點就不開 surface）
 var _recap_t := 0.0            # 過關前「今日最佳」受害者特寫還剩幾秒
 var _told_giveup := false
+var _miss_text := ""            # 時機差一點時：晚了／早了幾秒（寫進失敗提示）
 ## 第 3 關（時機）：紅線上每 1 秒標一個點；瞄準時標出「他踩到的那一刻，別人在哪」
 var show_timing := false
 var _time_labels: Array = []
@@ -257,6 +258,7 @@ func _level_reset() -> void:
 	_pop_seen.clear()
 	_recap_t = 0.0
 	_told_giveup = false
+	_miss_text = ""
 	bird.data.erase("held")
 	# 雪人扶正（被撞倒過的）
 	for sn in world.get("snowman_nodes"):
@@ -269,6 +271,9 @@ func _level_reset() -> void:
 		f.data.erase("pile")
 		f.data.erase("chase_to")
 		f.data.erase("pair")
+		f.data.erase("hit_any")
+		f.data.erase("hit_once")
+		f.data.erase("missed")
 		f.data.erase("snow_hat")
 	if _list_layer:
 		_list_layer.visible = true
@@ -485,6 +490,8 @@ func _start_win_show() -> void:
 	var to_cage: Vector3 = world.cage - bird.pos
 	to_cage.y = 0.0
 	to_cage = to_cage.normalized() if to_cage.length() > 0.1 else Vector3.FORWARD
+	# 家豪站在籠門外 1.5 公尺左右（不要看起來像自己站進籠子裡）
+	bird.pos = ground(world.cage - to_cage * 3.6)
 	var side := to_cage.cross(Vector3.UP)
 	# 鏡頭在家豪正前方偏一點：打開的籠門在他身後入鏡，企鵝跑出來站到他左右兩邊
 	# 結算會從右邊出來：鏡頭往右偏，家豪和企鵝站在畫面左半邊
@@ -549,8 +556,11 @@ func _defeat_tip() -> String:
 func _show_defeat() -> void:
 	super()
 	_list_layer.visible = false
+	var tip := _defeat_tip()
+	if _miss_text != "":
+		tip = "差一點！%s　%s" % [_miss_text, tip]
 	_defeat_detail.text = "家豪被%s抓住了　｜　第 %d 次嘗試\n%s\nR 重試　｜　M 回到地圖" % [
-		_caught_by if _caught_by != "" else "工人", attempts.size(), _defeat_tip()]
+		_caught_by if _caught_by != "" else "工人", attempts.size(), tip]
 
 # ---------------------------------------------------------------- 過關後按 Enter 到下一關
 
@@ -742,7 +752,7 @@ func _level_step(dt: float) -> void:
 			_face(f, bird.pos)
 			anim(f, "Idle")
 			log_event("%s抓住了家豪" % f.name)
-			bubble("……完了", bird, 1.15, 4000)
+			bubble("……完了", bird, 1.75, 4000)
 			# 鏡頭在兩人斜前方：工人的臉和被拎著的家豪的臉都拍得到
 			var fw := Vector3(sin(f.yaw), 0, cos(f.yaw))
 			var sd := fw.cross(Vector3.UP)
@@ -853,17 +863,35 @@ func _tick_slide(f: Fighter, dt: float) -> void:
 	if r.kind != "hit":
 		super(f, dt)
 		# 差一點：從別人身邊滑過去沒撞到 → 那個人嚇一跳回頭看
-		if f.state == "kslide" and not f.data.get("missed", false):
+		# （只在對方已經落到滑行方向的後面、這一趟又沒撞到任何人時才算）
+		if f.state == "kslide" and not f.data.get("missed", false) and not f.data.get("hit_any", false):
+			var sdir: Vector3 = f.data.sdir
 			for o in enemies:
-				if o != f and o.alive() and o.state not in ["kslide", "stunned", "giveup"] and flat_dist(o.pos, f.pos) < 1.9:
+				if o == f or not o.alive() or o.state in ["kslide", "stunned", "giveup"]:
+					continue
+				var rel: Vector3 = o.pos - f.pos
+				rel.y = 0.0
+				if flat_dist(o.pos, f.pos) < 2.2 and rel.dot(sdir) < 0.0:
 					f.data.missed = true
 					o.yaw = _yaw_to(o.pos, f.pos)
-					pop_label("？！", o.pos + Vector3(0, 3.0, 0), Color(1, 0.9, 0.3), 900, o)
-					pop_label("差一點！", f.pos + Vector3(0, 3.2, 0), Color(1, 1, 1), 900, f)
-					log_event("%s從%s身邊滑過去，差一點" % [f.name, o.name])
+					pop_label("？！", o.pos + Vector3(0, 3.0, 0), Color(1, 0.9, 0.3), 1100, o)
+					pop_label("差一點！", f.pos + Vector3(0, 3.2, 0), Color(1, 1, 1), 1100, f)
+					_miss_text = _late_by(f, o)
+					log_event("%s從%s身邊滑過去，差一點（%s）" % [f.name, o.name, _miss_text])
+					# 擦身而過：慢動作＋近拍，兩個人都入鏡
+					var mid: Vector3 = (f.pos + o.pos) * 0.5
+					var side := sdir.cross(Vector3.UP)
+					_cut_to(mid + Vector3(0, 1.0, 0), side * 5.0 + Vector3(0, 2.2, 0) - sdir * 1.0, 1.1)
+					_slowmo_until = Time.get_ticks_msec() + 700
 					break
 		return
 	var o: Fighter = r.other
+	f.data.hit_any = true
+	if not o.data.get("hit_once", false) and show_timing:
+		# 第 3 關：撞上的那一刻插近拍（兩個人一起滑出去）
+		o.data.hit_once = true
+		var sd2: Vector3 = f.data.sdir
+		_cut_to(o.pos + sd2 * 2.0 + Vector3(0, 1.0, 0), sd2.cross(Vector3.UP) * 6.0 + Vector3(0, 2.6, 0) - sd2 * 1.5, 1.6)
 	log_event("%s撞到%s，連環撞！" % [f.name, o.name])
 	pop_label("連環撞！", o.pos + Vector3(0, 3.6, 0), Color(1, 0.85, 0.2), 900, o)
 	start_slide(o, f.data.sdir)
@@ -901,6 +929,8 @@ func _process(dt: float) -> void:
 		crosshair.visible = not cut
 	if _phase_label:
 		_phase_label.visible = not cut   # 特寫時連計時器一起收起來
+	if _hotbar:
+		_hotbar.visible = not cut        # 特寫、過關演出時收起道具格
 	if cut and _preview:
 		_preview.visible = false
 		for d in _dots:
@@ -1271,6 +1301,14 @@ func pop_label(text: String, pos: Vector3, color: Color, ms: int, follow: Fighte
 	if _pop_seen.has(key) and _clock - float(_pop_seen[key]) < 0.5:
 		return
 	_pop_seen[key] = _clock
+	if follow:
+		# 同一個人頭上同時只留一個跳字（新的蓋掉舊的），不會疊成一團
+		for i in range(_labels.size() - 1, -1, -1):
+			var e: Dictionary = _labels[i]
+			if e.follow == follow and not e.get("fixed", false):
+				if is_instance_valid(e.node):
+					e.node.queue_free()
+				_labels.remove_at(i)
 	super(text, pos, color, ms, follow)
 
 func _update_labels(now: int) -> void:
@@ -1620,7 +1658,8 @@ func _draw_timing_ghosts(im: ImmediateMesh) -> void:
 				continue
 			var t := clampf(Vector2(p.x - a.x, p.z - a.z).dot(ab) / (l * l), 0.0, 1.0)
 			if flat_dist(a.lerp(b, t), p) <= ON_ROUTE:
-				var t_hit := (walked + l * t) / RUSH_SPEED
+				# 走到離香蕉皮 PEEL_STEP 就踩到了：用踩到的那一刻算（數字才誠實）
+				var t_hit := maxf(walked + l * t - PEEL_STEP, 0.0) / RUSH_SPEED
 				var names: PackedStringArray = []
 				for o in enemies:
 					if o == f or o.data.get("guard", false):
@@ -1666,6 +1705,15 @@ func _terrain_slide(f: Fighter, dir: Vector3, start: Vector3) -> Dictionary:
 		var r := slide_step(f, pos, dir, snow, SIM_DT, enemies)
 		snow = r.snow
 		if r.kind == "move":
+			# 站著不動的人（守衛）會擋住：線畫到他為止，後面留給玩家想
+			var blocker = null
+			for o in enemies:
+				if o != f and o.alive() and o.state in ["guard", "idle", "patrol"] and o.data.get("guard", o.get_meta("guard", false)) \
+						and flat_dist(r.pos, o.pos) < HIT_R:
+					blocker = o
+			if blocker != null:
+				res = {"kind": "person", "pos": pos, "who": blocker}
+				break
 			pos = r.pos
 			if i % 6 == 0:
 				pts.append(pos)
@@ -1675,9 +1723,44 @@ func _terrain_slide(f: Fighter, dir: Vector3, start: Vector3) -> Dictionary:
 	pts.append(res.get("pos", pos))
 	var kind: String = res.get("kind", "stop")
 	var t := "→ 停在雪地"
-	if kind in ["hole", "thin"]:
+	if kind == "person":
+		t = "→ 撞到%s，然後呢？" % (res.who as Fighter).name
+	elif kind in ["hole", "thin"]:
 		t = "→ 冰洞"
 	elif kind == "wall":
 		t = "→ 撞到停下"
 	return {"pts": pts, "end": pts.back(), "text": t, "color": Color(1.0, 0.92, 0.25),
 		"terrain": true, "terrain_text": t, "ticks": true}
+
+## 擦身而過時：滑行的人晚（或早）了幾秒——他經過對方路線時，對方已經過去多久了
+func _late_by(f: Fighter, o: Fighter) -> String:
+	var rush: Array = o.get_meta("rush", [])
+	if rush.is_empty():
+		return ""
+	var sdir: Vector3 = f.data.sdir
+	# 對方路線上離「滑行線」最近的點，就是交叉點
+	var best_d := 1e9
+	var best_along := 0.0
+	var along := 0.0
+	var pts: Array = [ground(o.start_pos)]
+	for p in rush:
+		pts.append(ground(p))
+	for i in range(1, pts.size()):
+		var a: Vector3 = pts[i - 1]
+		var b: Vector3 = pts[i]
+		var seg := flat_dist(a, b)
+		var n := maxi(int(seg / 0.1), 1)
+		for k in n + 1:
+			var q := a.lerp(b, float(k) / n)
+			var rel := q - f.pos
+			rel.y = 0.0
+			var perp := (rel - sdir * rel.dot(sdir)).length()
+			if perp < best_d:
+				best_d = perp
+				best_along = along + seg * float(k) / n
+		along += seg
+	var t_o := best_along / RUSH_SPEED
+	var dt := time - t_o
+	if absf(dt) < 0.05:
+		return ""
+	return "%s晚了 %.1f 秒" % [f.name, dt] if dt > 0.0 else "%s早了 %.1f 秒" % [f.name, -dt]
