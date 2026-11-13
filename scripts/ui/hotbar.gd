@@ -1,7 +1,8 @@
 extends Control
-## 技能欄的一格
-## 方塊遊戲風格的快捷欄：一整條相連的格子，選中的那格外面套一圈粗白框，圖示用像素點畫
+## 技能欄
+## 手帳風格的快捷欄：每個道具一張米色紙卡，選中的往上浮、紅框；右上角紅色圓徽章是次數
 ## 所有關卡共用（template）。道具資料來自 scripts/items/item.gd。
+const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術（手帳風格）
 const S := 84.0          # 一格的大小
 const PX := 4.0          # 圖示一個像素的大小
 var skills: Array = []
@@ -46,50 +47,60 @@ func _process(dt: float) -> void:
 static func count_text(cnt: int) -> String:
 	return "∞" if cnt < 0 else str(cnt)
 
-## 右下角的數量：靠右對齊，可以位移、縮放、淡出
-func _draw_count(font: Font, cell: Rect2, cnt: int, fs: int, dy: float, col: Color) -> void:
+## 右上角紅色圓徽章裡的數量：置中，可以位移、縮放、淡出
+func _draw_count(font: Font, center: Vector2, cnt: int, fs: int, dy: float, col: Color) -> void:
 	var txt := count_text(cnt)
 	var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-	_shadow_text(font, cell.position + Vector2(S - 10 - tw, S - 10 + dy), txt, fs, col)
+	draw_string(font, center + Vector2(-tw * 0.5, fs * 0.36 + dy), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, col)
 
-static func _count_color(cnt: int) -> Color:
-	return Color(1, 1, 1) if cnt != 0 else Color(1, 0.35, 0.3)
+static func _count_color(_cnt: int) -> Color:
+	return Color(1, 1, 1)
 
+## 手帳風格：每個道具是一張米色圓角紙卡（選中的往上浮、紅框），中間一顆圓貼紙放圖示，右上角紅色圓徽章是次數
 func _draw() -> void:
 	var bs := bar_size()
-	# 整條外框
-	draw_rect(Rect2(Vector2.ZERO, bs), Color(0.05, 0.05, 0.05, 0.8))
+	var font := get_theme_default_font()
 	for i in skills.size():
 		var cell := Rect2(Vector2(2.0 + i * S, 2.0), Vector2(S, S))
-		# 格子邊框（淺灰）＋ 內部半透明深色
-		draw_rect(cell, Color(0.56, 0.56, 0.56, 0.95))
-		var inner := cell.grow(-4.0)
-		draw_rect(inner, Color(0.16, 0.18, 0.16, 0.82))
-		# 內凹的立體感：左上暗、右下亮
-		draw_rect(Rect2(inner.position, Vector2(inner.size.x, 3)), Color(0.08, 0.08, 0.08, 0.9))
-		draw_rect(Rect2(inner.position, Vector2(3, inner.size.y)), Color(0.08, 0.08, 0.08, 0.9))
-		draw_rect(Rect2(inner.position + Vector2(0, inner.size.y - 3), Vector2(inner.size.x, 3)), Color(0.4, 0.4, 0.4, 0.9))
-		draw_rect(Rect2(inner.position + Vector2(inner.size.x - 3, 0), Vector2(3, inner.size.y)), Color(0.4, 0.4, 0.4, 0.9))
+		var is_sel := i == selected
+		var card := cell.grow(-5.0)
+		if is_sel:
+			card.position.y -= 7.0
 		var cnt: int = counts[i] if i < counts.size() else 0
 		var cd: float = cooldowns[i] if i < cooldowns.size() else 0.0
-		_draw_item_icon(skills[i], cell, cnt == 0)
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(1.0, 0.973, 0.906) if cnt != 0 else Color(0.86, 0.84, 0.8)
+		sb.border_color = UIStyle.accent() if is_sel else UIStyle.INK
+		sb.set_border_width_all(4 if is_sel else 3)
+		sb.border_width_bottom = 6 if is_sel else 5
+		sb.set_corner_radius_all(14)
+		sb.shadow_color = Color(0, 0, 0, 0.28)
+		sb.shadow_size = 5
+		sb.shadow_offset = Vector2(2, 4)
+		draw_style_box(sb, card)
+		# 圖示底下的圓貼紙（讓黃色的像素圖示在米色紙上也清楚）
+		draw_circle(card.get_center() + Vector2(0, 2), 29.0, Color(0.36, 0.27, 0.2, 0.92 if cnt != 0 else 0.5))
+		_draw_item_icon(skills[i], Rect2(card.position + Vector2(0, 2), card.size), cnt == 0)
 		if cd > 0.0:
 			# 冷卻中：一片暗色從上往下縮短，中間顯示剩下的秒數
 			var frac := clampf(cd / float(skills[i].cooldown), 0.0, 1.0)
-			draw_rect(Rect2(inner.position + Vector2(0, inner.size.y * (1.0 - frac)), Vector2(inner.size.x, inner.size.y * frac)), Color(0, 0, 0, 0.6))
-			var ft := get_theme_default_font()
+			var inner := card.grow(-4.0)
+			draw_rect(Rect2(inner.position + Vector2(0, inner.size.y * (1.0 - frac)), Vector2(inner.size.x, inner.size.y * frac)), Color(0, 0, 0, 0.55))
 			var ct := "%.1f" % cd if cd < 10.0 else "%d" % ceili(cd)
-			var cw := ft.get_string_size(ct, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
-			_shadow_text(ft, cell.get_center() + Vector2(-cw * 0.5, 9), ct, 26, Color(1, 1, 1))
-		var font := get_theme_default_font()
-		# 左上角小小的按鍵數字
-		_shadow_text(font, cell.position + Vector2(9, 24), str(i + 1), 17, Color(0.85, 0.85, 0.85))
-		# 右下角數量（方塊遊戲的堆疊數字）
+			var cw := font.get_string_size(ct, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
+			_shadow_text(font, card.get_center() + Vector2(-cw * 0.5, 9), ct, 26, Color(1, 1, 1))
+		# 左上角小小的按鍵數字（只有一種道具時不用寫）
+		if skills.size() > 1:
+			draw_string(font, card.position + Vector2(9, 22), str(i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(UIStyle.INK, 0.7))
+		# 右上角的次數徽章
+		var bc := card.position + Vector2(card.size.x - 5.0, 5.0)
+		draw_circle(bc, 17.0, UIStyle.INK)
+		draw_circle(bc, 14.5, UIStyle.accent() if cnt != 0 else Color(0.55, 0.55, 0.55))
 		if sw.has(i):
 			var e: float = sw[i]
 			var old: int = old_counts[i] if i < old_counts.size() else cnt
 			if e < 0.0:
-				_draw_count(font, cell, old, 24, 0.0, _count_color(old))
+				_draw_count(font, bc, old, 20, 0.0, _count_color(old))
 			else:
 				var u := e / SW_DUR
 				# 舊數字：往上滑走、淡出
@@ -97,7 +108,7 @@ func _draw() -> void:
 					var o := u / 0.35
 					var oc := _count_color(old)
 					oc.a = 1.0 - o
-					_draw_count(font, cell, old, 24, -22.0 * o * o, oc)
+					_draw_count(font, bc, old, 20, -14.0 * o * o, oc)
 				# 新數字：從下面冒上來、先放大再縮回原本大小，顏色由金黃變回白
 				if u > 0.25:
 					var v := (u - 0.25) / 0.75
@@ -107,23 +118,17 @@ func _draw() -> void:
 					if cnt != 0:
 						nc = Color(1.0, 0.86, 0.3).lerp(nc, ev)
 					nc.a = minf(v * 4.0, 1.0)
-					_draw_count(font, cell, cnt, int(round(24.0 + 14.0 * pop)), 16.0 * (1.0 - ev), nc)
-					# 格子外框閃一下金光，提示「這格換成開打後的次數了」
-					draw_rect(inner.grow(1.0), Color(1.0, 0.85, 0.3, 0.9 * (1.0 - ev)), false, 3.0)
+					_draw_count(font, bc, cnt, int(round(20.0 + 10.0 * pop)), 8.0 * (1.0 - ev), nc)
+					# 徽章閃一下金光，提示「這格換成開打後的次數了」
+					draw_arc(bc, 18.0, 0.0, TAU, 24, Color(1.0, 0.85, 0.3, 0.9 * (1.0 - ev)), 3.0, true)
 		else:
-			_draw_count(font, cell, cnt, 24, 0.0, _count_color(cnt))
-	# 選中的格子：粗白框，比格子大一圈、蓋在相鄰格子上
-	var sel := Rect2(Vector2(2.0 + selected * S, 2.0), Vector2(S, S)).grow(4.0)
-	draw_rect(sel, Color(0.05, 0.05, 0.05, 0.95), false, 10.0)
-	draw_rect(sel.grow(-2.0), Color(0.93, 0.93, 0.93), false, 6.0)
-	draw_rect(sel.grow(-5.0), Color(0.62, 0.62, 0.62), false, 1.0)
+			_draw_count(font, bc, cnt, 20, 0.0, _count_color(cnt))
 	# 切換時在上方浮出技能名稱
 	if name_t > 0.0 and selected < skills.size():
-		var font := get_theme_default_font()
 		var nm: String = skills[selected].name
 		var a := clampf(name_t / 0.5, 0.0, 1.0)
-		var w := font.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
-		_shadow_text(font, Vector2((bs.x - w) * 0.5, -16), nm, 26, Color(1, 1, 1, a))
+		var w := font.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 24).x
+		_shadow_text(font, Vector2((bs.x - w) * 0.5, -20), nm, 24, Color(1, 1, 1, a))
 
 func _shadow_text(font: Font, pos: Vector2, txt: String, fs: int, col: Color) -> void:
 	draw_string(font, pos + Vector2(2, 2), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0.15, 0.15, 0.15, col.a))
