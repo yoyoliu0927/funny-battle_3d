@@ -137,12 +137,16 @@ func _shadow_text(font: Font, pos: Vector2, txt: String, fs: int, col: Color) ->
 func _px(c: Vector2, x: int, y: int, col: Color) -> void:
 	draw_rect(Rect2(c + Vector2(x, y) * PX, Vector2(PX, PX)), col)
 
-## 道具有 icon（PNG 圖片）就畫圖片；內建道具（飼料、香蕉皮、巨石）用像素圖示；
+## 道具有貼圖（icon_tex，或舊名字 icon）就畫貼圖；內建道具（飼料、香蕉皮、巨石）用像素圖示；
 ## 都沒有的話畫一個道具顏色的圓，中間寫道具名稱的第一個字
 func _draw_item_icon(item, cell: Rect2, empty: bool) -> void:
 	var tint := Color(0.45, 0.45, 0.45) if empty else Color(1, 1, 1)
-	if item.icon:
-		draw_texture_rect(item.icon, Rect2(cell.get_center() - Vector2(26, 26), Vector2(52, 52)), false, tint)
+	var tex: Texture2D = item.icon_tex if item.icon_tex != null else item.icon
+	if tex:
+		# 等比例縮進 52×52 的框（跟像素圖示一樣大）、置中，不會被拉扁
+		var ts := tex.get_size()
+		var k := 52.0 / maxf(maxf(ts.x, ts.y), 1.0)
+		draw_texture_rect(tex, Rect2(cell.get_center() - ts * k * 0.5, ts * k), false, tint)
 		return
 	if item.id in ["feed", "banana", "rock"]:
 		_draw_icon(item.id, cell.get_center(), empty)

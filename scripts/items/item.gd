@@ -13,7 +13,7 @@ extends RefCounted
 ##
 ## 想做新道具：在自己的關卡資料夾新增一個 .gd，extends "res://scripts/items/item.gd"，
 ## 在 _init() 設好 id / name / tutorial / color，覆寫 cast()（必要）、step()、placement_error()、preview_path()。
-## 道具圖示：把 PNG 指給 icon；沒有圖片的話技能欄會畫一個彩色圓圈＋名字的第一個字。
+## 道具圖示：把貼圖指給 icon_tex（或舊名字 icon）；沒有圖片的話技能欄會畫一個彩色圓圈＋名字的第一個字。
 
 var id := ""
 var name := ""
@@ -22,6 +22,7 @@ var color := Color(1, 1, 1)        # 瞄準圈的顏色
 var radius := 0.6                  # 瞄準圈的大小（公尺）
 var cooldown := 1.0                # 用一次之後要等幾秒
 var icon: Texture2D
+var icon_tex: Texture2D            # 技能欄的貼圖圖示（選用；有給就蓋過 icon 和內建的像素圖示）
 var prep := -1                     # 準備階段（按開始前）能用幾次
 var battle := -1                   # 開打後能用幾次
 var shared := false                # true：準備＋開打共用 prep 這個次數
