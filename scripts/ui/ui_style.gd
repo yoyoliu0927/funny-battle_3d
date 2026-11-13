@@ -106,7 +106,7 @@ static func _box(bg: Color, edge: Color, radius := 10, border := 3, shadow := tr
 ## 筆記紙：米白底、淡藍橫線、紅色邊線、上方紙膠帶，微微歪一點
 static func paper(panel: Control, tilt := -0.012) -> void:
 	var s := _box(PAPER, PAPER_EDGE, 4, 2)
-	s.content_margin_left = 40
+	s.content_margin_left = 46   # 文字從紅色邊線右邊開始（邊線在 x=24）
 	panel.add_theme_stylebox_override("panel", s)
 	panel.rotation = tilt
 	var deco := _Ruled.new()
@@ -294,11 +294,8 @@ static func _plate_tex(w: int, h: int, bg: Color, edge: Color, radius: int, tail
 class _Ruled:
 	extends Control
 	func _draw() -> void:
-		var y := 40.0
-		while y < size.y - 6.0:
-			draw_line(Vector2(8, y), Vector2(size.x - 8, y), RULE, 2.0)
-			y += 38.0
-		draw_line(Vector2(28, 4), Vector2(28, size.y - 4), MARGIN, 2.0)
+		# 只畫左邊的紅色邊線（橫線會穿過字，拿掉比較乾淨）
+		draw_line(Vector2(24, 4), Vector2(24, size.y - 4), MARGIN, 2.0)
 	func _notification(what: int) -> void:
 		if what == NOTIFICATION_RESIZED:
 			queue_redraw()
