@@ -3,8 +3,8 @@ extends "res://levels/ice/rescue_world.gd"
 ##   第一段在雪地上（只會跌倒）；第二段看起來對著一個冰洞，但中間有雪人擋著；最後一段才真的對著另一個冰洞。
 
 func _ice_configure() -> void:
-	play_min = Vector2(-17.0, -20.0)
-	play_max = Vector2(17.0, 16.0)
+	play_min = Vector2(-20.0, -23.0)
+	play_max = Vector2(20.0, 18.0)
 	hero_start = Vector3(0.0, 0.0, 9.5)
 	camera_start = Vector3(0.0, 15.0, 18.0)
 	camera_look = Vector3(4.5, 0.0, -4.5)
@@ -18,3 +18,12 @@ func _ice_configure() -> void:
 	pines = [Vector3(-6.0, 0, -12.5), Vector3(6.0, 0, -12.5), Vector3(11.0, 0, -9.0)]
 	# 工人的冰釣營地（裝飾）：在他們出發點後面
 	camps = [{"pos": Vector3(-14.5, 0, -14.5), "yaw": 0.9}, {"pos": Vector3(13.5, 0, -16.0), "yaw": -0.7}]
+	# 冰湖周圍的區域（純裝飾）：讓整張地圖都有東西看，不只中間一個湖
+	zones = [
+		{"type": "village", "pos": Vector3(13.0, 0, 1.0), "yaw": -1.57},
+		{"type": "pier", "pos": Vector3(-8.6, 0, 0.0), "yaw": -1.57},
+		{"type": "crystals", "pos": Vector3(11.5, 0, -8.5)},
+		{"type": "crystals", "pos": Vector3(-12.5, 0, 6.5)},
+		{"type": "sculptures", "pos": Vector3(6.5, 0, 9.0), "yaw": 0.0},
+		{"type": "creek", "from": Vector3(14.0, 0, -13.0), "to": Vector3(8.6, 0, -5.2)},
+	]

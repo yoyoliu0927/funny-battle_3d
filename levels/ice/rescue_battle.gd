@@ -69,6 +69,7 @@ var _cross_label: Label3D
 var _top_cam: Camera3D
 var _cross_lead: Array = []
 var _victim_in_shot := false
+var _how_tab: Label              # 「怎麼玩」收起來後的小標籤
 var _pending_line := ""          # 過關時家豪晚一點才說的台詞
 var _prep_t0 := 0.0              # 準備階段開始的時間（開場示範用）
 var _demo_labels: Array = []
@@ -166,7 +167,7 @@ func _level_setup() -> void:
 	_bird_tag.text = "家豪"
 	_bird_tag.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_bird_tag.no_depth_test = true
-	_bird_tag.font_size = 64
+	_bird_tag.font_size = 44
 	_bird_tag.pixel_size = 0.0006
 	_bird_tag.fixed_size = true
 	_bird_tag.outline_size = 16
@@ -210,8 +211,15 @@ func _level_setup() -> void:
 	box.position = Vector2(20, 60)
 	box.add_theme_constant_override("separation", 10)
 	_list_layer.add_child(box)
-	_list_label = _panel_label(box, 24)
+	_list_label = _panel_label(box, 22)
 	_how_label = _panel_label(box, 19)
+	_how_tab = Label.new()
+	_how_tab.text = "H  說明"
+	_how_tab.label_settings = UISkin.ls(18, UISkin.INK)
+	UISkin.pill(_how_tab, UISkin.STICKY, UISkin.STICKY_EDGE, UISkin.INK)
+	_how_tab.visible = false
+	_how_tab.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN   # 小標籤，不要跟清單一樣寬
+	box.add_child(_how_tab)
 	_goal_label = Label.new()
 	_goal_label.text = "救出企鵝！"
 	_goal_label.add_theme_font_size_override("font_size", 50)
@@ -226,7 +234,7 @@ func _level_setup() -> void:
 		hint.text = "滑鼠 看　WASD／空白／Shift 移動　左鍵 丟道具　Enter 開始　R 重來　F 快轉"
 		UISkin.pill(hint, Color(0.1, 0.13, 0.2, 0.75), Color(1, 1, 1, 0.35), Color(1, 1, 1))
 	_skin_hud()
-	_hint_until = Time.get_ticks_msec() + 12000
+	_hint_until = Time.get_ticks_msec() + 3000
 
 func _mesh_node(m: Material) -> MeshInstance3D:
 	var n := MeshInstance3D.new()
@@ -328,7 +336,7 @@ func _level_start() -> void:
 	(_how_label.get_parent() as Control).visible = false   # 開打後收起說明
 
 func _prepare_hint() -> String:
-	return "準備中：先想好香蕉皮丟在紅線的哪一段　按 Enter 開始"
+	return "準備中　｜　Enter 開始"
 
 func _update_phase_label() -> void:
 	match phase:
@@ -373,7 +381,7 @@ func stars() -> int:
 func _refresh_list() -> void:
 	if _list_label == null:
 		return
-	var lines: PackedStringArray = ["整人清單"]
+	var lines: PackedStringArray = []      # 不放標題：筆記紙本身就看得出是清單
 	var best := _best()
 	for c in _checklist():
 		var tag := "☐ "
@@ -1017,7 +1025,9 @@ func _process(dt: float) -> void:
 		col.visible = false
 	var hint := get_node_or_null("../HUD/Hint") as Label
 	if hint:
-		hint.visible = not cut and (Time.get_ticks_msec() < _hint_until or Input.is_physical_key_pressed(KEY_H))
+		# 操作說明：只有第一次進這一關的前 3 秒出現（之後按住 H 才看得到），畫面保持乾淨
+		var first_look: bool = attempts.is_empty() and phase == Phase.PREPARE and _clock - _prep_t0 < 3.0
+		hint.visible = not cut and (first_look or Input.is_physical_key_pressed(KEY_H))
 	if crosshair:
 		crosshair.visible = not cut
 	if _phase_label:
@@ -1047,7 +1057,7 @@ func _process(dt: float) -> void:
 		_preview.visible = false
 		for d in _dots:
 			d.visible = false
-	_bird_tag.visible = phase != Phase.ENDED and bird.alive() and not cut
+	_bird_tag.visible = phase == Phase.PREPARE and bird.alive() and not cut   # 開打後不掛名牌（腳下有光圈）
 	_bird_tag.position = bird.pos + Vector3(0, 2.4 + bird.air, 0)
 	_bird_ring.position = bird.pos + Vector3(0, 0.06, 0)
 	_bird_ring.visible = bird.alive() and phase != Phase.ENDED and not cut
@@ -1055,6 +1065,20 @@ func _process(dt: float) -> void:
 		(_intents[f] as Label3D).visible = (_intents[f] as Label3D).visible and not cut
 	if _how_label and cut:
 		(_how_label.get_parent() as Control).visible = false
+	# 畫面上少放字：「怎麼玩」8 秒後收成一個小標籤（按住 H 再打開）；大標題 4 秒後收起
+	if phase == Phase.PREPARE and not cut and _how_label:
+		var t_in := _clock - _prep_t0
+		var demo_on: bool = show_timing and t_in < 9.0
+		var first_time: bool = attempts.is_empty()     # 說明、大標題、示範都只在第一次進這一關時出現
+		demo_on = demo_on and first_time
+		var show_how: bool = (first_time and t_in < 5.0) or demo_on or Input.is_physical_key_pressed(KEY_H)
+		(_how_label.get_parent() as Control).visible = show_how and not (_top_cam != null and _top_cam.current)
+		if _goal_label:
+			_goal_label.visible = first_time and t_in < 2.5 and not (_top_cam != null and _top_cam.current)
+		if _how_tab:
+			_how_tab.visible = not show_how
+	elif _how_tab:
+		_how_tab.visible = false
 	if _list_label:
 		(_list_label.get_parent() as Control).visible = not cut and not defeat_shown
 	var cl = world.get("_cage_label")
@@ -1088,7 +1112,7 @@ func _draw_path() -> void:
 		pts.append(ground(path[i]))
 	pts.append(world.cage)
 	_vb.clear()
-	_dashes(im, pts, Color(1.0, 0.85, 0.25, 0.85), 0.11)
+	_dashes(im, pts, Color(1.0, 0.82, 0.2, 0.95), 0.16)
 	_flush(im)
 
 ## 工人的路線（紅色虛線、終點紅叉）、守衛的撲擊圈和撲過去的箭頭
@@ -1133,7 +1157,7 @@ func _draw_routes() -> void:
 			for v in [tip + dirv * 1.0, tip + sidev, tip - sidev]:
 				_v(org, v)
 			continue
-		_dashes(im, route, red, 0.09)
+		_dashes(im, route, red, 0.14)
 		if er.ended or not ghost.is_empty():
 			continue
 		var b: Vector3 = route.back()
@@ -1191,11 +1215,9 @@ func _update_intents() -> void:
 		var t := ""
 		var c := Color(1, 1, 1)
 		if phase == Phase.PREPARE:
-			# 準備時頭上掛名牌（說明和提示裡會用到名字）
-			l.text = f.name
-			l.modulate = Color(1, 1, 1)
-			l.outline_size = 22
-			l.outline_modulate = Color(0.05, 0.05, 0.1, 1.0)
+			# 準備時頭上掛名牌（只有一個敵人的關卡不用掛：沒有要分辨誰是誰）
+			l.text = f.name if enemies.size() > 1 else ""
+			l.visible = l.text != ""
 			l.position = f.pos + Vector3(0, 3.1, 0)
 			continue
 		match f.state:
@@ -1829,7 +1851,7 @@ func _draw_timing_ghosts(im: ImmediateMesh) -> void:
 					_ghost_label.position = oq + Vector3(2.2, 1.0, 0.4)
 				if not names.is_empty():
 					_ghost_label.text = "踩到時%s在這" % "、".join(names)
-					_ghost_label.font_size = 52
+					_ghost_label.font_size = 42
 					_ghost_label.visible = true
 				# 交叉點：別人「幾秒經過這裡」（阿土那邊要自己數黃線上的橫槓）
 				_mark_crossing(f, p, Vector3(ab.x, 0, ab.y) / l, t_hit)
@@ -1944,7 +1966,7 @@ func _mark_crossing(f: Fighter, p: Vector3, dir: Vector3, t_hit := 0.0) -> void:
 		_cross_label = Label3D.new()
 		_cross_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		_cross_label.no_depth_test = true
-		_cross_label.font_size = 68
+		_cross_label.font_size = 50
 		_cross_label.outline_modulate = Color(0.15, 0.1, 0.0, 1.0)
 		_cross_label.pixel_size = 0.0005
 		_cross_label.fixed_size = true
@@ -2036,7 +2058,7 @@ const DEMO_HOLD := 3.0
 func _draw_demo(im: ImmediateMesh) -> void:
 	for l in _demo_labels:
 		(l as Label3D).visible = false
-	if not show_timing or phase != Phase.PREPARE or enemies.size() < 2:
+	if not show_timing or phase != Phase.PREPARE or enemies.size() < 2 or not attempts.is_empty():
 		return
 	var a_f: Fighter = enemies[0]
 	var b_f: Fighter = enemies[1]
@@ -2156,8 +2178,10 @@ func _skin_hud() -> void:
 	for f in enemies:
 		var l: Label3D = _intents.get(f)
 		if l:
+			l.font_size = 44                 # 牌子小一號：資訊在，但不搶畫面
 			_plate(l, "wood")
 	for l in _ends:
+		l.font_size = 46
 		_plate(l, "yellow")
 	if _bird_tag:
 		_plate(_bird_tag, "yellow")

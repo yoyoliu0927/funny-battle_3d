@@ -85,7 +85,7 @@ func _build_cage() -> void:
 	_cage_label.text = "救我！"
 	_cage_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_cage_label.no_depth_test = true
-	_cage_label.font_size = 96
+	_cage_label.font_size = 60
 	_cage_label.pixel_size = 0.00052
 	_cage_label.fixed_size = true   # 固定在畫面上的大小，鏡頭拉近也不會變巨大
 	_cage_label.outline_size = 24
@@ -103,7 +103,7 @@ func open_cage(target: Vector3, cam := Vector3.ZERO) -> void:
 	for b in _front_bars:
 		(b as Node3D).visible = false
 	_cage_label.text = "謝謝家豪！"
-	_cage_label.font_size = 64
+	_cage_label.font_size = 48
 
 ## 開籠動畫往前推一步（戰局每 1/60 秒呼叫一次）
 func tick_cage(dt: float) -> void:
@@ -118,7 +118,7 @@ func reset_cage() -> void:
 		_door.rotation.y = 0.0
 	if _cage_label:
 		_cage_label.text = "救我！"
-		_cage_label.font_size = 96
+		_cage_label.font_size = 60
 	for p in _penguins:
 		(p.node as Node3D).position = p.home
 
