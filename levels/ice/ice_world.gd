@@ -31,6 +31,7 @@ const MB := "res://levels/ice/assets/blender/"
 const MP := "res://levels/ice/assets/polypizza/"
 var _jump_fish: Array = []     # 冰洞裡偶爾跳出來的魚 {node, center, phase}
 var _fires: Array = []         # 營火的光 {light, flame}
+var _clutter: Array = []       # 過關演出時要收起來的小東西（釣竿、水桶、招牌字）
 
 ## 執行中的薄冰：[{center, r, state ("solid" / "cracking" / "broken"), t, node, water, dynamic}]
 var thin: Array = []
@@ -543,8 +544,9 @@ func _fishing_hole(root: Node3D, c: Vector2, r: float, rng: RandomNumberGenerato
 	var a := atan2(c.y - camera_start.z, c.x - camera_start.x) + rng.randf_range(-0.6, 0.6)
 	var edge := Vector3(c.x + cos(a) * (r + 0.55), 0, c.y + sin(a) * (r + 0.55))
 	edge.y = height_at(edge.x, edge.z)
-	_prop(root, KS + "bucket.glb", edge, a, 1.4)
+	_clutter.append(_prop(root, KS + "bucket.glb", edge, a, 1.4))
 	var f := _prop(root, KS + "fish.glb", edge + Vector3(cos(a + 1.3) * 0.55, 0.02, sin(a + 1.3) * 0.55), a + 0.6, 1.2)
+	_clutter.append(f)
 	if f:
 		f.rotation.z = PI * 0.5   # 躺在冰上的魚
 	# 釣竿：從洞邊斜斜伸到洞中央上方，垂一條線下去
@@ -564,6 +566,7 @@ func _fishing_hole(root: Node3D, c: Vector2, r: float, rng: RandomNumberGenerato
 	rod.look_at_from_position(rod.position, tip, Vector3.UP)
 	rod.rotate_object_local(Vector3.RIGHT, PI * 0.5)
 	root.add_child(rod)
+	_clutter.append(rod)
 	var line := MeshInstance3D.new()
 	var lm := CylinderMesh.new()
 	lm.top_radius = 0.006
@@ -573,6 +576,7 @@ func _fishing_hole(root: Node3D, c: Vector2, r: float, rng: RandomNumberGenerato
 	line.material_override = _toon(Color(0.95, 0.95, 0.95))
 	line.position = tip - Vector3(0, 0.5, 0)
 	root.add_child(line)
+	_clutter.append(line)
 	var jf := _prop(root, KS + "fish.glb", Vector3(c.x, -5, c.y), 0.0, 1.3)
 	if jf:
 		jf.visible = false
@@ -607,6 +611,7 @@ func _camp(root: Node3D, p: Vector3, yaw: float) -> void:
 		l.rotation.y = PI
 		l.scale = Vector3.ONE / 2.0
 		sign.add_child(l)
+		_clutter.append(l)
 	# 營火：會閃的光＋火焰
 	var light := OmniLight3D.new()
 	light.light_color = Color(1.0, 0.6, 0.25)
@@ -681,3 +686,9 @@ func _animate_decor() -> void:
 		fl.light_energy = 2.0 + sin(t * 13.0) * 0.4 + sin(t * 7.3) * 0.3
 		var fm: Node3D = f.flame
 		fm.scale = Vector3(1.0, 1.0 + sin(t * 11.0) * 0.18, 1.0)
+
+## 過關演出時收起小道具（釣竿、水桶、招牌字），重來時放回
+func set_clutter(on: bool) -> void:
+	for n in _clutter:
+		if n != null and is_instance_valid(n):
+			(n as Node3D).visible = on

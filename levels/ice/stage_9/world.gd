@@ -14,7 +14,7 @@ func _ice_configure() -> void:
 	ponds = [{"center": Vector2(3.5, -0.7), "r": 1.6}, {"center": Vector2(1.95, 2.6), "r": 1.3},
 		# 東邊的小冰洞：被雪人扣頭的工人爬起來再踩一次香蕉皮，就會往這裡滑
 		{"center": Vector2(5.0, -4.2), "r": 1.2}]
-	snowmen = [Vector3(-1.5, 0, -2.0), Vector3(9.5, 0, 9.0)]
+	snowmen = [Vector3(-1.5, 0, -2.0)]
 	pines = [Vector3(-6.0, 0, -12.5), Vector3(6.0, 0, -12.5), Vector3(11.0, 0, -9.0)]
 	# 工人的冰釣營地（裝飾）：在他們出發點後面
-	camps = [{"pos": Vector3(-13.0, 0, -12.5), "yaw": 0.9}, {"pos": Vector3(12.5, 0, -14.0), "yaw": -0.7}]
+	camps = [{"pos": Vector3(-14.5, 0, -14.5), "yaw": 0.9}, {"pos": Vector3(13.5, 0, -16.0), "yaw": -0.7}]

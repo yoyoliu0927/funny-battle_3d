@@ -13,6 +13,8 @@ var _cage_root: Node3D
 var _cage_label: Label3D
 var _front_bars: Array = []
 var _door: Node3D             # 籠門（模型版）
+var _lock: Node3D             # 門上的鎖
+var _lock_drop: Node3D        # 開籠後掉在地上的鎖
 var _penguins: Array = []      # {node, home, out, t0}
 var _freed := false
 var _free_target := Vector3.ZERO
@@ -38,6 +40,27 @@ func _build_cage() -> void:
 	var model := _prop(_cage_root, MB + "cage.glb", Vector3.ZERO, 0.0, 1.0)
 	if model:
 		_door = model.find_child("Door", true, false) as Node3D
+		if _door:
+			_lock = _door.find_child("Lock", true, false) as Node3D
+			var sh := _door.find_child("Shackle", true, false) as Node3D
+			if _lock and sh:
+				# 掉在地上的鎖（開籠時才出現）：鎖頭＋鎖環的複製品，倒在門前
+				_lock_drop = Node3D.new()
+				_cage_root.add_child(_lock_drop)
+				var a := _lock.duplicate() as Node3D
+				var b := sh.duplicate() as Node3D
+				_lock_drop.add_child(a)
+				_lock_drop.add_child(b)
+				a.position = Vector3.ZERO
+				b.position = Vector3(0, 0.12, 0)
+				_lock_drop.position = Vector3(0.7, 0.08, 1.35)
+				_lock_drop.rotation = Vector3(0, 0.6, 1.4)
+				_lock_drop.visible = false
+				var lk := Node3D.new()
+				_lock.get_parent().add_child(lk)
+				_lock.reparent(lk)
+				sh.reparent(lk)
+				_lock = lk
 	else:
 		var wood := _toon(Color(0.55, 0.38, 0.24))
 		var bar := _toon(Color(0.35, 0.38, 0.42))
@@ -108,7 +131,13 @@ func _process(_dt: float) -> void:
 		_cage_label.position = _cage_root.position + Vector3(0, 3.0 + sin(now * 0.004) * 0.12, 0)
 	if _door:
 		# 開籠：籠門往外轉開（0.35 秒）
-		_door.rotation.y = -1.9 * clampf(_free_t / 0.35, 0.0, 1.0) if _freed else 0.0
+		# 籠門轉 90 度貼到側邊；鎖掉到地上
+		var k := clampf(_free_t / 0.35, 0.0, 1.0)
+		_door.rotation.y = PI * 0.5 * k if _freed else 0.0
+		if _lock:
+			_lock.visible = not _freed
+		if _lock_drop:
+			_lock_drop.visible = _freed
 	for p in _penguins:
 		var n := p.node as Node3D
 		var k: int = p.k
@@ -140,7 +169,7 @@ func _process(_dt: float) -> void:
 		if k == 1:
 			# 「謝謝家豪！」是左邊那隻企鵝說的：跑到定位才開口，字貼在牠頭上
 			_cage_label.text = "謝謝家豪！" if t >= 1.1 else ""
-			_cage_label.position = _cage_root.to_global(n.position) + Vector3(0, 1.85, 0)
+			_cage_label.position = _cage_root.to_global(n.position) + Vector3(0, 1.45, 0)
 
 ## 企鵝的站位（開籠時算一次）：固定在家豪左、右、更左邊（以鏡頭看過去的左右），只避開水
 func _pick_spots() -> void:

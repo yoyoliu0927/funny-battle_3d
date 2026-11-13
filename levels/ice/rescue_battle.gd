@@ -67,6 +67,9 @@ var _reroute_label: Label3D
 var _cross_label: Label3D
 var _top_cam: Camera3D
 var _cross_lead: Array = []
+var _victim_in_shot := false
+## 測試／截圖用：不用按 Tab 也切到正上方視角
+var force_top := false
 var _std_focus := Vector3.ZERO
 var _std_offset := Vector3(0, 2, 5)
 var _reroute_used := false
@@ -263,6 +266,8 @@ func _level_reset() -> void:
 	_pop_seen.clear()
 	_recap_t = 0.0
 	_told_giveup = false
+	if world.has_method("set_clutter"):
+		world.set_clutter(true)
 	_miss_text = ""
 	bird.data.erase("held")
 	# 雪人扶正（被撞倒過的）
@@ -521,7 +526,8 @@ func _start_win_show() -> void:
 		var bv: Vector3 = vp - bird.pos
 		bv.y = 0.0
 		var dist := bv.length()
-		if dist > 2.5 and dist < 10.0:
+		_victim_in_shot = dist > 2.5 and dist < 10.0
+		if _victim_in_shot:
 			var dirv := bv / dist
 			var left := Vector3.UP.cross(dirv)          # 從受害者看向家豪時的左手邊
 			var cam: Vector3 = ground(vp) + dirv * 2.6 + left * 1.6 + Vector3(0, 1.7, 0)
@@ -531,6 +537,9 @@ func _start_win_show() -> void:
 			for e in enemies:
 				if e.data.get("sunk", false) and flat_dist(e.pos, vp) < 3.0:
 					e.data.sunk_yaw = atan2(cam.x - e.pos.x, cam.z - e.pos.z)
+					e.yaw = e.data.sunk_yaw   # 戰局已經停了，直接轉（不等下一步）
+	if world.has_method("set_clutter"):
+		world.set_clutter(false)       # 過關演出時收起釣竿、水桶、招牌字（不搶畫面）
 	if world.has_method("open_cage"):
 		world.open_cage(bird.pos, std_cam)
 	bird.yaw = atan2(offset.x, offset.z)
@@ -540,7 +549,7 @@ func _start_win_show() -> void:
 	if _done.has("snow_hole"):
 		line = "……他頭上那個是什麼"
 	elif _done.has("pile") or enemies.any(func(f): return f.data.get("pile") != null):
-		line = "……那是腿嗎"
+		line = "……那是腿嗎" if _victim_in_shot else "……我什麼都沒看到"
 	elif _done.has("guard_carom") or _done.has("carom") or _done.has("clean_fall2"):
 		line = "……一次兩個"
 	bubble(line, bird, 1.9, int((WIN_SHOW + 4.0) * 1000))
@@ -981,7 +990,7 @@ func _process(dt: float) -> void:
 		_top_cam = Camera3D.new()
 		_top_cam.fov = 55.0
 		world.add_child(_top_cam)
-	var want_top: bool = phase == Phase.PREPARE and not cut and Input.is_physical_key_pressed(KEY_TAB)
+	var want_top: bool = phase == Phase.PREPARE and not cut and (Input.is_physical_key_pressed(KEY_TAB) or force_top)
 	if want_top and not _top_cam.current:
 		var c: Vector3 = world.get("camera_look") if world.get("camera_look") != null else Vector3.ZERO
 		_top_cam.global_position = Vector3(c.x, 26.0, c.z + 0.01)
@@ -1140,6 +1149,8 @@ func _update_intents() -> void:
 			# 準備時頭上掛名牌（說明和提示裡會用到名字）
 			l.text = f.name
 			l.modulate = Color(1, 1, 1)
+			l.outline_size = 22
+			l.outline_modulate = Color(0.05, 0.05, 0.1, 1.0)
 			l.position = f.pos + Vector3(0, 3.1, 0)
 			continue
 		match f.state:
@@ -1755,8 +1766,10 @@ func _draw_timing_ghosts(im: ImmediateMesh) -> void:
 					_ghost_label.position = oq + Vector3(0, 1.6, 0)
 				if not names.is_empty():
 					_ghost_label.text = "踩到時%s在這（%.1f 秒）" % ["、".join(names), t_hit]
-					_ghost_label.font_size = 44
-					_ghost_label.modulate = Color(0.8, 0.9, 1.0, 0.85)
+					_ghost_label.font_size = 60
+					_ghost_label.outline_size = 22
+					_ghost_label.outline_modulate = Color(0.05, 0.1, 0.2, 1.0)
+					_ghost_label.modulate = Color(0.75, 0.92, 1.0)
 					_ghost_label.visible = true
 				# 交叉點：別人「幾秒經過這裡」（阿土那邊要自己數黃線上的橫槓）
 				_mark_crossing(f, p, Vector3(ab.x, 0, ab.y) / l)
@@ -1870,10 +1883,11 @@ func _mark_crossing(f: Fighter, p: Vector3, dir: Vector3) -> void:
 		_cross_label = Label3D.new()
 		_cross_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 		_cross_label.no_depth_test = true
-		_cross_label.font_size = 64
+		_cross_label.font_size = 68
+		_cross_label.outline_modulate = Color(0.15, 0.1, 0.0, 1.0)
 		_cross_label.pixel_size = 0.0005
 		_cross_label.fixed_size = true
-		_cross_label.outline_size = 16
+		_cross_label.outline_size = 24
 		_cross_label.modulate = Color(1.0, 0.95, 0.6)
 		world.add_child(_cross_label)
 	for o in enemies:
