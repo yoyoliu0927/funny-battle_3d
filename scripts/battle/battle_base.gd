@@ -6,7 +6,7 @@ extends Node
 ## 然後只覆寫底下「關卡可以覆寫」那一區的函式：要哪些道具、有哪些敵人、有什麼機關、輸贏條件、文字。
 ##
 ## 這裡負責的東西（每關都一樣）：
-##   - 準備 → 開打 → 結束 三個階段、Enter 開始、R 重試、M 回地圖
+##   - 準備 → 開打 → 結束 三個階段、Enter 開始、R 重試、M 回地圖、Esc 暫停選單（scripts/ui/pause_menu.gd）
 ##   - 道具欄（1~9 / 滾輪切換、左鍵施放、次數分準備／開打兩段、冷卻）
 ##   - 家豪的 AI（衝去打最近的敵人、吃飼料、挨打飛走、飛過圍欄和水、偷襲）
 ##   - 一般近戰敵人的 AI（巡邏、紅色偵測扇形、聽到打鬥趕來、踢、重踢、掉進水裡）
@@ -23,6 +23,7 @@ const Hotbar := preload("res://scripts/ui/hotbar.gd")
 const DialogBox := preload("res://scripts/ui/dialog_box.gd")
 const TutArrow := preload("res://scripts/ui/tut_arrow.gd")
 const EnemyFace := preload("res://scripts/ui/enemy_face.gd")
+const PauseMenu := preload("res://scripts/ui/pause_menu.gd")
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術（手帳風格）
 const Progress := preload("res://scripts/progress.gd")
 const LEVEL_SELECT_SCENE := "res://scenes/level_select.tscn"
@@ -112,6 +113,7 @@ var _tut_seen := false
 var _tut_arrow: TutArrow
 var _tut_panel: PanelContainer
 var _tut_label: Label
+var pause_menu: PauseMenu      # 暫停選單（Esc）。pause_menu.is_open＝現在暫停中
 # 輸了的畫面
 var defeat_room: Node3D
 var defeat_shown := false
@@ -240,6 +242,7 @@ func _ready() -> void:
 	_level_setup()
 	_build_hud()
 	_build_defeat()
+	_build_pause()
 	reset()
 	if show_tutorial and not "--autotest" in OS.get_cmdline_user_args():
 		start_tutorial()
@@ -1737,6 +1740,62 @@ func _show_summary() -> void:
 	lines.append("按 R 回到起點重試（觀察位置會保留）　｜　按 M 回到地圖")
 	_summary_label.text = "\n".join(lines)
 	_summary_panel.visible = true
+
+# ================================================================== 暫停選單（Esc）
+
+## 暫停的做法：選單打開時把整個小關場景（這個節點的上一層）的 process_mode 設成停用，
+## 所以這裡和各關覆寫的 _process／_physics_process／_unhandled_input 都不會被呼叫——
+## 模擬一步都不會跑、不能施放道具、鏡頭不會動；關掉後從同一步接著算，結果和沒暫停一樣。
+## 自動驗收（--autotest）時不接 Esc：tools/autotest.gd 還在檢查舊的「Esc 放開游標、點一下回來」。
+func _build_pause() -> void:
+	pause_menu = PauseMenu.new()
+	pause_menu.name = "PauseMenu"
+	pause_menu.stage_root = get_parent()
+	pause_menu.player = player
+	pause_menu.help_rows = help_list
+	pause_menu.hotkey = not "--autotest" in OS.get_cmdline_user_args()
+	pause_menu.picked.connect(_on_pause_picked)
+	add_child(pause_menu)
+
+## 暫停選單「操作說明」要列的東西：一列一組 [按鍵, 做什麼]。
+## 讀場景裡 HUD/Hint 那一行字（「WASD 飄移｜空白 上升｜…」，各關改過 Hint.text 也讀得到）；
+## Esc 一律是開暫停選單，所以不管那行字怎麼寫，這裡都會有一列「Esc 選單」
+func help_list() -> Array:
+	var hint := get_node_or_null("../HUD/Hint") as Label
+	var src: String = hint.text if hint else ""
+	var rows: Array = []
+	var has_esc := false
+	for seg in src.split("｜" if src.contains("｜") else "　", false):
+		var t := seg.strip_edges()
+		if t == "":
+			continue
+		var hold := t.begins_with("按住 ")
+		if hold:
+			t = t.substr(3)
+		var cut := t.find(" ")
+		var row: Array = ["", t] if cut < 0 else [t.substr(0, cut), ("按住" if hold else "") + t.substr(cut + 1).strip_edges()]
+		if String(row[0]) == "Esc":
+			row[1] = "選單"
+			has_esc = true
+		rows.append(row)
+	if not has_esc:
+		rows.append(["Esc", "選單"])
+	return rows
+
+## 選單裡選了「重來」「回地圖」：和直接按 R／M 走同一條路（各關覆寫的 _unhandled_input 也會經過）
+func _on_pause_picked(id: String) -> void:
+	var action := ""
+	match id:
+		"restart":
+			action = "battle_reset"
+		"map":
+			action = "back_to_map"
+	if action == "":
+		return
+	var ev := InputEventAction.new()
+	ev.action = action
+	ev.pressed = true
+	_unhandled_input(ev)
 
 # ================================================================== 輸了的畫面
 

@@ -3,7 +3,8 @@ extends CharacterBody3D
 ## - WASD：依鏡頭水平面向前後左右飄移（抬頭/低頭不影響，只在水平面上移動）
 ## - 空白鍵：上升　Shift：下降
 ## - 移動滑鼠：畫面直接跟著轉（游標鎖在畫面中央，中央圓圈是準心）
-## - Esc：放開游標（停止轉動）；在視窗內點一下滑鼠即可回到操作
+## - Esc：戰局裡會打開暫停選單（scripts/ui/pause_menu.gd 先接走 Esc、放開游標，關掉選單時再把游標還回來）；
+##   沒有暫停選單的場合才是這裡直接放開游標（停止轉動），在視窗內點一下滑鼠即可回到操作
 ## 幽靈不受重力影響，會停在空中；碰到地形或岩石會被擋住，不會鑽進地底。
 
 @export var move_speed := 4.5
@@ -44,6 +45,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		var lim := deg_to_rad(pitch_limit_deg)
 		head.rotation.x = clampf(head.rotation.x - event.relative.y * mouse_sensitivity, -lim, lim)
 	elif event is InputEventKey and event.pressed and event.keycode == KEY_ESCAPE:
+		# 戰局裡 Esc 會先被暫停選單接走，到不了這裡；到得了＝這個場合沒有選單，直接放開游標
 		_set_looking(false)
 	elif event is InputEventMouseButton and event.pressed and not looking and event.button_index in [MOUSE_BUTTON_LEFT, MOUSE_BUTTON_RIGHT, MOUSE_BUTTON_MIDDLE]:
 		# 游標被放開時，點一下視窗就回到視角操作（這一下不當作點擊）
