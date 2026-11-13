@@ -169,11 +169,13 @@ func _process(_dt: float) -> void:
 		# 收尾小動作：最後一隻企鵝撲倒，用肚子往前滑一段
 		if k == 2 and _free_t > 2.4:
 			var sl := clampf((_free_t - 2.4) / 0.6, 0.0, 1.0)
-			var fwd := (_cage_root.to_local(_free_cam) - around)
-			fwd.y = 0.0
-			fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3.BACK
-			n.position = around + fwd * (sl * 1.0) + Vector3(0, 0.05, 0)
-			n.rotation = Vector3(1.4 * minf(sl * 3.0, 1.0), atan2(fwd.x, fwd.z), 0)
+			# 往畫面的側邊滑（從鏡頭看是橫著滑過去），仰躺露出白肚子
+			var to_cam := (_cage_root.to_local(_free_cam) - around)
+			to_cam.y = 0.0
+			to_cam = to_cam.normalized() if to_cam.length() > 0.01 else Vector3.BACK
+			var side := to_cam.cross(Vector3.UP)
+			n.position = around + side * (sl * 1.6) + Vector3(0, 0.08, 0)
+			n.rotation = Vector3(-1.35 * minf(sl * 3.0, 1.0), atan2(to_cam.x, to_cam.z), sin(_free_t * 12.0) * 0.08)
 		if k == 1:
 			# 「謝謝家豪！」是左邊那隻企鵝說的：跑到定位才開口，字貼在牠頭上
 			_cage_label.text = "謝謝家豪！" if t >= 1.1 else ""
@@ -186,8 +188,8 @@ func _pick_spots() -> void:
 	away.y = 0.0
 	away = away.normalized() if away.length() > 0.1 else Vector3.FORWARD
 	var right := away.cross(Vector3.UP)    # 畫面右邊
-	var want: Array = [-1.6, 1.6, -3.1]
-	var back: Array = [0.3, 0.3, 1.5]     # 第三隻站後面一點，三隻不會疊在一起
+	var want: Array = [-1.6, 1.6, -2.4]
+	var back: Array = [0.3, 0.3, 2.6]     # 第三隻站後面一點，三隻不會疊在一起
 	for k in 3:
 		var q: Vector3 = _free_target + right * float(want[k]) + away * float(back[k])
 		if in_water(q.x, q.z):

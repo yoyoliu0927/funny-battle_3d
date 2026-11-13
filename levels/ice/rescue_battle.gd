@@ -14,6 +14,7 @@ extends "res://levels/ice/billiards_battle.gd"
 ## 小關的 battle.gd：extends 這個檔案，設定 _make_items()、_enemy_specs()、_checklist()、_how_to()。
 ## 工人：rusher(名字, 出生點, [衝刺路線點…])；守衛：guard(名字, 位置)。
 
+const UISkin := preload("res://levels/ice/ui_skin.gd")
 const BIRD_WALK := 2.3         # 家豪走路的速度
 const BIRD_RUN := 4.5          # 擋路的人都解決了：家豪衝向籠子
 const RUSH_SPEED := 2.1        # 工人衝刺的速度
@@ -213,10 +214,8 @@ func _level_setup() -> void:
 	_how_label = _panel_label(box, 19)
 	_goal_label = Label.new()
 	_goal_label.text = "救出企鵝！"
-	_goal_label.add_theme_font_size_override("font_size", 52)
-	_goal_label.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0.8))
-	_goal_label.add_theme_constant_override("outline_size", 16)
-	_goal_label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.3))
+	_goal_label.add_theme_font_size_override("font_size", 50)
+	UISkin.ribbon(_goal_label)
 	_goal_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_goal_label.offset_top = 100
 	_goal_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
@@ -225,6 +224,8 @@ func _level_setup() -> void:
 	var hint := get_node_or_null("../HUD/Hint") as Label
 	if hint:
 		hint.text = "滑鼠 看　WASD／空白／Shift 移動　左鍵 丟道具　Enter 開始　R 重來　F 快轉"
+		UISkin.pill(hint, Color(0.1, 0.13, 0.2, 0.75), Color(1, 1, 1, 0.35), Color(1, 1, 1))
+	_skin_hud()
 	_hint_until = Time.get_ticks_msec() + 12000
 
 func _mesh_node(m: Material) -> MeshInstance3D:
@@ -236,18 +237,16 @@ func _mesh_node(m: Material) -> MeshInstance3D:
 	return n
 
 func _panel_label(parent: Control, size: int) -> Label:
+	# 美術：整人清單是筆記紙、怎麼玩是便利貼（參考 Untitled Goose Game 的待辦清單）
 	var panel := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.08, 0.1, 0.14, 0.75)
-	sb.set_corner_radius_all(8)
-	sb.content_margin_left = 16
-	sb.content_margin_right = 18
-	sb.content_margin_top = 10
-	sb.content_margin_bottom = 12
-	panel.add_theme_stylebox_override("panel", sb)
 	parent.add_child(panel)
+	if size >= 22:
+		UISkin.paper(panel)
+	else:
+		UISkin.sticky(panel)
 	var l := Label.new()
-	l.add_theme_font_size_override("font_size", size)
+	UISkin.use_font(l, size + 2, UISkin.INK)
+	l.add_theme_constant_override("line_spacing", 6)
 	panel.add_child(l)
 	return l
 
@@ -271,10 +270,12 @@ func _level_reset() -> void:
 	_told_giveup = false
 	_pending_line = ""
 	_prep_t0 = _clock
+	_demo_caption_text = ""
 	if world.has_method("set_clutter"):
 		world.set_clutter(true)
 	_miss_text = ""
 	bird.data.erase("held")
+	bird.data.erase("sighed")
 	# 雪人扶正（被撞倒過的）
 	for sn in world.get("snowman_nodes"):
 		(sn.node as Node3D).rotation = Vector3(0, (sn.pos as Vector3).x * 0.7, 0)
@@ -283,6 +284,7 @@ func _level_reset() -> void:
 			if sc:
 				sc.visible = true
 		(sn.node as Node3D).position = sn.pos
+		(sn.node as Node3D).visible = true
 		for ob in world.obstacles:
 			if (ob[0] as Vector2).distance_to(Vector2(sn.pos.x, sn.pos.z)) < 0.05:
 				ob[1] = 0.6
@@ -563,6 +565,9 @@ func _start_win_show() -> void:
 				e.yaw = e.data.sunk_yaw   # 戰局已經停了，直接轉（不等下一步）
 	if world.has_method("set_clutter"):
 		world.set_clutter(false)       # 過關演出時收起釣竿、水桶、招牌字（不搶畫面）
+	for sn in world.get("snowman_nodes"):
+		if absf((sn.node as Node3D).rotation.z) > 0.5:
+			(sn.node as Node3D).visible = false   # 倒下的雪人身體（正面看像棒棒糖）收起來
 	if world.has_method("open_cage"):
 		world.open_cage(bird.pos, std_cam)
 	bird.yaw = atan2(offset.x, offset.z)
@@ -597,6 +602,7 @@ func _level_step_ended(dt: float) -> void:
 		_summary_panel.offset_right = -40
 		_summary_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 		_summary_panel.visible = true
+		_skin_summary()
 		_update_phase_label()
 		_cut_to(_std_focus, _std_offset, 99.0)
 		bird.yaw = atan2(_std_offset.x, _std_offset.z)
@@ -1070,6 +1076,7 @@ func _process(dt: float) -> void:
 	_draw_path()
 	_draw_routes()
 	_draw_placed_peels()
+	_refresh_plates()
 
 func _draw_path() -> void:
 	var im := _path_line.mesh as ImmediateMesh
@@ -1391,6 +1398,20 @@ func _hold_bird(b: Fighter) -> void:
 ## 被拎著的家豪：身體左右扭、翅膀狂拍
 func _bird_pose() -> void:
 	var b := bird
+	if phase == Phase.ENDED and outcome == "win" and b.body != null and _recap_t <= 0.0 and _ended_t > 2.7 and _ended_t < 4.2:
+		# 收尾：家豪嘆一口氣、聳聳肩（身體先縮再挺，翅膀往上一抬）
+		var k := clampf((_ended_t - 2.7) / 1.5, 0.0, 1.0)
+		var shrug := sin(k * PI)
+		b.body.rotation = Vector3(-0.15 * shrug, 0, 0)
+		b.body.scale = Vector3(1.0 + 0.08 * shrug, 1.0 - 0.12 * shrug, 1.0 + 0.08 * shrug)
+		b.body.set_meta("posed", false)
+		for w in b.wings:
+			var sx := -1.0 if w.name == "WingL" else 1.0
+			w.rotation = Vector3(0, 0, sx * (0.2 + 1.1 * shrug))
+		if not b.data.get("sighed", false):
+			b.data.sighed = true
+			pop_label("唉～", b.pos + Vector3(0, 2.5, 0), Color(0.85, 0.9, 1.0), 1300, b)
+		return
 	if b.body != null and (b.state == "lifted" or b.data.get("held", false)):
 		# 每 0.3 秒左右用力扭一下（掙扎）
 		var jerk := 1.0 if fmod(_clock, 0.3) < 0.12 else 0.35
@@ -1413,9 +1434,8 @@ func bubble(text: String, who: Fighter, dy: float, ms: int) -> void:
 	var e: Dictionary = _labels.back()
 	e.fixed = true
 	var l: Label3D = e.node
-	l.outline_size = 28
-	l.outline_modulate = Color(0.05, 0.05, 0.1, 1.0)
-	l.font_size = 64
+	l.font_size = 56
+	_plate(l, "bubble")
 
 ## 同一個人頭上同一個字 0.5 秒內只跳一次（不會「咚！咚！」疊在一起）
 func pop_label(text: String, pos: Vector3, color: Color, ms: int, follow: Fighter = null) -> void:
@@ -1434,6 +1454,8 @@ func pop_label(text: String, pos: Vector3, color: Color, ms: int, follow: Fighte
 					e.node.queue_free()
 				_labels.remove_at(i)
 	super(text, pos, color, ms, follow)
+	if not _labels.is_empty() and UISkin.font():
+		(_labels.back().node as Label3D).font = UISkin.font()
 
 func _update_labels(now: int) -> void:
 	super(now)
@@ -1768,6 +1790,7 @@ func _draw_timing_ghosts(im: ImmediateMesh) -> void:
 		_ghost_label.outline_size = 12
 		_ghost_label.modulate = Color(0.8, 0.95, 1.0)
 		world.add_child(_ghost_label)
+		_plate(_ghost_label, "ice")
 	_ghost_label.visible = false
 	if _cross_label:
 		_cross_label.visible = false
@@ -1805,14 +1828,11 @@ func _draw_timing_ghosts(im: ImmediateMesh) -> void:
 					names.append(o.name)
 					_ghost_label.position = oq + Vector3(2.2, 1.0, 0.4)
 				if not names.is_empty():
-					_ghost_label.text = "踩到時%s在這（%.1f 秒）" % ["、".join(names), t_hit]
-					_ghost_label.font_size = 60
-					_ghost_label.outline_size = 22
-					_ghost_label.outline_modulate = Color(0.05, 0.1, 0.2, 1.0)
-					_ghost_label.modulate = Color(0.75, 0.92, 1.0)
+					_ghost_label.text = "踩到時%s在這" % "、".join(names)
+					_ghost_label.font_size = 52
 					_ghost_label.visible = true
 				# 交叉點：別人「幾秒經過這裡」（阿土那邊要自己數黃線上的橫槓）
-				_mark_crossing(f, p, Vector3(ab.x, 0, ab.y) / l)
+				_mark_crossing(f, p, Vector3(ab.x, 0, ab.y) / l, t_hit)
 				return
 			walked += l
 
@@ -1829,6 +1849,7 @@ func _reroute_tag(at: Vector3) -> void:
 		_reroute_label.modulate = Color(1.0, 0.65, 0.75)
 		_reroute_label.text = "撞停→爬起來→改走粉紅線"
 		world.add_child(_reroute_label)
+		_plate(_reroute_label, "yellow")
 	_reroute_used = true
 	_reroute_label.position = at + Vector3(0, 1.4, 0)
 	_reroute_label.visible = phase == Phase.PREPARE and not (_cut_cam != null and _cut_cam.current)
@@ -1918,7 +1939,7 @@ func _set_frost(f: Fighter, on: bool) -> void:
 		(m as MeshInstance3D).material_overlay = _frost_mat if on else null
 
 ## 第 3 關：瞄準時在交叉點寫「阿水 3.3 秒經過」
-func _mark_crossing(f: Fighter, p: Vector3, dir: Vector3) -> void:
+func _mark_crossing(f: Fighter, p: Vector3, dir: Vector3, t_hit := 0.0) -> void:
 	if _cross_label == null:
 		_cross_label = Label3D.new()
 		_cross_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -1930,6 +1951,7 @@ func _mark_crossing(f: Fighter, p: Vector3, dir: Vector3) -> void:
 		_cross_label.outline_size = 24
 		_cross_label.modulate = Color(1.0, 0.95, 0.6)
 		world.add_child(_cross_label)
+		_plate(_cross_label, "ice")
 	for o in enemies:
 		if o == f or o.data.get("guard", false):
 			continue
@@ -1945,7 +1967,11 @@ func _mark_crossing(f: Fighter, p: Vector3, dir: Vector3) -> void:
 				var rel := q - p
 				rel.y = 0.0
 				if rel.dot(dir) > 0.0 and (rel - dir * rel.dot(dir)).length() < 0.06:
-					_cross_label.text = "%s %.1f 秒經過這裡" % [o.name, (along + seg * float(k) / n) / RUSH_SPEED]
+					# 跟示範一樣比兩個數字：阿土的秒數要自己數黃線格子（按住 Tab 俯視時才直接顯示）
+					var start := p - dir * PEEL_STEP
+					var arrive := t_hit + flat_dist(start, q) / SLIDE_SPEED
+					var mine := ("%.1f" % arrive) if (_top_cam != null and _top_cam.current) else "?"
+					_cross_label.text = "%s %s 秒 ／ %s %.1f 秒" % [f.name, mine, o.name, (along + seg * float(k) / n) / RUSH_SPEED]
 					# 字放在交叉點南邊（離開路線和白點），拉一條引線指回去
 					var off := Vector3(0, 0, 2.2)
 					_cross_label.position = q + off + Vector3(0, 0.5, 0)
@@ -2049,7 +2075,13 @@ func _draw_demo(im: ImmediateMesh) -> void:
 	var t_b := along_b / RUSH_SPEED
 	var tau := (_clock - _prep_t0) * DEMO_SPEED
 	var t_end := t_a + 0.4
+	if Input.is_physical_key_pressed(KEY_SPACE) and tau < t_end + DEMO_HOLD * DEMO_SPEED:
+		_prep_t0 -= 100.0      # 空白鍵跳過示範
+		tau = 1e9
 	if tau > t_end + DEMO_HOLD * DEMO_SPEED or tau < 0.0:
+		if _demo_caption_text != "" and _demo_caption_text != "換你了！讓兩個數字一樣（按住 Tab 從上面看）":
+			_demo_caption_text = "換你了！讓兩個數字一樣（按住 Tab 從上面看）"
+			toast(_demo_caption_text, 3.0)
 		return
 	var tt := minf(tau, t_end)
 	# 阿土虛影
@@ -2076,9 +2108,10 @@ func _draw_demo(im: ImmediateMesh) -> void:
 	if tau < t_end:
 		_demo_label(0, pa + Vector3(0, 1.5, 0), "阿土（示範）")
 		_demo_label(1, pb + Vector3(0, 1.5, 0), "阿水 %.1f 秒" % tt)
+		_demo_caption("示範中：看阿土和阿水誰先到交叉點（空白鍵跳過）")
 	else:
-		# 停格：只留一句比較（放在湖面空曠的地方，不壓到其他字）
-		_demo_label(2, cross + Vector3(0, 0.5, 3.2), "示範：阿土 %.1f 秒滑到交叉點，阿水 %.1f 秒才到 → 早了！\n讓兩個數字一樣就撞得到" % [t_a, t_b])
+		_demo_caption("同時到才撞得到！示範：阿土 %.1f 秒、阿水 %.1f 秒 → 阿土早了 %.1f 秒" % [t_a, t_b, t_b - t_a])
+		_demo_done_t = _clock
 
 func _demo_ring(c: Vector3, r: float, col: Color) -> void:
 	var pts: Array = []
@@ -2100,7 +2133,76 @@ func _demo_label(i: int, pos: Vector3, text: String) -> void:
 		l.modulate = Color(1.0, 0.97, 0.8)
 		world.add_child(l)
 		_demo_labels.append(l)
+		_plate(l, "ice")
 	var lb: Label3D = _demo_labels[i]
 	lb.text = text
 	lb.position = pos
 	lb.visible = true
+
+# ---------------------------------------------------------------- 美術：介面和 3D 字的底板（ui_skin.gd）
+
+var _plated: Array = []
+
+## 共用介面（字卡、上方提示、結算、失敗說明）在這一關換成冰釣手帳風格（只改執行時的外觀，不改共用檔案）
+func _skin_hud() -> void:
+	if _toast_label:
+		UISkin.pill(_toast_label)
+	if _phase_label:
+		UISkin.pill(_phase_label, Color(0.1, 0.13, 0.2, 0.78), Color(1, 1, 1, 0.4), Color(1, 1, 1))
+	_skin_summary()
+	if _defeat_detail:
+		UISkin.use_font(_defeat_detail, -1, Color(1, 0.97, 0.9))
+	for f in enemies:
+		var l: Label3D = _intents.get(f)
+		if l:
+			_plate(l, "wood")
+	for l in _ends:
+		_plate(l, "yellow")
+	if _bird_tag:
+		_plate(_bird_tag, "yellow")
+	var cl = world.get("_cage_label")
+	if cl:
+		_plate(cl, "red")
+
+func _plate(l: Label3D, kind: String) -> void:
+	if l == null or l.has_meta("plate_kind"):
+		return
+	UISkin.plate(l, kind)
+	_plated.append(l)
+
+func _refresh_plates() -> void:
+	for i in range(_plated.size() - 1, -1, -1):
+		var l = _plated[i]
+		if not is_instance_valid(l):
+			_plated.remove_at(i)
+			continue
+		UISkin.refresh(l)
+
+## 結算面板換成筆記紙（共用程式每次打開會重設樣式，所以打開時再套一次）
+func _skin_summary() -> void:
+	if _summary_panel == null:
+		return
+	var s := UISkin._box(UISkin.PAPER, UISkin.PAPER_EDGE, 6, 3)
+	s.content_margin_left = 44
+	s.content_margin_top = 22
+	_summary_panel.add_theme_stylebox_override("panel", s)
+	_summary_panel.rotation = 0.012
+	for l in _summary_panel.find_children("*", "Label", true, false):
+		UISkin.use_font(l as Label, -1, UISkin.INK)
+		(l as Label).add_theme_constant_override("outline_size", 0)
+	for r in _summary_panel.find_children("*", "RichTextLabel", true, false):
+		var f := UISkin.font()
+		if f:
+			(r as RichTextLabel).add_theme_font_override("normal_font", f)
+		(r as RichTextLabel).add_theme_color_override("default_color", UISkin.INK)
+
+var _demo_done_t := -1.0
+var _demo_caption_text := ""
+
+## 示範的字卡放在畫面下方（不壓在路線上）
+func _demo_caption(t: String) -> void:
+	if t != _demo_caption_text:
+		_demo_caption_text = t
+		toast(t, 0.6)
+	elif _toast_until - _clock < 0.3:
+		toast(t, 0.6)
