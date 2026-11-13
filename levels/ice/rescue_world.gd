@@ -11,7 +11,7 @@ const CAGE_SCALE := 1.4
 
 var _cage_root: Node3D
 var _cage_label: Label3D
-var _front_bars: Array = []
+var _front_bars: Array = []    # （舊版用方塊拼的欄杆；現在籠子是模型，這個陣列是空的）
 var _door: Node3D             # 籠門（模型版）
 var _lock: Node3D             # 門上的鎖
 var _lock_drop: Node3D        # 開籠後掉在地上的鎖
@@ -29,7 +29,7 @@ func _build_extra() -> void:
 	super()
 	_build_cage()
 
-## 企鵝籠：木頭框＋鐵欄杆（正面欄杆會打開），裡面三隻大企鵝在跳，頭上寫「救我！」
+## 企鵝籠（Blender 模型：木頭框＋鐵欄杆，籠門會轉開），裡面三隻大企鵝在跳，頭上寫「救我！」
 func _build_cage() -> void:
 	_cage_root = Node3D.new()
 	_cage_root.name = "PenguinCage"
@@ -61,19 +61,6 @@ func _build_cage() -> void:
 				_lock.reparent(lk)
 				sh.reparent(lk)
 				_lock = lk
-	else:
-		var wood := _toon(Color(0.55, 0.38, 0.24))
-		var bar := _toon(Color(0.35, 0.38, 0.42))
-		_box(_cage_root, Vector3(2.6, 0.15, 2.0), Vector3(0, 0.07, 0), wood)
-		_box(_cage_root, Vector3(2.6, 0.15, 2.0), Vector3(0, 1.45, 0), wood)
-		for i in 9:
-			var x := -1.2 + i * 0.3
-			_front_bars.append(_box(_cage_root, Vector3(0.05, 1.4, 0.05), Vector3(x, 0.75, 0.95), bar))
-			_box(_cage_root, Vector3(0.05, 1.4, 0.05), Vector3(x, 0.75, -0.95), bar)
-		for i in 6:
-			var z := -0.9 + i * 0.36
-			_box(_cage_root, Vector3(0.05, 1.4, 0.05), Vector3(1.25, 0.75, z), bar)
-			_box(_cage_root, Vector3(0.05, 1.4, 0.05), Vector3(-1.25, 0.75, z), bar)
 	for k in 3:
 		var home := Vector3(-0.65 + k * 0.65, 0.15, 0.15 * k)
 		var p := make_penguin(_cage_root, Vector3.ZERO, 0.2 * (k - 1))

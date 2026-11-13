@@ -7,8 +7,9 @@ func _ice_configure() -> void:
 	play_min = Vector2(-20.0, -23.0)
 	play_max = Vector2(20.0, 18.0)
 	hero_start = Vector3(0.0, 0.0, 7.0)
-	camera_start = Vector3(-1.0, 12.5, 12.0)
-	camera_look = Vector3(-1.5, 0.0, -4.5)
+	# 鏡頭：家豪在畫面下方約 3/4 高、冰湖在中間、遠處看得到島緣和天空（camera_look 的 y 只用來調俯角）
+	camera_start = Vector3(-1.0, 8.3, 14.0)
+	camera_look = Vector3(-1.5, -3.2, -4.5)
 	mood = "dusk"
 	cage = Vector3(0.0, 0.0, -11.8)
 	bird_path = [Vector3(0.0, 0, 4.0), Vector3(0.0, 0, -9.4)]
@@ -17,14 +18,20 @@ func _ice_configure() -> void:
 	ponds = [{"center": Vector2(7.6, -6.5), "r": 1.4}]
 	snowmen = [Vector3(4.8, 0, -7.7)]
 	pines = [Vector3(-6.0, 0, -12.5), Vector3(6.0, 0, -13.0), Vector3(11.5, 0, -1.0)]
+	# ---- 以下都是外觀（不影響玩法）
+	isle = {"seed": 7.9, "c": Vector2(0.0, -4.0), "rz": 19.5}   # 地圖的輪廓：南邊（鏡頭這一側）收短一點，其他照遊玩範圍
+	# 裝飾要讓開的路線（兩個工人的紅線、滑出去的方向）
+	clear_paths = [[Vector3(-12.0, 0, -6.5), Vector3(-1.0, 0, -6.5), Vector3(7.6, 0, -6.5)], [Vector3(7.2, 0, -13.6), Vector3(0.6, 0, -5.0)]]
 	# 工人的冰釣營地（裝飾）：在他們出發點後面
-	camps = [{"pos": Vector3(-15.0, 0, -13.5), "yaw": 0.6}, {"pos": Vector3(12.0, 0, -17.0), "yaw": -0.8}]
+	camps = [{"pos": Vector3(-15.5, 0, -13.5), "yaw": 0.6}, {"pos": Vector3(13.0, 0, -18.0), "yaw": -0.8}]
 	# 冰湖周圍的區域（純裝飾）：讓整張地圖都有東西看，不只中間一個湖
+	# （冰晶、冰雕、小屋這些高的東西都離冰洞 9 公尺以上：過關特寫的鏡頭會繞著冰洞拍）
 	zones = [
-		{"type": "village", "pos": Vector3(15.0, 0, 2.5), "yaw": -1.57},
+		{"type": "village", "pos": Vector3(15.5, 0, 2.5), "yaw": -1.57},
 		{"type": "pier", "pos": Vector3(-12.5, 0, -1.0), "yaw": -1.57},
-		{"type": "crystals", "pos": Vector3(-15.5, 0, 2.0)},
-		{"type": "crystals", "pos": Vector3(-14.0, 0, -9.0)},
+		{"type": "crystals", "pos": Vector3(-15.5, 0, 3.5)},
+		{"type": "crystals", "pos": Vector3(-8.0, 0, -15.0)},
 		{"type": "sculptures", "pos": Vector3(9.0, 0, 5.5), "yaw": 0.0},
-		{"type": "creek", "from": Vector3(15.0, 0, -12.0), "to": Vector3(10.2, 0, -6.0)},
+		{"type": "creek", "from": Vector3(17.0, 0, -15.0), "to": Vector3(10.2, 0, -6.0)},
+		{"type": "lamps", "from": Vector3(0.0, 0, 8.4), "to": Vector3(0.0, 0, 5.6)},
 	]
