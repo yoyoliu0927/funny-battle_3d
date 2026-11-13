@@ -25,7 +25,3 @@ func _how_to() -> String:
 func _defeat_tip() -> String:
 	return "換紅線的另一段試試"
 
-func _level_setup() -> void:
-	super()
-	show_goal = true    # 紅色大標題「救出企鵝！」只在第一關、第一次進來時出現
-

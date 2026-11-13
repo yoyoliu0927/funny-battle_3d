@@ -28,7 +28,9 @@ const WIN_SHOW := 2.8          # 過關演出幾秒後才跳結算
 const HAT_Y := 2.45            # 雪人頭扣在工人頭上的高度（貼著頭頂）
 const PILE_R := 1.9
 const PEEL_STEP := 0.55        # 走到離香蕉皮這麼近就踩到（跟 banana_item 的 PEEL_RADIUS 一樣）
-const HANG := 1.05            # 家豪被拎著：手到他腳底的距離（抓著帽 T 的帽子；腳離地半公尺以上）            # 滑停在雪堆這麼近的地方，就倒栽進雪堆
+const HANG := 1.05            # （舊）手到家豪腳底的距離
+const BIRD_K := 1.85           # 家豪的外觀放大幾倍（原本 1.6）
+const HOOD_Y := 0.72           # 家豪帽兜（後頸）的高度（模型自己的座標）            # 滑停在雪堆這麼近的地方，就倒栽進雪堆
 
 var path: Array = []
 var path_i := 0
@@ -148,17 +150,24 @@ func _level_setup() -> void:
 	_route_line = _mesh_node(m)
 	_peel_line = _mesh_node(m)
 	# 家豪：放大一點、加大紅雞冠和黃嘴、頭上掛名字、腳下一圈光，一眼認得出主角（也跟黑白的企鵝分開）
-	bird.node.scale = Vector3.ONE * 1.6
+	bird.node.scale = Vector3.ONE * BIRD_K     # 只是外觀放大（碰撞、判定都用戰局裡的數字，不看模型大小）
 	fall_toast = false
 	for i in enemies.size():
 		enemies[i].node.scale = enemies[i].node.scale * BODY_K
 		_setup_mini(enemies[i], i)
 	var head := bird.node.find_child("Head", true, false) as Node3D
+	_bird_head = head
 	if head:
 		var comb := MeshInstance3D.new()
 		comb.mesh = prop_mesh("rescue/rooster_comb")
-		comb.position = Vector3(0, 0.1, 0.01)
-		comb.scale = Vector3.ONE * 1.25
+		comb.position = Vector3(0, 0.1, 0.0)
+		comb.scale = Vector3(1.5, 1.45, 1.7)      # 雞冠加大：從背後也認得出是雞
+		# 共用模型的紅色肉垂很長，會蓋住胸口的 W（看起來像紅領帶）：縮短
+		for c in head.get_children():
+			var mi := c as MeshInstance3D
+			if mi and mi.mesh is CapsuleMesh and mi.position.y < -0.1:
+				mi.scale = Vector3(1.0, 0.42, 0.8)
+				mi.position.y = -0.1
 		head.add_child(comb)
 		var beak := MeshInstance3D.new()
 		beak.mesh = prop_mesh("rescue/rooster_beak")
@@ -175,13 +184,13 @@ func _level_setup() -> void:
 	_bird_tag.outline_modulate = Color(0, 0, 0, 0.85)
 	world.add_child(_bird_tag)
 	_bird_ring = MeshInstance3D.new()
-	_bird_ring.mesh = prop_mesh("rescue/aim_ring")
+	_bird_ring.mesh = prop_mesh("rescue/fx_ring")      # 細細的青色圈（比原本小三成、線細一半）
 	var rmat := StandardMaterial3D.new()
 	rmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	rmat.albedo_color = Color(0.35, 0.95, 1.0)
 	rmat.disable_fog = true
 	_bird_ring.material_override = rmat
-	_bird_ring.scale = Vector3(1.15, 1.0, 1.15)
+	_bird_ring.scale = Vector3(0.72, 1.0, 0.72)
 	_bird_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	world.add_child(_bird_ring)
 	# 道具格的圖示：拿香蕉皮模型算出來的圖
@@ -211,6 +220,9 @@ func _level_setup() -> void:
 	_list_layer = CanvasLayer.new()
 	_list_layer.layer = 5
 	add_child(_list_layer)
+	_ui2 = CanvasLayer.new()
+	_ui2.layer = 5
+	add_child(_ui2)
 	var box := VBoxContainer.new()
 	box.position = Vector2(20, 60)
 	box.add_theme_constant_override("separation", 10)
@@ -357,28 +369,10 @@ func _prepare_hint() -> String:
 	return "準備中　｜　Enter 開始"
 
 func _update_phase_label() -> void:
-	# 準備：右下角一顆綠色「開始」按鈕；開打：右上角小小的「R 重來」；結束：不放字（結算卡有按鈕）
-	var mode := "none"
-	if phase == Phase.PREPARE:
-		mode = "start"
-	elif phase == Phase.RUNNING:
-		mode = "retry"
-	if mode == _phase_mode:
-		return
-	_phase_mode = mode
-	match mode:
-		"start":
-			_phase_label.text = "開始 ▶　Enter"
-			UISkin.pill(_phase_label, Color("58b85a"), Color("2f7a33"), Color(1, 1, 1))
-			_phase_label.label_settings.font_size = 30
-			_dock(_phase_label, Control.PRESET_BOTTOM_RIGHT, Vector2(-36, -40))
-		"retry":
-			_phase_label.text = "R 重來"
-			UISkin.pill(_phase_label)
-			_phase_label.label_settings.font_size = 20
-			_dock(_phase_label, Control.PRESET_TOP_RIGHT, Vector2(-24, 20))
-		_:
-			_phase_label.text = ""
+	# 共用的上方提示不用：開始鈕、重來提示改成自己的鍵帽樣式（_update_buttons）
+	_phase_mode = "none"
+	_phase_label.text = ""
+	_phase_label.visible = false
 
 func _dock(l: Control, preset: int, off: Vector2) -> void:
 	l.set_anchors_preset(preset)
@@ -409,7 +403,7 @@ func mark(id: String) -> void:
 	if not _best().has(id):
 		_new_stars.append(id)
 	var text: String = _checklist().filter(func(c): return c.id == id)[0].text
-	toast("☑ %s" % text, 1.4)
+	_star_toast(text)
 	sfx("win")
 	log_event("整人清單：%s" % text)
 	_refresh_list()
@@ -421,16 +415,114 @@ func stars() -> int:
 func _refresh_list() -> void:
 	if _list_label == null:
 		return
-	var lines: PackedStringArray = []      # 不放標題：筆記紙本身就看得出是清單
+	# 每個條件前面一顆星（三個條件＝三顆星）：空心＝還沒做到，金色＝這一局做到了，淡金＝以前拿過
+	_list_label.visible = false
+	if _list_rows == null or not is_instance_valid(_list_rows):
+		_list_rows = VBoxContainer.new()
+		_list_rows.add_theme_constant_override("separation", 4)
+		_list_label.get_parent().add_child(_list_rows)
+	for c in _list_rows.get_children():
+		_list_rows.remove_child(c)
+		c.queue_free()
 	var best := _best()
 	for c in _checklist():
-		var tag := "☐ "
-		if _done.has(c.id):
-			tag = "☑ "
-		elif best.has(c.id):
-			tag = "★ "
-		lines.append(tag + String(c.text) + ("（之前拿過）" if best.has(c.id) and not _done.has(c.id) else ""))
-	_list_label.text = "\n".join(lines)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		_list_rows.add_child(row)
+		var now_done: bool = _done.has(c.id)
+		var had: bool = best.has(c.id)
+		var st := Label.new()
+		st.text = "★"
+		st.label_settings = UISkin.ls(24, Color("f6c445") if now_done else (Color("f5e2a8") if had else Color("fff8e7")), 6,
+			UISkin.INK if (now_done or had) else Color(UISkin.INK, 0.6))
+		row.add_child(st)
+		var tx := Label.new()
+		tx.text = String(c.text)
+		tx.label_settings = UISkin.ls(24, UISkin.INK)
+		row.add_child(tx)
+
+var _list_rows: VBoxContainer
+var _ui2: CanvasLayer              # 我自己加的介面（達成提示、開始鈕、重來）
+var _star_box: PanelContainer
+var _star_until := -1.0
+var _start_box: Control
+var _retry_box: Control
+var _hint_rows: Array = []
+
+## 做到一個條件：下面跳一條「金色星星＋條件」
+func _star_toast(text: String) -> void:
+	if silent or _ui2 == null:
+		return
+	if _star_box == null:
+		_star_box = PanelContainer.new()
+		var sb := UISkin._box(Color(1, 0.98, 0.93, 0.96), UISkin.INK, 22, 3)
+		sb.content_margin_top = 6
+		sb.content_margin_bottom = 8
+		_star_box.add_theme_stylebox_override("panel", sb)
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 10)
+		_star_box.add_child(h)
+		var st := Label.new()
+		st.text = "★"
+		st.label_settings = UISkin.ls(30, Color("f6c445"), 8, UISkin.INK)
+		h.add_child(st)
+		var tx := Label.new()
+		tx.name = "T"
+		tx.label_settings = UISkin.ls(28, UISkin.INK)
+		h.add_child(tx)
+		_ui2.add_child(_star_box)
+		_star_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+		_star_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+		_star_box.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		_star_box.offset_bottom = -150
+	(_star_box.find_child("T", true, false) as Label).text = text
+	_star_box.visible = true
+	_star_box.reset_size()
+	_star_until = _clock + 1.5
+
+## 右下角「開始 ▶ [Enter]」、右上角「[R] 重來」：按鍵一律畫成鍵帽
+func _update_buttons(cut: bool) -> void:
+	if _ui2 == null:
+		return
+	if _start_box == null:
+		var sbx := HBoxContainer.new()
+		sbx.add_theme_constant_override("separation", 10)
+		var go := Label.new()
+		go.text = "開始 ▶"
+		go.label_settings = UISkin.ls(30, Color(1, 1, 1))
+		UISkin.pill(go, Color("58b85a"), Color("2f7a33"), Color(1, 1, 1))
+		sbx.add_child(go)
+		var kc := _keycap("Enter")
+		kc.label_settings = UISkin.ls(22, UISkin.INK)
+		sbx.add_child(kc)
+		_ui2.add_child(sbx)
+		sbx.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+		sbx.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		sbx.grow_vertical = Control.GROW_DIRECTION_BEGIN
+		sbx.offset_right = -36
+		sbx.offset_bottom = -40
+		_start_box = sbx
+		var rbx := HBoxContainer.new()
+		rbx.add_theme_constant_override("separation", 8)
+		rbx.add_child(_keycap("R"))
+		var rt := Label.new()
+		rt.text = "重來"
+		rt.label_settings = UISkin.ls(20, Color(1, 1, 1), 8, UISkin.INK)
+		rbx.add_child(rt)
+		_ui2.add_child(rbx)
+		rbx.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		rbx.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		rbx.offset_right = -26
+		rbx.offset_top = 22
+		_retry_box = rbx
+	_start_box.visible = phase == Phase.PREPARE and not cut and not _demo_playing and not defeat_shown
+	_retry_box.visible = phase == Phase.RUNNING and not cut
+	if _star_box and (_clock >= _star_until or cut and phase == Phase.ENDED or defeat_shown):
+		_star_box.visible = false
+	var hint_on := Input.is_physical_key_pressed(KEY_H)
+	for l in _hint_rows:
+		if is_instance_valid(l):
+			(l as Control).visible = hint_on
 
 func fall_in(f: Fighter) -> void:
 	# 同一個洞已經有人：並排露頭（左右各讓開一點），兩顆頭一起入鏡
@@ -463,14 +555,7 @@ func fall_in(f: Fighter) -> void:
 		mark("fall2")
 	if f.data.get("guard", false) and f.data.get("was_hit", false):
 		mark("guard_carom")
-	if _cut_cam and _cut_cam.current:
-		_cut_t = maxf(_cut_t, 1.7 if f.data.get("snow_hat") != null else 0.9)
-	elif phase == Phase.RUNNING and camera:
-		# 沒有特寫的時候掉洞：補一個 1 秒近拍，對準掉下去的人
-		var away2: Vector3 = camera.global_position - f.pos
-		away2.y = 0.0
-		away2 = away2.normalized() if away2.length() > 0.1 else Vector3.BACK
-		_cut_smart(f.pos + Vector3(0, 0.8, 0), away2 * 4.8 + Vector3(0, 2.2, 0), 1.0)
+	_face_cut(f, 1.7 if f.data.get("snow_hat") != null else 1.15)
 
 func _on_carom(_a: Fighter, b: Fighter) -> void:
 	caroms += 1
@@ -506,6 +591,10 @@ func _end(result: String) -> void:
 		win_count[_stage_key()] = int(win_count.get(_stage_key(), 0)) + 1
 	super(result)
 	_ended_t = 0.0
+	for c in _chip_list:
+		if is_instance_valid(c.node):
+			c.node.queue_free()
+	_chip_list.clear()
 	toast("", 0.0)
 	# 跳字清掉，但對白泡泡（例如被抓時的「……完了」）留著
 	for i in range(_labels.size() - 1, -1, -1):
@@ -537,9 +626,15 @@ func _end(result: String) -> void:
 			away = away.rotated(Vector3.UP, 0.32)    # 偏一點角度：頭後面不要剛好是一棵樹
 			if v.get("low", false):
 				# 泡在洞裡的人：鏡頭貼著水面從正前方拍，帽簷才不會擋住臉
-				_cut_smart(tgt + Vector3(0, -0.5, 0), away * 4.6 + Vector3(0, 1.3, 0), 99.0)
+				_cut_smart(tgt + Vector3(0, -0.45, 0), away * 4.4 + Vector3(0, 0.15, 0), 99.0)
+				for e in enemies:
+					if e.data.get("sunk", false) and flat_dist(e.pos, tgt) < 3.0:
+						e.data.sunk_yaw = atan2(_cut_cam.global_position.x - e.pos.x, _cut_cam.global_position.z - e.pos.z)
+						e.yaw = e.data.sunk_yaw
+			elif (v.f as Fighter).data.get("pile") != null:
+				_cut_smart(tgt + Vector3(0, 0.35, 0), away * 3.3 + Vector3(0, 0.3, 0), 99.0)
 			else:
-				_cut_smart(tgt + Vector3(0, -0.4, 0), away * 5.0 + Vector3(0, 1.5, 0), 99.0)
+				_cut_smart(tgt + Vector3(0, -0.4, 0), away * 4.6 + Vector3(0, 0.6, 0), 99.0)
 			toast(String(v.text), RECAP)
 		else:
 			_start_win_show()
@@ -588,7 +683,7 @@ func _start_win_show() -> void:
 	var side := to_cage.cross(Vector3.UP)
 	# 鏡頭在家豪正前方偏一點：打開的籠門在他身後入鏡，企鵝跑出來站到他左右兩邊
 	# 結算會從右邊出來：鏡頭往右偏，家豪和企鵝站在畫面左半邊
-	var focus: Vector3 = bird.pos + to_cage * 0.9 + side * 1.6 + Vector3(0, 0.8, 0)
+	var focus: Vector3 = bird.pos + to_cage * 0.9 + side * 1.6 + Vector3(0, 1.7, 0)
 	var offset: Vector3 = -to_cage * 5.4 + side * 1.0 + Vector3(0, 2.0, 0)
 	# 家豪前面有雪人、受害者的帽子擋著：鏡頭拉高或往旁邊挪，直到看得到他
 	var std_ok := false
@@ -599,7 +694,7 @@ func _start_win_show() -> void:
 					break
 				var dirc: Vector3 = (-to_cage).rotated(Vector3.UP, float(ang))
 				var rgt: Vector3 = (-dirc).cross(Vector3.UP)
-				var try_focus: Vector3 = bird.pos - dirc * 0.9 + rgt * 1.6 + Vector3(0, 0.8, 0)
+				var try_focus: Vector3 = bird.pos - dirc * 0.9 + rgt * 1.6 + Vector3(0, 1.7, 0)
 				var try_off: Vector3 = dirc * float(back) + rgt * 1.0 + Vector3(0, float(h), 0)
 				if _sees_bird(try_focus + try_off) and _cam_clear(try_focus + try_off, try_focus, 6.0):
 					focus = try_focus
@@ -616,20 +711,23 @@ func _start_win_show() -> void:
 		var bv: Vector3 = vp - bird.pos
 		bv.y = 0.0
 		var dist := bv.length()
-		_victim_in_shot = dist > 2.5 and dist < 10.0
+		_victim_in_shot = dist > 2.5 and dist < 16.0
 		var dirv := bv / maxf(dist, 0.01)
 		var left := Vector3.UP.cross(dirv)          # 從受害者看向家豪時的左手邊
 		var cam := Vector3.ZERO
 		if _victim_in_shot:
 			# 鏡頭在受害者後上方偏一邊：受害者在前景一角、家豪和企鵝在中景。試幾個位置，挑看得到家豪的
 			_victim_in_shot = false
-			for back in [5.6, 7.4]:
-				for lat in [3.0, -3.0, 4.6, -4.6, 0.8, -0.8]:
-					for h in [3.2, 4.6, 6.0]:
-						if _victim_in_shot:
-							break
-						cam = ground(vp) + dirv * float(back) + left * float(lat) + Vector3(0, float(h), 0)
-						_victim_in_shot = _sees_bird(cam) and _cam_clear(cam, bird.pos, 3.4)
+			for soft in [false, true]:
+				_soft_cam = soft
+				for h in [1.9, 2.8, 3.8, 4.8]:
+					for back in [4.8, 6.2]:
+						for lat in [2.4, -2.4, 3.8, -3.8, 5.2, -5.2, 1.0, -1.0, 0.0]:
+							if _victim_in_shot:
+								break
+							cam = Vector3(vp.x, bird.pos.y, vp.z) + dirv * float(back) + left * float(lat) + Vector3(0, float(h), 0)
+							_victim_in_shot = _sees_bird(cam) and _cam_clear(cam, bird.pos, 3.0)
+			_soft_cam = false
 		if _victim_in_shot:
 			focus = bird.pos.lerp(ground(vp), 0.42) + Vector3(0, 0.9, 0)
 			offset = cam - focus
@@ -998,7 +1096,7 @@ func _level_step(dt: float) -> void:
 			# 泡泡放在家豪外側上方：不蓋住工人的臉
 			bubble("……完了", bird, 2.15, 4000, sd * 0.7)
 			# 鏡頭在工人正前方、偏家豪那一邊：壞笑的工人和被拎著的家豪都完整入鏡
-			_cut_smart(f.pos + sd * (1.0 - 1.0 * others) + Vector3(0, 1.75, 0), fw * (7.0 + 1.4 * others) + sd * 0.8 + Vector3(0, 1.2, 0), LIFT_TIME + 3.0, false, [0.0, 0.3, -0.3, 0.6, -0.6])
+			_cut_smart(f.pos + sd * 0.8 + fw * 0.45 + Vector3(0, 1.35, 0), fw * (4.4 + 1.0 * others) + sd * (0.15 - 0.7 * others) + Vector3(0, -0.4, 0), LIFT_TIME + 3.0, false, [0.0, 0.3, -0.3, 0.6, -0.6])
 			return
 
 ## 守衛撲過去的點：家豪的路線上，第一個走進紅圈的位置
@@ -1164,6 +1262,9 @@ func _tick_slide(f: Fighter, dt: float) -> void:
 		_cut_to(o.pos + sd2 * 2.0 + Vector3(0, 1.0, 0), sd2.cross(Vector3.UP) * 6.0 + Vector3(0, 2.6, 0) - sd2 * 1.5, 1.6)
 	log_event("%s撞到%s，連環撞！" % [f.name, o.name])
 	pop_label("連環撞！", o.pos + Vector3(0, 3.6, 0), Color(1.0, 0.97, 0.9), 900, o)
+	_star_burst((f.pos + o.pos) * 0.5 + Vector3(0, 1.7, 0))
+	f.data.vis_snap = true
+	o.data.vis_snap = true
 	start_slide(o, f.data.sdir)
 	o.data.hit_by = f
 	if _cut_cam and _cut_cam.current and not show_timing:
@@ -1238,12 +1339,23 @@ func _process(dt: float) -> void:
 		for c in charges:
 			if c != 0:
 				left = true
-		_hotbar.visible = not cut and phase != Phase.ENDED and left
+		_hotbar.visible = not cut and phase != Phase.ENDED and left and not _demo_playing
 	if cut and _preview:
 		_preview.visible = false
 		for d in _dots:
 			d.visible = false
 	_update_aim_marker(cut)
+	_update_buttons(cut)
+	if _toast_label and _toast_label.visible:
+		var top := -200.0
+		var vc := get_viewport().get_camera_3d()
+		if vc and not vc.is_position_behind(bird.pos):
+			var vs := get_viewport().get_visible_rect().size
+			var bs := vc.unproject_position(bird.pos + Vector3(0, 0.9, 0))
+			if absf(bs.x - vs.x * 0.5) < 300.0 and bs.y > vs.y - 290.0 and bs.y < vs.y - 90.0:
+				top = -(vs.y - bs.y) - 190.0
+		_toast_label.offset_top = top
+		_toast_label.offset_bottom = top + 40.0
 	_bird_tag.visible = false   # 家豪不掛名牌：腳下的光圈就夠了
 	_bird_tag.position = bird.pos + Vector3(0, 2.4 + bird.air, 0)
 	_bird_ring.position = bird.pos + Vector3(0, 0.04, 0)
@@ -1262,10 +1374,9 @@ func _process(dt: float) -> void:
 		(_how_label.get_parent() as Control).visible = show_how and not (_top_cam != null and _top_cam.current)
 		if _goal_label:
 			# 紅色大標題只在第一關、第一次進來時出現一下
-			_goal_label.visible = show_goal and first_time and not _goal_seen.has(_stage_key()) and t_in < 2.5 \
-				and not (_top_cam != null and _top_cam.current)
+			_goal_label.visible = false
 		if _how_tab:
-			_how_tab.visible = not show_how
+			_how_tab.visible = not show_how and not _demo_playing
 	elif _how_tab:
 		_how_tab.visible = false
 	if _list_label:
@@ -1301,8 +1412,11 @@ func _draw_path() -> void:
 		pts.append(ground(path[i]))
 	pts.append(world.cage)
 	_vb.clear()
-	# 家豪的路線退後一步（細一點、淡一點）：畫面上最搶眼的要是紅色的敵人路線
-	_dashes(im, pts, Color(1.0, 0.8, 0.22, 0.9), 0.1)
+	# 家豪的路線：飽和黃＋深色細框，但比紅線細（畫面上最搶眼的要是紅色的敵人路線）
+	var k := _px(bird.pos) * 1.35
+	var w := maxf(0.07, 1.7 * k)
+	_dashes(im, pts, Color("5a3a10"), w + 0.9 * k, 0.085, 0.9 * k)
+	_dashes(im, pts, Color("ffc93c"), w, 0.1)
 	_flush(im)
 
 ## 工人的路線（紅色虛線、終點紅叉）、守衛的撲擊圈和撲過去的箭頭
@@ -1327,9 +1441,10 @@ func _draw_routes() -> void:
 			var c0 := ground(f.pos) + Vector3(0, 0.07, 0)
 			for k in 48:
 				for v in [c0, (ring[k] as Vector3) + Vector3(0, 0.07, 0), (ring[k + 1] as Vector3) + Vector3(0, 0.07, 0)]:
-					_v(Color(ROUTE_RED, 0.13), v)
-			_flow(ring, Color(1, 1, 1, 0.85), 0.085, 0.09, 0.42, 0.34, _clock * 0.35)
-			_flow(ring, Color(ROUTE_RED, 0.95), 0.05, 0.11, 0.42, 0.34, _clock * 0.35)
+					_v(Color(ROUTE_RED, 0.2), v)
+			var kg := _px(f.pos) * 1.35
+			_flow(ring, Color(1, 1, 1, 1), maxf(0.085, 2.6 * kg), 0.09, 0.5, 0.4, _clock * 0.35)
+			_flow(ring, ROUTE_RED, maxf(0.05, 1.5 * kg), 0.11, 0.5, 0.4, _clock * 0.35)
 		var er := effective_route(f) if f.state != "chase" else {"main": _chase_line(f), "ghost": [], "ended": false}
 		var route: Array = er.main
 		var ghost: Array = er.ghost
@@ -1372,20 +1487,42 @@ func _cross(b: Vector3, c: Color) -> void:
 			b + Vector3(0.4, 0.12, -0.4), b + Vector3(-0.28, 0.12, 0.52), b + Vector3(-0.4, 0.12, 0.4)]:
 		_v(c, v)
 
-const ROUTE_RED := Color("e5484d")
+const ROUTE_RED := Color("dc1f2c")       # 比 #E5484D 深一點：經過畫面色調之後看起來才是飽和的紅
 const ROUTE_W := 0.19             # 紅線的半寬（比家豪的黃線粗一倍）
 
 ## 一條敵人路線：白邊＋飽和紅的粗虛線，往前流動；head＝終點畫箭頭
 func _route(pts: Array, col: Color, flow: float, head: bool) -> void:
-	var cut := 0.55 if head else 0.0       # 箭頭佔掉的長度
-	_flow(pts, Color(1, 1, 1, 0.95), ROUTE_W + 0.05, 0.09, 0.7, 0.4, flow, 0.05, cut)
-	_flow(pts, col, ROUTE_W, 0.11, 0.7, 0.4, flow, 0.0, cut)
+	var k := _px(pts[pts.size() / 2]) * 1.35       # 地上的線是斜著看的：多給一點
+	var w := maxf(ROUTE_W, 4.8 * k)                # 紅色本體：橫著走的線被鏡頭壓扁之後，螢幕上還有 7 px 以上
+	var dash := maxf(0.7, w * 4.0)
+	var gap := maxf(0.4, w * 2.2)
+	var cut := (w * 3.2) if head else 0.0           # 箭頭佔掉的長度
+	_flow(pts, Color("5a1218"), w + 2.6 * k, 0.08, dash, gap, flow, 2.6 * k, cut)      # 最外面一圈深色（雪地上白邊看不到，靠這圈）
+	_flow(pts, Color(1, 1, 1, 1), w + 1.6 * k, 0.095, dash, gap, flow, 1.6 * k, cut)
+	_flow(pts, col, w, 0.11, dash, gap, flow, 0.0, cut)
 	if head and pts.size() >= 2:
 		var b: Vector3 = pts.back()
 		var d: Vector3 = b - (pts[pts.size() - 2] as Vector3)
 		d.y = 0.0
 		if d.length() > 0.05:
-			_arrow_head(b, d.normalized(), col, 1.0)
+			_arrow_head(b, d.normalized(), col, maxf(1.0, w / ROUTE_W))
+
+## 這個位置上，螢幕的 1 個像素大約是幾公尺（線的粗細、圓盤的大小用螢幕像素算）
+func _px(p: Vector3) -> float:
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if cam == null:
+		return 0.02
+	var h := maxf(get_viewport().get_visible_rect().size.y, 1.0)
+	return 2.0 * cam.global_position.distance_to(p) * tan(deg_to_rad(cam.fov) * 0.5) / h
+
+## 貼在地上的實心圓（守衛的範圍、香蕉皮底下的圓盤）
+func _disc(c: Vector3, r: float, col: Color, y: float) -> void:
+	var o := c + Vector3(0, y, 0)
+	for i in 28:
+		var a0 := i * TAU / 28.0
+		var a1 := (i + 1) * TAU / 28.0
+		for v in [o, o + Vector3(cos(a0), 0, sin(a0)) * r, o + Vector3(cos(a1), 0, sin(a1)) * r]:
+			_v(col, v)
 
 ## 箭頭：白邊的三角形，尖端在 tip
 func _arrow_head(tip: Vector3, dir: Vector3, col: Color, k: float) -> void:
@@ -1437,7 +1574,7 @@ func _flow(pts: Array, c: Color, w: float, y: float, dash: float, gap: float, ph
 			d0 += period
 		acc += seg
 
-func _dashes(im: ImmediateMesh, pts: Array, c: Color, w: float) -> void:
+func _dashes(im: ImmediateMesh, pts: Array, c: Color, w: float, y := 0.1, pad := 0.0) -> void:
 	var dash := 0
 	for i in range(1, pts.size()):
 		var a: Vector3 = pts[i - 1]
@@ -1446,28 +1583,29 @@ func _dashes(im: ImmediateMesh, pts: Array, c: Color, w: float) -> void:
 		side.y = 0
 		if side.length() < 0.01:
 			continue
-		side = side.normalized().cross(Vector3.UP) * w
+		var fwd := side.normalized()
+		side = fwd.cross(Vector3.UP) * w
 		var n := maxi(int(flat_dist(a, b) / 0.35), 1)
 		for k in n:
 			dash += 1
 			if dash % 2 == 0:
 				continue
-			var p0 := ground(a.lerp(b, float(k) / n)) + Vector3(0, 0.1, 0)
-			var p1 := ground(a.lerp(b, float(k + 1) / n)) + Vector3(0, 0.1, 0)
+			var p0 := ground(a.lerp(b, float(k) / n)) + Vector3(0, y, 0) - fwd * pad
+			var p1 := ground(a.lerp(b, float(k + 1) / n)) + Vector3(0, y, 0) + fwd * pad
 			for v in [p0 - side, p0 + side, p1 + side, p0 - side, p1 + side, p1 - side]:
 				_v(c, v)
 
 ## 頭上只放一個小圖示，不放長字
 func _update_intents() -> void:
-	# 頭上不常駐掛字：多人關卡第一次進場的前 2.5 秒顯示名字（之後靠背心顏色分辨；按住 H 再看）
-	var show_names: bool = phase == Phase.PREPARE and enemies.size() > 1 \
+	# 名牌：只有第 3 關（清單裡寫名字）才有，第一次進場顯示 4 秒，之後按住 H 再看。其他關靠帽子顏色分辨。
+	var show_names: bool = show_timing and phase == Phase.PREPARE and not _demo_playing \
 		and ((attempts.is_empty() and _clock - _prep_t0 < 4.0) or Input.is_physical_key_pressed(KEY_H))
 	for f in enemies:
 		var l: Label3D = _intents[f]
 		l.visible = show_names and f.alive()
 		if l.visible:
 			l.text = f.name
-			l.position = top_pos(f) + Vector3(0, 0.75, 0)
+			l.position = top_pos(f) + Vector3(0, 0.9, 0)
 
 ## 一片香蕉皮放在 p，誰會踩到、會滑去哪（只預告到第一次撞到東西）
 func peel_outcome(p: Vector3, skip = null) -> Array:
@@ -1552,7 +1690,9 @@ func _update_slide_preview() -> void:
 		if i < results.size():
 			lb.visible = true
 			lb.text = results[i].text
-			lb.position = (results[i].end as Vector3) + Vector3(0, 1.0, 0)
+			# 框放在目標的頭頂上方（尾巴朝下），不要蓋住它指的人或東西
+			var who: bool = enemies.any(func(e): return e.name == String(results[i].text))
+			lb.position = (results[i].end as Vector3) + Vector3(0, 3.9 if who else (3.0 if String(results[i].text) == "咚" else 1.7), 0)
 			_aim_ends.append(results[i].end)
 		else:
 			lb.visible = false
@@ -1561,10 +1701,19 @@ func _update_slide_preview() -> void:
 func _draw_placed_peels() -> void:
 	var im := _peel_line.mesh as ImmediateMesh
 	im.clear_surfaces()
-	if phase != Phase.PREPARE:
-		return
 	var bi := skill_index("banana")
-	if bi < 0:
+	if bi < 0 or phase == Phase.ENDED:
+		return
+	# 放下去的香蕉皮：底下墊一個黃色圓盤＋深咖啡框（螢幕上至少 38 px），壓在紅線上也看得到
+	_vb.clear()
+	for pl in items[bi].peels:
+		var c: Vector3 = ground(pl.pos)
+		var k := _px(c)
+		var r := maxf(0.85, 27.0 * k)
+		_disc(c, r + maxf(0.08, 2.6 * k), Color("4a2a16"), 0.125)
+		_disc(c, r, Color("ffd23f"), 0.14)
+	_flush(im)
+	if phase != Phase.PREPARE:
 		return
 	var results: Array = []
 	for pl in items[bi].peels:
@@ -1595,7 +1744,7 @@ func _draw_slides(im: ImmediateMesh, results: Array, col: Color, w: float, edge 
 				side = side.normalized().cross(Vector3.UP) * hw
 				for v in [a - side, a + side, b + side, a - side, b + side, b - side]:
 					_v(c, v)
-			if r.get("ticks", false):
+			if r.get("ticks", false) and show_timing:      # 每半秒一道橫線：只有看時機的第 3 關才畫
 				# 每 0.5 秒（滑 3 公尺）一道橫線：滑行比跑步快 3 倍
 				var d := 0.0
 				var next := SLIDE_SPEED * 0.5
@@ -1631,31 +1780,12 @@ func _hold_bird(b: Fighter) -> void:
 	if _catcher == null:
 		return
 	var fw := Vector3(sin(_catcher.yaw), 0, cos(_catcher.yaw))
-	var sd := fw.cross(Vector3.UP)
 	var hand = hand_pos(_catcher)
-	if hand != null:
-		# 掛在工人舉起來的右手上（手抓著帽 T 的帽子）：家豪在手的前面一點、背對著手
-		var g := ground((hand as Vector3) + sd * 0.5 + fw * 0.1)
-		# 不要嵌進雪人／樹裡：太近就往外推
-		for ob in world.obstacles:
-			var c2: Vector2 = ob[0]
-			var off := Vector2(g.x - c2.x, g.z - c2.y)
-			var need: float = float(ob[1]) + 0.55
-			if off.length() < need and off.length() > 0.01:
-				var push := off.normalized() * (need - off.length())
-				g += Vector3(push.x, 0, push.y)
-		for sn in world.get("snowman_nodes"):
-			if (sn.node as Node3D).visible:
-				var off2 := Vector2(g.x - (sn.pos as Vector3).x, g.z - (sn.pos as Vector3).z)
-				if off2.length() < 1.3 and off2.length() > 0.01:
-					var push2 := off2.normalized() * (1.3 - off2.length())
-					g += Vector3(push2.x, 0, push2.y)
-		b.pos = g
-		b.air = minf(b.air + 0.12, maxf((hand as Vector3).y - g.y - HANG, 0.0))
-	else:
-		b.pos = ground(_catcher.pos + fw * 0.6 - sd * 0.45)
-		b.air = minf(b.air + 0.08, 1.1)
-	b.yaw = _catcher.yaw + sin(_clock * 40.0) * 0.3
+	# 戰局裡的位置：手的正下方、腳離地 0.6（跟原本一樣超過半公尺：被拎著不會被算成「走到籠子」）。
+	# 畫面上實際掛在手上的樣子在 _bird_visuals() 擺。
+	b.pos = ground((hand as Vector3) if hand != null else _catcher.pos + fw * 0.6)
+	b.air = minf(b.air + 0.12, 0.6)
+	b.yaw = _catcher.yaw
 
 ## 被拎著的家豪：身體左右扭、翅膀狂拍
 func _bird_pose() -> void:
@@ -1674,7 +1804,7 @@ func _bird_pose() -> void:
 	if b.body != null and (b.state == "lifted" or b.data.get("held", false)):
 		# 每 0.3 秒左右用力扭一下（掙扎）
 		var jerk := 1.0 if fmod(_clock, 0.3) < 0.12 else 0.35
-		b.body.rotation = Vector3(-0.2 + 0.25 * jerk * sin(_clock * 17.0), 0, sin(_clock * 23.0) * 0.6 * jerk)
+		b.body.rotation = Vector3(0.08 + 0.14 * jerk * sin(_clock * 17.0), 0, sin(_clock * 23.0) * 0.2 * jerk)
 		b.body.scale = Vector3.ONE
 		b.body.set_meta("posed", false)
 		for w in b.wings:
@@ -1701,47 +1831,63 @@ func bubble(text: String, who: Fighter, dy: float, ms: int, off := Vector3.ZERO)
 	_plate(l, "bubble")
 
 ## 同一個人頭上同一個字 0.5 秒內只跳一次（不會「咚！咚！」疊在一起）
-func pop_label(text: String, pos: Vector3, color: Color, ms: int, follow: Fighter = null) -> void:
+func pop_label(text: String, pos: Vector3, _color: Color, ms: int, follow: Fighter = null) -> void:
 	var key := "%s|%s" % [text, str(follow.get_instance_id()) if follow else "-"]
 	if _pop_seen.has(key) and _clock - float(_pop_seen[key]) < 0.5:
 		return
 	_pop_seen[key] = _clock
 	if follow and not follow.is_bird and _rigs.has(follow):
-		pos = top_pos(follow) + Vector3(0, 0.15, 0)   # 一律放在帽頂上方：不蓋臉、也不會黃字疊在黃帽子上
+		pos = top_pos(follow) + Vector3(0, 0.15, 0)   # 釘在發聲的人帽頂上方
 	elif follow and pos.y - follow.pos.y > 2.7:
 		pos.y = follow.pos.y + 2.7
-	if follow:
-		# 同一個人頭上同時只留一個跳字（新的蓋掉舊的），不會疊成一團
-		for i in range(_labels.size() - 1, -1, -1):
-			var e: Dictionary = _labels[i]
-			if e.follow == follow and not e.get("fixed", false):
-				if is_instance_valid(e.node):
-					e.node.queue_free()
-				_labels.remove_at(i)
-	super(text, pos, color, ms, follow)
+	# 同一時間畫面上只留一個狀聲字（新的蓋掉舊的）；對白泡泡不算
+	for i in range(_labels.size() - 1, -1, -1):
+		var e: Dictionary = _labels[i]
+		if not e.get("fixed", false):
+			if is_instance_valid(e.node):
+				e.node.queue_free()
+			_labels.remove_at(i)
+	super(text, pos, Color(1, 1, 1), ms, follow)
 	if not _labels.is_empty():
-		# 狀聲字：大、粗描邊、微微歪一邊（漫畫字）；字的下緣對齊定位點，往上長
+		# 狀聲字只有一種樣式：米色字＋深咖啡粗框（水聲是淡藍色），微微歪一邊；字的下緣對齊定位點
 		var e2: Dictionary = _labels.back()
 		var pl := e2.node as Label3D
 		if UISkin.font():
 			pl.font = UISkin.font()
-		pl.font_size = 108
-		pl.outline_size = 36
+		pl.font_size = 84
+		pl.outline_size = 28
 		pl.outline_modulate = UISkin.INK
+		pl.modulate = Color("cdeeff") if text in ["撲通！", "喀喀喀…"] else Color("fff1cf")
 		pl.billboard = BaseMaterial3D.BILLBOARD_DISABLED     # 自己對著鏡頭轉（才歪得了）
 		pl.vertical_alignment = VERTICAL_ALIGNMENT_BOTTOM
 		_pop_n += 1
-		e2.tilt = 0.13 if _pop_n % 2 == 0 else -0.1
+		e2.tilt = 0.12 if _pop_n % 2 == 0 else -0.09
 		_face_label(e2)
 
 func _update_labels(now: int) -> void:
 	super(now)
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
 	for e in _labels:
 		if not is_instance_valid(e.node):
 			continue
+		var l := e.node as Label3D
+		var off: Vector3 = e.get("off", Vector3.ZERO)
 		if e.get("fixed", false) and e.follow:
 			var f: Fighter = e.follow
-			(e.node as Label3D).position = f.pos + Vector3(0, float(e.dy) + f.air, 0) + (e.get("off", Vector3.ZERO) as Vector3)
+			if f == bird and _bird_head != null:
+				l.global_position = _bird_head.global_position + Vector3(0, 0.62, 0)      # 泡泡貼著家豪的頭（被拎著也跟著）
+			else:
+				l.global_position = f.pos + Vector3(0, float(e.dy) + f.air, 0) + off
+		elif e.follow and _rigs.has(e.follow):
+			# 釘在發聲的人頭頂上方：只往上浮一點點，不會飄走
+			l.global_position = top_pos(e.follow) + Vector3(0, 0.15 + minf((_clock - float(e.start)) * 0.5, 0.25), 0)
+		if cam and not e.get("fixed", false) and not cam.is_position_behind(l.global_position):
+			# 碰到螢幕邊：往內推（還是在角色附近）
+			var size := get_viewport().get_visible_rect().size
+			var sp := cam.unproject_position(l.global_position)
+			var cl := Vector2(clampf(sp.x, 190.0, size.x - 190.0), clampf(sp.y, 120.0, size.y - 50.0))
+			if cl.distance_to(sp) > 1.0:
+				l.global_position = cam.project_position(cl, (l.global_position - cam.global_position).dot(-cam.global_basis.z))
 		_face_label(e)
 
 var _pop_n := 0
@@ -1770,7 +1916,7 @@ func _stop_slide(f: Fighter, msg: String) -> void:
 				f.data.pile = ground(p)
 				f.pos = ground(p)
 				log_event("%s倒栽進雪堆，只剩兩條腿在外面" % f.name)
-				pop_label("噗！", f.pos + Vector3(0, 1.9, 0), Color(1, 1, 1), 900)
+				pop_label("噗！", f.pos + Vector3(0, 3.1, 0), Color(1, 1, 1), 900)
 				sfx("crack")
 				mark("pile")
 				_shake_until = Time.get_ticks_msec() + 300
@@ -1778,7 +1924,7 @@ func _stop_slide(f: Fighter, msg: String) -> void:
 				var away: Vector3 = (camera.global_position - f.pos) if camera else Vector3(0, 0, 1)
 				away.y = 0.0
 				away = away.normalized() if away.length() > 0.1 else Vector3.BACK
-				_cut_smart(f.pos + Vector3(0, 1.1, 0), away * 5.2 + Vector3(0, 1.8, 0), 1.6)
+				_cut_smart(f.pos + Vector3(0, 1.45, 0), away * 3.5 + Vector3(0, 0.4, 0), 1.6)
 				return
 	super(f, msg)
 
@@ -1815,7 +1961,7 @@ func _update_stars(f: Fighter, on: bool) -> void:
 		if on:
 			var a := _clock * 5.0 + k * TAU / 3.0
 			var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
-			l.position = top_pos(f) + Vector3(cos(a) * 1.0, -0.35 + sin(a * 2.0) * 0.08, sin(a) * 1.0)
+			l.position = top_pos(f) + Vector3(cos(a) * 1.0, (-0.9 if f.data.get("snow_hat") != null else -0.35) + sin(a * 2.0) * 0.08, sin(a) * 1.0)
 			var b := cam.global_basis if cam else Basis.IDENTITY
 			l.global_basis = (b * Basis(Vector3.BACK, _clock * 3.0 + k)).scaled(Vector3.ONE * 1.35)
 
@@ -2001,7 +2147,9 @@ func _draw_time_dots() -> void:
 				var top_on: bool = _top_cam != null and _top_cam.current
 				tl.position = p + (Vector3(0, 0.3, 0.75) if top_on else Vector3(0, 0.6, 0))
 				tl.font_size = 84 if top_on else 60
-				tl.visible = top_on and not (aim_point != null and flat_dist(p, aim_point) < 1.3)   # 秒數只在俯視出現；不要被落點圈壓住
+				tl.visible = top_on and not (aim_point != null and flat_dist(p, aim_point) < 1.3) and not (_cross_q != null and flat_dist(p, _cross_q) < 1.9)
+				tl.outline_size = 22
+				tl.outline_modulate = UISkin.INK   # 秒數只在俯視出現；不要被落點圈壓住
 				used += 1
 				sec += 1
 	for i in range(used, _time_labels.size()):
@@ -2009,6 +2157,7 @@ func _draw_time_dots() -> void:
 
 ## 第 3 關：瞄準某人的紅線時，標出「他踩到的那一刻，其他人在哪」（白圈＋名字）
 func _draw_timing_ghosts(_im: ImmediateMesh) -> void:
+	_cross_q = null
 	if _cross_label:
 		_cross_label.visible = false
 	var aiming: bool = show_timing and phase == Phase.PREPARE and aim_point != null and aim_error == "" \
@@ -2046,7 +2195,7 @@ func _draw_timing_ghosts(_im: ImmediateMesh) -> void:
 					var gp2 := _along(ro, d_o + 0.5)
 					var back := _along(ro, maxf(d_o - 0.5, 0.0))
 					_show_ghost(o, gp, _yaw_to(back, gp2) if flat_dist(back, gp2) > 0.05 else o.yaw, "run")
-					_cross_tag(f, o, cr)
+					_cross_q = cr.q
 				return
 			walked += l
 
@@ -2158,40 +2307,7 @@ func _crossing(f: Fighter, o: Fighter, p: Vector3, dir: Vector3, t_hit: float) -
 		along += seg
 	return {}
 
-## 按住 Tab 的俯視才直接給秒數：字放在離交叉點、落點圈、終點泡泡都遠的那一邊，拉一條引線指回去
-func _cross_tag(f: Fighter, o: Fighter, cr: Dictionary) -> void:
-	if _top_cam == null or not _top_cam.current:
-		return
-	if _cross_label == null:
-		_cross_label = Label3D.new()
-		_cross_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		_cross_label.no_depth_test = true
-		_cross_label.font_size = 50
-		_cross_label.pixel_size = 0.0005
-		_cross_label.fixed_size = true
-		world.add_child(_cross_label)
-		_plate(_cross_label, "ice")
-	var q: Vector3 = cr.q
-	_cross_label.text = "%s %.1f 秒 ／ %s %.1f 秒" % [f.name, float(cr.arrive), o.name, float(cr.pass)]
-	var best := Vector3(0, 0, 2.6)
-	var best_d := -1.0
-	for off in [Vector3(0, 0, 2.6), Vector3(0, 0, -2.6), Vector3(3.6, 0, 1.6), Vector3(-3.6, 0, 1.6)]:
-		var at: Vector3 = q + off
-		var d := flat_dist(at, aim_point) if aim_point != null else 99.0
-		for e in _aim_ends:
-			d = minf(d, flat_dist(at, e))
-		for g in enemies:
-			d = minf(d, flat_dist(at, g.pos))
-			var rt := planned_route(g)
-			for k in range(1, rt.size()):
-				for u in 9:
-					d = minf(d, flat_dist(at, (rt[k - 1] as Vector3).lerp(rt[k], u / 8.0)) + 0.8)
-		if d > best_d:
-			best_d = d
-			best = off
-	_cross_label.position = q + best + Vector3(0, 0.5, 0)
-	_cross_label.visible = true
-	_cross_lead = [q, q + best]
+var _cross_q = null      # 瞄準時滑行線和另一個人路線的交叉點（俯視的秒數刻度避開它）
 
 # ---------------------------------------------------------------- 第 3 關開場示範（一個「太早」的例子，教怎麼看時間，不洩漏答案）
 
@@ -2264,7 +2380,7 @@ func _draw_demo(_im: ImmediateMesh) -> void:
 		world.add_child(_demo_peel)
 	_demo_peel.visible = tt < t_step + 0.15
 	_demo_peel.global_position = ground((ra[0] as Vector3) + dir * peel_d)
-	_demo_caption("示範：%s太早滑過去，撞不到%s" % [a_f.name, b_f.name])
+	_demo_caption("%s太早！" % a_f.name)
 
 # ---------------------------------------------------------------- 美術：介面和 3D 字的底板（ui_skin.gd）
 
@@ -2283,16 +2399,24 @@ func _skin_hud() -> void:
 	for f in enemies:
 		var l: Label3D = _intents.get(f)
 		if l:
-			l.font_size = 44                 # 牌子小一號：資訊在，但不搶畫面
-			_plate(l, "wood")
+			l.font_size = 30                 # 名牌只有第 3 關用：小小的對話框（跟預告的框同一套）
+			_plate(l, "bubble")
+			_beige(l)
 	for l in _ends:
-		l.font_size = 44
+		l.font_size = 30
 		_plate(l, "bubble")
+		_beige(l)
 	if _bird_tag:
 		_plate(_bird_tag, "yellow")
 	var cl = world.get("_cage_label")
 	if cl:
 		_plate(cl, "red")
+
+## 對話框的底換成米色（跟字幕膠囊同一套：米色底、咖啡框）
+func _beige(l: Label3D) -> void:
+	var sp := l.get_node_or_null("Plate") as Sprite3D
+	if sp:
+		sp.modulate = Color("fff1cf")
 
 func _plate(l: Label3D, kind: String) -> void:
 	if l == null or l.has_meta("plate_kind"):
@@ -2349,6 +2473,7 @@ func _show_summary() -> void:
 	if _card and is_instance_valid(_card):
 		_card.queue_free()
 	_summary_label.visible = false
+	_hint_rows.clear()
 	var best := _best()
 	var list := _checklist()
 	var got_n: int = list.filter(func(c): return best.has(c.id)).size()
@@ -2367,7 +2492,6 @@ func _show_summary() -> void:
 		st.label_settings = UISkin.ls(78, Color("f6c445") if i < got_n else Color("f4ebd3"), 10, UISkin.INK)
 		stars.add_child(st)
 	# 每個條件一行，前面一顆小星星；沒拿到的提示要過關兩次以後才給（先讓玩家自己想）
-	var wins: int = win_count.get(_stage_key(), 0)
 	for c in list:
 		var got: bool = best.has(c.id)
 		var row := HBoxContainer.new()
@@ -2379,13 +2503,15 @@ func _show_summary() -> void:
 		row.add_child(mk)
 		var txt := Label.new()
 		txt.text = String(c.text)
-		txt.label_settings = UISkin.ls(24, UISkin.INK if got else Color(UISkin.INK, 0.5))
+		txt.label_settings = UISkin.ls(24, UISkin.INK if got else UISkin.PAPER.lerp(UISkin.INK, 0.62))
 		row.add_child(txt)
-		if not got and wins >= 2 and String(c.get("hint", "")) != "":
+		if not got and String(c.get("hint", "")) != "":
 			var hint_l := Label.new()
 			hint_l.text = "　　 " + String(c.hint)
-			hint_l.label_settings = UISkin.ls(17, Color(UISkin.INK, 0.55))
+			hint_l.label_settings = UISkin.ls(17, UISkin.PAPER.lerp(UISkin.INK, 0.72))
+			hint_l.visible = false           # 提示不直接攤開：按住 H 才看
 			v.add_child(hint_l)
+			_hint_rows.append(hint_l)
 	var gap := Control.new()
 	gap.custom_minimum_size = Vector2(0, 6)
 	v.add_child(gap)
@@ -2401,6 +2527,8 @@ func _show_summary() -> void:
 	btns.add_child(_keycap("Enter"))
 	_key_hint(btns, "R", "重來")
 	_key_hint(btns, "M", "地圖")
+	if not _hint_rows.is_empty():
+		_key_hint(btns, "H", "提示")
 	_summary_panel.visible = true
 
 ## 鍵帽：白底、深色邊、底邊厚一點的小方塊
@@ -2478,6 +2606,7 @@ const SINK_SHOW := 0.27                      # 泡在冰洞裡：水面在模型
 
 ## 手繪的表情（Codex 生成的 PNG）只有三張：嚇到、暈、凍僵。其他時候用模型自己的臉。
 const FACES := {
+	"eyes": "res://levels/ice/assets/faces/face_eyes.png",       # 平常：只有眼睛（從 face_frozen.png 裁出來的），嘴巴用模型自己的
 	"shock": "res://levels/ice/assets/faces/face_shock.png",
 	"dizzy": "res://levels/ice/assets/faces/face_dizzy.png",
 	"frozen": "res://levels/ice/assets/faces/face_frozen.png",
@@ -2785,7 +2914,7 @@ static func mini_pose(kind: String, t: float) -> Dictionary:
 			return {
 				"torso": Vector3(-0.06, 0.0, 0.06),
 				"head": Vector3(0, -0.25, 0.06),
-				"arm-right": Vector3(0, 0.05, -0.82 + bob * 0.6),
+				"arm-right": Vector3(0, 0.38, -0.95 + bob * 0.5),
 				"arm-left": Vector3(0, -0.25, -1.0),
 			}
 	return {}
@@ -2835,23 +2964,25 @@ func anim(f: Fighter, name: String, speed := 1.0) -> void:
 func _mini_state(f: Fighter) -> Array:
 	var caught: bool = bird.state == "lifted" or bird.data.get("held", false)
 	if f == _catcher and caught:
-		return ["hold", ""]
+		return ["hold", "eyes"]
 	if f.data.get("pile") != null:
 		return ["pile", ""]
 	if f.data.get("sunk", false):
 		return ["sunk", "frozen"]
 	if caught and f.alive():
-		return ["cheer", ""]
+		return ["cheer", "eyes"]
 	if not f.alive():
 		return ["dizzy", "dizzy"]
 	match f.state:
 		"kslide", "slip":
+			if phase == Phase.ENDED:
+				return ["dizzy", "dizzy"]      # 過關時還在滑的人：坐下來發暈（不要斜斜地定格在半空）
 			return ["slide", "shock"]
 		"stunned":
 			return ["dizzy", "dizzy"]
 		"giveup":
-			return ["tired", ""]
-	return ["", ""]
+			return ["tired", "eyes"]
+	return ["", "eyes"]
 
 ## 姿勢：滑倒、坐著、泡冰洞、倒栽、拎家豪用程式擺；其他播模型的動畫。表情跟著狀態換。
 func _level_visuals() -> void:
@@ -2917,12 +3048,13 @@ func _level_visuals() -> void:
 		pose_mini(rig, pose)
 		_update_stars(f, f.alive() and f.state == "stunned" and phase != Phase.ENDED)
 	_separate_pairs(vcam)
+	_bird_visuals(vcam)
 
 func _set_face(rig: Dictionary, kind: String) -> void:
 	var face: MeshInstance3D = rig.face
 	face.visible = kind != ""
 	if rig.face0:
-		(rig.face0 as Node3D).visible = kind == ""      # 貼手繪表情時，模型自己的小眼睛收起來
+		(rig.face0 as Node3D).visible = kind in ["", "eyes"]      # 平常：模型自己的嘴露出來（小眼睛被大眼睛蓋住）
 	if kind == "" or rig.face_kind == kind:
 		return
 	rig.face_kind = kind
@@ -2950,7 +3082,7 @@ func _chip_fx(f: Fighter, on: bool) -> void:
 		fx_root.add_child(mi)
 		mi.global_position = f.pos + sd * 0.5 + side * _chip_rng.randf_range(-0.5, 0.5) + Vector3(0, 0.08, 0)
 		mi.rotation = Vector3(_chip_rng.randf() * TAU, _chip_rng.randf() * TAU, _chip_rng.randf() * TAU)
-		mi.scale = Vector3.ONE * _chip_rng.randf_range(0.7, 1.5)
+		mi.scale = Vector3.ONE * _chip_rng.randf_range(0.4, 0.8)
 		var vel := sd * _chip_rng.randf_range(0.5, 2.5) + side * _chip_rng.randf_range(-2.6, 2.6) + Vector3(0, _chip_rng.randf_range(2.2, 4.6), 0)
 		_chip_list.append({"node": mi, "vel": vel, "t": 0.0, "life": 0.6})
 
@@ -2969,10 +3101,19 @@ func _tick_chips(dt: float) -> void:
 				n.queue_free()
 			_chip_list.remove_at(i)
 			continue
+		if c.get("ring", false):
+			# 水環：往外擴、慢慢淡掉
+			var k := float(c.t) / float(c.life)
+			(n as Node3D).scale = Vector3(0.6 + k * 1.5, 1.0, 0.6 + k * 1.5)
+			(n as GeometryInstance3D).transparency = clampf(k * 1.1, 0.0, 1.0)
+			continue
 		c.vel += Vector3(0, -13.0, 0) * dt
 		(n as Node3D).position += (c.vel as Vector3) * dt
+		if c.get("star", false):
+			(n as Node3D).rotate_y(dt * 10.0)
+			continue
 		if c.get("drop", false):
-			continue        # 水滴不轉、不縮（尖端朝上飛出去再掉下來）
+			continue        # 水珠不轉、不縮
 		(n as Node3D).rotate_x(dt * 9.0)
 		(n as Node3D).scale *= 1.0 - dt * 1.2
 
@@ -2989,7 +3130,7 @@ func top_pos(f: Fighter) -> Vector3:
 	if rig == null:
 		return f.pos + Vector3(0, 3.0 + f.air, 0)
 	var p := mini_point(rig, "head", Vector3(0, 0.16, 0))
-	return p + Vector3(0, 0.36 * float(rig.unit) + (0.12 if f.data.get("snow_hat") != null else 0.0), 0)
+	return p + Vector3(0, 0.36 * float(rig.unit) + (0.75 if f.data.get("snow_hat") != null else 0.0), 0)
 
 ## 右手掌心（拎家豪用）
 func hand_pos(f: Fighter):
@@ -3017,9 +3158,10 @@ func _wear_snow_head(f: Fighter, hat: Node3D) -> void:
 	hat.global_transform = Transform3D(b.scaled(Vector3.ONE * SNOW_HEAD_K), hx.origin + b.y * (0.33 * float(rig.unit)))
 
 const SNOW_HEAD_K := 1.9      # 雪人頭戴在大頭小人頭上要放大（不然像一顆小雪球）
+var _sep_clock := 0.0
 const PAIR_HALF := 0.74       # 同一個洞泡兩個人：各往左右讓開多少
 const PAIR_GAP := 1.7         # 兩個人在畫面上至少隔這麼遠（不然兩個大頭會疊成一個）
-const PAIR_GAP_SLIDE := 2.5   # 兩個人一起往後躺著滑：隔更開
+const PAIR_GAP_SLIDE := 3.0   # 兩個人一起往後躺著滑：隔更開
 
 ## 小人的暗面補光：亮度跟著場景的環境光，色調只跟四成（早晨、夕陽、藍色黃昏都融得進去，但膚色不會變灰）
 func _update_mini_light() -> void:
@@ -3056,9 +3198,14 @@ func _separate_pairs(vcam: Camera3D) -> void:
 				var sgn := 1.0 if s >= 0.0 else -1.0
 				want[a] = (want.get(a, Vector3.ZERO) as Vector3) - cr * push * sgn
 				want[b] = (want.get(b, Vector3.ZERO) as Vector3) + cr * push * sgn
+	var sdt := clampf(_clock - _sep_clock, 0.0, 1.0)
+	_sep_clock = _clock
+	var ease := 1.0 - exp(-18.0 * sdt)
 	for f in enemies:
 		var cur: Vector3 = f.data.get("vis_off", Vector3.ZERO)
-		cur = cur.lerp(want.get(f, Vector3.ZERO), 0.25)
+		var snap: bool = f.data.get("vis_snap", false) or f.data.get("sunk", false) or f.data.get("pile") != null
+		cur = cur.lerp(want.get(f, Vector3.ZERO), 1.0 if snap else ease)
+		f.data.erase("vis_snap")
 		f.data.vis_off = cur
 		if cur.length() > 0.01:
 			f.node.global_position += cur
@@ -3124,7 +3271,13 @@ func _style_peels() -> void:
 		var mi := MeshInstance3D.new()
 		mi.mesh = mesh
 		mi.scale = Vector3.ONE * PEEL_K
-		mi.position.y = -0.02
+		mi.position.y = 0.16          # 放在黃色圓盤上面
+		for si in mesh.get_surface_count():
+			var sm := mesh.surface_get_material(si)
+			if sm and String(sm.resource_name).contains("Inside"):
+				var ym := (sm as BaseMaterial3D).duplicate() as BaseMaterial3D
+				ym.albedo_color = Color("ffe066")
+				mi.set_surface_override_material(si, ym)
 		(n as Node).add_child(mi)
 
 const PEEL_K := 1.35
@@ -3137,17 +3290,26 @@ func spawn_splash(p: Vector3) -> void:
 		return
 	var wy: float = world.get("water_y") if world.get("water_y") != null else p.y
 	_chip_rng.seed = 77 + int(p.x * 10.0)
-	for k in 14:
-		var a := k * TAU / 14.0 + _chip_rng.randf() * 0.3
+	for k in 12:
+		var a := k * TAU / 12.0 + _chip_rng.randf() * 0.3
 		var mi := MeshInstance3D.new()
 		mi.mesh = mesh
 		mi.material_override = _fx_mat("drop")
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		fx_root.add_child(mi)
-		mi.global_position = Vector3(p.x + cos(a) * 0.7, wy + 0.25, p.z + sin(a) * 0.7)
-		mi.scale = Vector3.ONE * _chip_rng.randf_range(0.9, 1.7)
-		var out := _chip_rng.randf_range(1.2, 3.2)
-		_chip_list.append({"node": mi, "vel": Vector3(cos(a) * out, _chip_rng.randf_range(4.5, 7.5), sin(a) * out), "t": 0.0, "life": 0.85, "drop": true})
+		mi.global_position = Vector3(p.x + cos(a) * 0.6, wy + 0.2, p.z + sin(a) * 0.6)
+		var s := _chip_rng.randf_range(0.32, 0.55)
+		mi.scale = Vector3(s, s * 0.7, s)
+		var out := _chip_rng.randf_range(0.8, 2.0)
+		_chip_list.append({"node": mi, "vel": Vector3(cos(a) * out, _chip_rng.randf_range(3.2, 5.2), sin(a) * out), "t": 0.0, "life": 0.7, "drop": true})
+	if prop_mesh("rescue/fx_ring"):
+		var ring := MeshInstance3D.new()
+		ring.mesh = prop_mesh("rescue/fx_ring")
+		ring.material_override = _fx_mat("drop")
+		ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		fx_root.add_child(ring)
+		ring.global_position = Vector3(p.x, wy + 0.05, p.z)
+		_chip_list.append({"node": ring, "vel": Vector3.ZERO, "t": 0.0, "life": 0.75, "ring": true})
 
 # ---------------------------------------------------------------- 瞄準：落點標記（取代準心和共用的瞄準圈）
 
@@ -3164,43 +3326,53 @@ func _update_aim_marker(cut: bool) -> void:
 	if _aim_mark == null:
 		_aim_mark = Node3D.new()
 		world.add_child(_aim_mark)
-		_aim_ring = MeshInstance3D.new()
-		_aim_ring.mesh = prop_mesh("rescue/aim_ring")
-		var rm := StandardMaterial3D.new()
-		rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-		rm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		rm.disable_fog = true
-		_aim_ring.material_override = rm
-		_aim_ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		_aim_mark.add_child(_aim_ring)
+		for kind in ["ring", "dot"]:
+			var mi := MeshInstance3D.new()
+			mi.mesh = prop_mesh("rescue/aim_ring" if kind == "ring" else "rescue/fx_ring")
+			var rm := StandardMaterial3D.new()
+			rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+			rm.disable_fog = true
+			rm.albedo_color = Color("3ddc6a") if kind == "ring" else Color(1, 1, 1)
+			mi.material_override = rm
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			_aim_mark.add_child(mi)
+			if kind == "ring":
+				_aim_ring = mi
+			else:
+				_aim_dot = mi
 		_aim_peel = MeshInstance3D.new()
 		_aim_peel.mesh = prop_mesh("banana_peel")
 		_aim_peel.scale = Vector3.ONE * PEEL_K
 		_aim_peel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_aim_peel.transparency = 0.4            # 半透明：還沒放下去
 		_aim_mark.add_child(_aim_peel)
-		_aim_gray = StandardMaterial3D.new()
-		_aim_gray.albedo_color = Color(0.62, 0.65, 0.7)
-	var holding: bool = phase != Phase.ENDED and not cut and not defeat_shown and aim_point != null \
-		and not items.is_empty() and items[selected].id == "banana" and (phase == Phase.PREPARE or charges[selected] != 0)
+	# 手上還有香蕉皮才有準星；用完就整個收掉
+	var has: bool = not items.is_empty() and items[selected].id == "banana" and charges[selected] != 0
+	var holding: bool = has and phase != Phase.ENDED and not cut and not defeat_shown and aim_point != null and not _demo_playing
 	_aim_mark.visible = holding
-	if _preview and (holding or phase == Phase.PREPARE):
+	if _preview:
 		_preview.visible = false          # 共用的瞄準圈是程式拼的圓環：這個模式一律用下面的模型標記
-	if crosshair and holding:
+	if crosshair and (holding or not has or _demo_playing):
 		crosshair.visible = false
 	if not holding:
 		return
-	var ok: bool = aim_error == "" and charges[selected] != 0
-	var col := Color("9aa3ad")
-	if ok:
-		col = Color("3ddc6a") if _aim_on_route else Color(1, 1, 1)
-	(_aim_ring.material_override as StandardMaterial3D).albedo_color = Color(col, 0.95 if ok else 0.75)
-	_aim_peel.material_override = null if ok else _aim_gray
+	# 平常只有一個小圓圈；對到紅線上（丟在這裡有人會踩到）才出現綠圈＋半透明的香蕉皮
+	var ok: bool = aim_error == ""
+	var snap: bool = ok and _aim_on_route
+	_aim_ring.visible = snap
+	_aim_peel.visible = snap
+	_aim_dot.visible = not snap
+	(_aim_dot.material_override as StandardMaterial3D).albedo_color = Color(1, 1, 1) if ok else Color("9aa3ad")
 	_aim_mark.global_position = (aim_point as Vector3) + Vector3(0, 0.07, 0)
 	var pulse := 1.0 + sin(_clock * 6.0) * 0.04
 	_aim_ring.scale = Vector3(pulse, 1.0, pulse)
 	_aim_ring.rotation.y = _clock * 0.8
+	var kd := maxf(0.34, 9.0 * _px(aim_point))
+	_aim_dot.scale = Vector3(kd, 1.0, kd)
 	_aim_peel.position.y = 0.3 + sin(_clock * 4.0) * 0.07
 	_aim_peel.rotation.y = _clock * 1.2
+
+var _aim_dot: MeshInstance3D
 
 # ---------------------------------------------------------------- 半透明的分身（第 3 關：示範、看時機）
 
@@ -3209,20 +3381,35 @@ var _demo_peel: MeshInstance3D
 static var _ghost_sh: Shader
 
 static func _ghost_shader() -> Shader:
+	# 分身＝實心的淺色剪影（帽子保留原本的顏色），外面一圈深色的框
 	if _ghost_sh == null:
 		_ghost_sh = Shader.new()
 		_ghost_sh.code = """
 shader_type spatial;
-render_mode unshaded, depth_draw_always, fog_disabled;
-uniform float alpha = 0.68;
+render_mode unshaded, fog_disabled;
+uniform float whiten = 0.62;
 void fragment() {
 	vec3 c = COLOR.rgb;
 	c = mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, lessThan(c, vec3(0.04045)));
-	ALBEDO = mix(c, vec3(1.0), 0.22);
-	ALPHA = alpha;
+	ALBEDO = mix(c, vec3(0.93, 0.96, 1.0), whiten);
+}
+"""
+		_ghost_edge = Shader.new()
+		_ghost_edge.code = """
+shader_type spatial;
+render_mode unshaded, cull_front, fog_disabled;
+uniform float grow = 0.016;
+void vertex() {
+	VERTEX += NORMAL * grow;
+}
+void fragment() {
+	ALBEDO = vec3(0.07, 0.045, 0.04);
 }
 """
 	return _ghost_sh
+
+static var _ghost_edge: Shader
+
 
 ## 某個工人的分身：整個模型複製一份，換成半透明的材質
 func _ghost(f: Fighter) -> Dictionary:
@@ -3237,8 +3424,9 @@ func _ghost(f: Fighter) -> Dictionary:
 	var bones := {}
 	for b in sk.get_bone_count():
 		bones[sk.get_bone_name(b)] = b
-	var mat := ShaderMaterial.new()
-	mat.shader = _ghost_shader()
+	var body_sh := _ghost_shader()
+	var edge := ShaderMaterial.new()
+	edge.shader = _ghost_edge
 	for c in n.find_children("*", "MeshInstance3D", true, false):
 		var mi := c as MeshInstance3D
 		mi.visible = true
@@ -3246,6 +3434,11 @@ func _ghost(f: Fighter) -> Dictionary:
 		if mi.mesh is QuadMesh:
 			mi.visible = false          # 手繪表情的貼片：分身不用
 		else:
+			var mat := ShaderMaterial.new()
+			mat.shader = body_sh
+			mat.set_shader_parameter("whiten", 0.1 if String(mi.name) == "Hat" else (0.0 if String(mi.name) == "Face0" else 0.66))
+			if String(mi.name) != "Face0":
+				mat.next_pass = edge
 			mi.material_override = mat
 	n.visible = false
 	var g := {"node": n, "rig": {"skel": sk, "bones": bones}, "ap": n.find_child("AnimationPlayer", true, false), "unit": float(rig0.unit)}
@@ -3276,12 +3469,13 @@ func _show_ghost(f: Fighter, pos: Vector3, yaw: float, mode: String) -> void:
 
 ## 從 cam 看不看得到家豪：中間不能有別人的大頭、站著的雪人、樹和小屋
 func _sees_bird(cam: Vector3) -> bool:
-	for h in [0.3, 0.8, 1.35]:
+	for h in ([1.0, 1.6] if _soft_cam else [0.5, 1.0, 1.6]):
 		if _blocked(cam, bird.pos + Vector3(0, float(h) + bird.air, 0), false):
 			return false
 	return true
 
 var _block_why := ""
+var _soft_cam := false         # true＝寬鬆：障礙物在畫面邊上沒關係，只要鏡頭到主角中間沒東西擋
 func _blocked(cam: Vector3, tgt: Vector3, near_ok: bool) -> bool:
 	_block_why = ""
 	var ab := tgt - cam
@@ -3293,10 +3487,10 @@ func _blocked(cam: Vector3, tgt: Vector3, near_ok: bool) -> bool:
 		var c: Vector3 = e.pos + Vector3(0, 1.0 if e.data.get("sunk", false) else 1.9, 0)
 		if e.data.get("pile") != null:
 			c = (e.data.pile as Vector3) + Vector3(0, 1.0, 0)
-		balls.append([c, 1.5])
+		balls.append([c, 1.0 if e.data.get("sunk", false) else 1.2])
 	for sn in world.get("snowman_nodes"):
 		if (sn.node as Node3D).visible and absf((sn.node as Node3D).rotation.z) < 0.5:
-			balls.append([(sn.pos as Vector3) + Vector3(0, 1.1, 0), 1.0])
+			balls.append([(sn.pos as Vector3) + Vector3(0, 1.1, 0), 0.8 if _soft_cam else 1.0])
 	for b in balls:
 		var c2: Vector3 = b[0]
 		if near_ok and c2.distance_to(tgt) < float(b[1]) + 0.2:
@@ -3308,7 +3502,7 @@ func _blocked(cam: Vector3, tgt: Vector3, near_ok: bool) -> bool:
 	# 場上的擺設（冰晶、樹、小屋…）：鏡頭不能塞在裡面，鏡頭到目標之間也不能穿過它
 	var near_tgt := cam.lerp(tgt, 0.88)
 	for bx in _prop_boxes():
-		if (bx as AABB).grow(2.0).has_point(cam) or (bx as AABB).intersects_segment(cam, near_tgt):
+		if (bx as AABB).grow(0.8 if _soft_cam else 2.0).has_point(cam) or (bx as AABB).intersects_segment(cam, near_tgt):
 			_block_why = "box %s" % bx
 			return true
 	# 樹、小屋、雪人（場地的障礙物是圓柱）
@@ -3322,11 +3516,11 @@ func _blocked(cam: Vector3, tgt: Vector3, near_ok: bool) -> bool:
 		if fl2 < 0.01:
 			continue
 		# 鏡頭本身離障礙物至少 3 公尺（松樹的枝葉比樹幹寬很多，貼太近半個畫面都是樹）
-		if flat_dist(cam, oc) < r + 3.0 and cam.y - ground(oc).y < 7.0:
+		if flat_dist(cam, oc) < r + (1.0 if _soft_cam else 3.0) and cam.y - ground(oc).y < 7.0:
 			_block_why = "near obstacle %s" % oc
 			return true
 		# 大的障礙物（松樹、小屋）在鏡頭和主角之間的近景、而且在畫面裡：也不行（會蓋掉畫面的一大塊）
-		if r > 0.65:
+		if r > 0.65 and not _soft_cam:
 			var fwd := flat / sqrt(fl2)
 			var rel := Vector3(oc.x - cam.x, 0, oc.z - cam.z)
 			var depth := rel.dot(fwd)
@@ -3337,7 +3531,7 @@ func _blocked(cam: Vector3, tgt: Vector3, near_ok: bool) -> bool:
 		# 鏡頭到主角的連線也要離障礙物遠一點（從它上面越過去可以；主角身邊的不算）
 		var t2 := clampf((oc - Vector3(cam.x, 0, cam.z)).dot(flat) / fl2, 0.0, 1.0)
 		var hit := cam + ab * t2
-		if t2 > 0.0 and t2 < 0.85 and flat_dist(hit, oc) < r + 1.9 and hit.y - ground(oc).y < 5.5:
+		if t2 > 0.0 and t2 < 0.85 and flat_dist(hit, oc) < r + (0.4 if _soft_cam else 1.9) and hit.y - ground(oc).y < (2.3 if _soft_cam else 5.5):
 			_block_why = "obstacle %s" % oc
 			return true
 	return false
@@ -3384,7 +3578,9 @@ func _cut_smart(target: Vector3, offset: Vector3, sec: float, need_bird := false
 		return
 	var pick: Vector3 = offset
 	var found := false
-	for up_more in [0.0, 2.4]:
+	for mode in [[0.0, false], [0.0, true], [2.4, false], [2.4, true]]:
+		var up_more: float = mode[0]
+		_soft_cam = mode[1]
 		for a in angles:
 			if found:
 				break
@@ -3400,6 +3596,7 @@ func _cut_smart(target: Vector3, offset: Vector3, sec: float, need_bird := false
 				continue
 			pick = off
 			found = true
+	_soft_cam = false
 	_cut_to(target, pick if found else offset, sec)
 
 ## 輸了的晚餐畫面是共用的場景，圍著餐桌的是寫實比例的農夫：換成這一關的 Q 版小人（只換外觀）
@@ -3408,16 +3605,20 @@ func _recast_dinner() -> void:
 	if _dinner_done or defeat_room == null:
 		return
 	_dinner_done = true
-	var ids: Array = []
-	for f in enemies:
-		ids.append(f.name if LOOKS.has(f.name) else ("守衛" if f.get_meta("guard", false) else "工人"))
-	var k := 0
+	var seats: Array = []
 	for c in defeat_room.get_children():
-		if not (c is Node3D) or not String(c.get_meta("source", "")).to_lower().contains("farmer"):
-			continue
-		var old := c as Node3D
-		var id: String = ids[k % ids.size()]
-		k += 1
+		if c is Node3D and String(c.get_meta("source", "")).to_lower().contains("farmer"):
+			(c as Node3D).visible = false          # 共用場景的寫實農夫全部收起來
+			seats.append(c)
+	# 這一關出場幾個人就坐幾個（1 個坐後排中間，2 個坐後排兩邊…），空位不坐人
+	var plans := {1: [1], 2: [0, 2], 3: [0, 1, 2], 4: [0, 2, 3, 4], 5: [0, 1, 2, 3, 4]}
+	var plan: Array = plans.get(mini(enemies.size(), 5), [])
+	for i in plan.size():
+		if int(plan[i]) >= seats.size():
+			break
+		var old := seats[int(plan[i])] as Node3D
+		var f: Fighter = enemies[i]
+		var id: String = f.name if LOOKS.has(f.name) else ("守衛" if f.get_meta("guard", false) else "工人")
 		var path := MODEL_GUARD if id == "守衛" else MODEL_WORKER
 		var scene := load(path) as PackedScene
 		if scene == null:
@@ -3431,17 +3632,30 @@ func _recast_dinner() -> void:
 		# 小人比較矮：後排墊高（像站在長椅上），臉才高過桌面；兩側的往外站一點
 		wrap.position = old.position + (Vector3(0, 0.62, -0.15) if absf(old.rotation.y) < 0.1 else Vector3(signf(old.position.x) * 0.25, 0.3, 0.2))
 		wrap.rotation = old.rotation
-		old.visible = false
 		var rig := style_mini(wrap, LOOKS[id], id)
 		if rig.is_empty():
 			continue
 		var ap := model.find_child("AnimationPlayer", true, false) as AnimationPlayer
 		if ap:
 			ap.pause()
-		# 兩手往前伸向烤雞，笑得很開心
-		pose_mini(rig, {"arm-left": Vector3(0, -1.1, 0.2 + 0.2 * (k % 2)), "arm-right": Vector3(0, 1.1, -0.2 - 0.2 * ((k + 1) % 2)),
-			"head": Vector3(0.12, 0, 0.08 * (1 if k % 2 == 0 else -1)), "torso": Vector3(0.1, 0, 0)})
+		# 兩手往前伸向烤雞
+		pose_mini(rig, {"arm-left": Vector3(0, -1.1, 0.2 + 0.2 * (i % 2)), "arm-right": Vector3(0, 1.1, -0.2 - 0.2 * ((i + 1) % 2)),
+			"head": Vector3(0.05, 0, 0.08 * (1 if i % 2 == 0 else -1)), "torso": Vector3(0.1, 0, 0)})
+		_set_face(rig, "eyes")
 		(rig.mat as ShaderMaterial).set_shader_parameter("amb", Vector3(0.5, 0.42, 0.34))
+	# 窗外原本是綠草地、藍天、紅色穀倉：換成雪地、冰山（這一關在雪島上）
+	var repaint := [[Vector3(-2.7, 2.4, -3.05), Color(0.62, 0.82, 0.97)], [Vector3(-2.7, 1.8, -3.04), Color(0.96, 0.98, 1.0)],
+		[Vector3(-3.2, 2.1, -3.03), Color(0.62, 0.86, 0.98)], [Vector3(-2.6, 2.2, -3.03), Color(0.98, 0.99, 1.0)]]
+	for c in defeat_room.get_children():
+		var mi := c as MeshInstance3D
+		if mi == null:
+			continue
+		for rp in repaint:
+			if mi.position.distance_to(rp[0]) < 0.03:
+				var m := StandardMaterial3D.new()
+				m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+				m.albedo_color = rp[1]
+				mi.material_override = m
 
 ## 場上每個擺設的外框盒子（特寫鏡頭挑位置用）。太扁的（冰面、地上的東西）和太大的（地形、海）不算。
 var _boxes: Array = []
@@ -3462,3 +3676,88 @@ func _prop_boxes() -> Array:
 			continue
 		_boxes.append(bx)
 	return _boxes
+
+# ---------------------------------------------------------------- 家豪的外觀（只動模型，不動戰局）
+
+var _bird_hop := 0.0
+var _hop_clock := 0.0
+var _bird_head: Node3D
+
+## 準備時回頭面向鏡頭；被抓時掛在工人手上（手抓著帽兜）；有人從腳邊滑過去就跳起來讓開；離特寫鏡頭太近先藏起來
+func _bird_visuals(vcam: Camera3D) -> void:
+	var n: Node3D = bird.node
+	var held: bool = bird.state == "lifted" or bird.data.get("held", false)
+	if held and _catcher != null:
+		var hand = hand_pos(_catcher)
+		if hand != null:
+			var fw := Vector3(sin(_catcher.yaw), 0, cos(_catcher.yaw))
+			# 帽兜在後頸：身體在手的前面，整隻掛在手下面晃
+			var sway := sin(_clock * 9.0) * 0.12
+			n.global_position = (hand as Vector3) + fw * 0.34 * BIRD_K * 0.5 - Vector3(0, HOOD_Y * BIRD_K, 0)
+			n.rotation = Vector3(0.0, _catcher.yaw + sway, sway * 0.6)
+	elif phase == Phase.PREPARE and vcam:
+		var d := vcam.global_position - n.global_position
+		n.rotation.y = atan2(d.x, d.z)
+	# 有人貼著腳邊滑過去：跳起來（不然會穿過他的身體）
+	var want := 0.0
+	if not held and bird.alive() and phase == Phase.RUNNING:
+		for e in enemies:
+			if e.alive() and e.state == "kslide":
+				want = maxf(want, clampf(1.0 - flat_dist(e.pos, bird.pos) / 2.4, 0.0, 1.0) * 2.2)
+	var hdt := clampf(_clock - _hop_clock, 0.0, 1.0)
+	_hop_clock = _clock
+	_bird_hop = lerpf(_bird_hop, want, 1.0 - exp(-20.0 * hdt))
+	if _bird_hop > 0.02:
+		n.global_position.y += _bird_hop
+	# 特寫時家豪貼在鏡頭前面（變成一大顆黑球）：先藏起來
+	var cut := _cut_cam != null and _cut_cam.current
+	n.visible = not (cut and not held and _cut_cam.global_position.distance_to(n.global_position + Vector3(0, 0.9, 0)) < 2.2)
+
+## 掉進冰洞的近拍：一律從受害者正面、低機位拍（挑沒被擋住的方向），洞裡的人轉過來面向鏡頭、左右排開
+func _face_cut(f: Fighter, sec: float) -> void:
+	if silent or _cut_cam == null or not is_inside_tree() or phase != Phase.RUNNING:
+		return
+	var tgt: Vector3 = f.pos + Vector3(0, 0.95, 0)
+	var base: Vector3 = (camera.global_position - f.pos) if camera else Vector3.BACK
+	base.y = 0.0
+	base = base.normalized() if base.length() > 0.1 else Vector3.BACK
+	var pick := base
+	var found := false
+	for soft in [false, true]:
+		_soft_cam = soft
+		for a in [0.0, 0.5, -0.5, 1.0, -1.0, 1.6, -1.6, 2.3, -2.3, PI]:
+			if found:
+				break
+			var d: Vector3 = base.rotated(Vector3.UP, float(a))
+			var cam: Vector3 = f.pos + d * 4.6 + Vector3(0, 0.8, 0)
+			if _blocked(cam, tgt, true) or not _cam_clear(cam, tgt, 2.6):
+				continue
+			pick = d
+			found = true
+	_soft_cam = false
+	var cam_pos: Vector3 = f.pos + pick * 4.6 + Vector3(0, 0.8, 0)
+	_cut_to(tgt, cam_pos - tgt, sec)
+	var group: Array = enemies.filter(func(e): return e.data.get("sunk", false) and flat_dist(e.pos, f.pos) < 2.4)
+	if group.size() >= 2:
+		var ctr: Vector3 = (group[0].pos + group[1].pos) * 0.5
+		var sideways := pick.cross(Vector3.UP)
+		group[0].pos = ctr - sideways * PAIR_HALF
+		group[1].pos = ctr + sideways * PAIR_HALF
+	for e in group:
+		e.data.sunk_yaw = atan2(cam_pos.x - e.pos.x, cam_pos.z - e.pos.z)
+		e.yaw = e.data.sunk_yaw
+
+## 撞上的那一下：星星往四面噴
+func _star_burst(p: Vector3) -> void:
+	if silent or prop_mesh("fx_star") == null:
+		return
+	for k in 7:
+		var a := k * TAU / 7.0
+		var mi := MeshInstance3D.new()
+		mi.mesh = prop_mesh("fx_star")
+		mi.material_override = _fx_mat("star")
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		fx_root.add_child(mi)
+		mi.global_position = p
+		mi.scale = Vector3.ONE * 1.3
+		_chip_list.append({"node": mi, "vel": Vector3(cos(a) * 3.2, 3.0 + (k % 3) * 0.8, sin(a) * 3.2), "t": 0.0, "life": 0.55, "star": true})

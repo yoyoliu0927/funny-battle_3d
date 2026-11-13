@@ -1,5 +1,6 @@
 # 用 Blender 建救企鵝模式介面／主角用的小零件（低多邊形、平面著色），輸出到 rescue/ 子資料夾：
 #   aim_ring.glb           瞄準時地上的落點圈（四個小三角往內指）
+#   fx_ring.glb            細細的圓環（落水的水環、家豪腳下的圈、準星的小圈）
 #   rooster_comb.glb       家豪的雞冠
 #   rooster_beak.glb       家豪的嘴
 #   banana_peel_icon.png   道具格的圖示：直接拿 banana_peel.glb 這個模型算一張透明底的圖（只讀取，不改它）
@@ -145,6 +146,27 @@ def banana_icon():
     bpy.ops.render.render(write_still=True)
     print("RENDERED", sc.render.filepath)
 
+# ---------------------------------------------------------------- 細圓環（水環、腳下的圈）
+def fx_ring():
+    clear()
+    white = mat("RingWhite", (1.0, 1.0, 1.0), 0.6)
+    bm = bmesh.new()
+    n = 40
+    prof = [(1.0, 0.0), (0.985, 0.035), (0.925, 0.035), (0.91, 0.0)]
+    rings = []
+    for i in range(n):
+        a = i * math.tau / n
+        rings.append([bm.verts.new((math.cos(a) * r, math.sin(a) * r, z)) for r, z in prof])
+    for i in range(n):
+        a, b = rings[i], rings[(i + 1) % n]
+        for k in range(len(prof) - 1):
+            bm.faces.new((a[k], b[k], b[k + 1], a[k + 1]))
+        bm.faces.new((a[-1], b[-1], b[0], a[0]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    obj_from_bm(bm, "Ring", [white])
+    export("fx_ring")
+
 aim_ring()
+fx_ring()
 rooster_parts()
 banana_icon()

@@ -49,3 +49,6 @@ blender/          救企鵝模式的小道具和特效零件：本組用 Blender
                   banana_peel.glb（香蕉皮）、fx_star.glb（暈倒的星星）、fx_shard.glb（滑行的碎冰）、fx_drop.glb（水花的水滴）→ blender/src/build_fx_props.py
                   rescue/aim_ring.glb（落點圈）、rescue/rooster_comb.glb、rescue/rooster_beak.glb（家豪的雞冠和嘴）、
                   rescue/banana_peel_icon.png（道具格圖示：用 banana_peel.glb 算出來的圖）→ blender/src/build_rescue_props.py
+
+faces/face_eyes.png   平常的臉（只有眼睛）：從 face_frozen.png（Codex 生成）把兩顆眼睛裁出來，其他部分去掉（影像裁切，不是重畫）
+blender/rescue/fx_ring.glb   細圓環（落水的水環、家豪腳下的圈、準星的小圈）：Blender 腳本自製（blender/src/build_rescue_props.py）
