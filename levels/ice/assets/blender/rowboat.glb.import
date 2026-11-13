@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://boky16ykb3804"
-path="res://.godot/imported/tree-snow.glb-c5b5a11e41598a6eb6ea057387ae89ce.scn"
+uid="uid://csxitn0d11ovu"
+path="res://.godot/imported/rowboat.glb-41f86b0311eea8d6b58932c924afd9d0.scn"
 
 [deps]
 
-source_file="res://levels/ice/assets/kenney_platformer/tree-snow.glb"
-dest_files=["res://.godot/imported/tree-snow.glb-c5b5a11e41598a6eb6ea057387ae89ce.scn"]
+source_file="res://levels/ice/assets/blender/rowboat.glb"
+dest_files=["res://.godot/imported/rowboat.glb-41f86b0311eea8d6b58932c924afd9d0.scn"]
 
 [params]
 

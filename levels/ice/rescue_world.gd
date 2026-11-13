@@ -8,9 +8,11 @@ var cage := Vector3(0.0, 0.0, -11.0)
 var bird_path: Array = []
 
 const CAGE_SCALE := 1.4
+const UISkin := preload("res://scripts/ui/ui_style.gd")
 
 var _cage_root: Node3D
 var _cage_label: Label3D
+const LABEL_SIZE := 32         # 「救我！」的字級（泡泡會跟著字的大小畫）
 var _front_bars: Array = []    # （舊版用方塊拼的欄杆；現在籠子是模型，這個陣列是空的）
 var _door: Node3D             # 籠門（模型版）
 var _lock: Node3D             # 門上的鎖
@@ -52,7 +54,7 @@ func _build_cage() -> void:
 				_lock_drop.add_child(a)
 				_lock_drop.add_child(b)
 				a.position = Vector3.ZERO
-				b.position = Vector3(0, 0.12, 0)
+				b.position = Vector3(0, 0.27, 0)
 				_lock_drop.position = Vector3(0.7, 0.08, 1.35)
 				_lock_drop.rotation = Vector3(0, 0.6, 1.4)
 				_lock_drop.visible = false
@@ -61,24 +63,33 @@ func _build_cage() -> void:
 				_lock.reparent(lk)
 				sh.reparent(lk)
 				_lock = lk
+	# 三隻方塊企鵝（Kenney Cube Pets）擠在籠子前半邊，從主鏡頭看得到臉
 	for k in 3:
-		var home := Vector3(-0.65 + k * 0.65, 0.15, 0.15 * k)
+		var home := Vector3(-0.72 + k * 0.72, 0.19, 0.30 - 0.22 * (k % 2))
 		var p := make_penguin(_cage_root, Vector3.ZERO, 0.2 * (k - 1))
 		p.position = home
-		p.scale = Vector3.ONE * 1.35
+		p.scale = Vector3.ONE * 0.9
 		_penguins.append({"node": p, "home": home, "k": k})
+	# 籠子裡補一盞柔光：屋頂底下才不會黑成一片，看不到企鵝的臉
+	var fill := OmniLight3D.new()
+	fill.light_color = Color(0.95, 0.97, 1.0)
+	fill.light_energy = 0.9
+	fill.omni_range = 3.2
+	fill.light_specular = 0.0
+	fill.position = Vector3(0, 1.0, 1.3)
+	_cage_root.add_child(fill)
+	_blob_shadow(self, _cage_root.position, 2.9, 0.55)
 	obstacles.append([Vector2(cage.x, cage.z), 1.3 * CAGE_SCALE])
 	_cage_label = Label3D.new()
 	_cage_label.text = "救我！"
 	_cage_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_cage_label.no_depth_test = true
-	_cage_label.font_size = 40
+	_cage_label.font_size = LABEL_SIZE
 	_cage_label.pixel_size = 0.00052
 	_cage_label.fixed_size = true   # 固定在畫面上的大小，鏡頭拉近也不會變巨大
-	_cage_label.outline_size = 24
-	_cage_label.outline_modulate = Color(0, 0, 0, 0.85)
-	_cage_label.modulate = Color(1.0, 0.9, 0.3)
 	add_child(_cage_label)
+	# 白色的對話泡泡（跟家豪的對話框同一套），不是紅底的牌子
+	UISkin.plate(_cage_label, "bubble")
 
 ## 打開籠子：正面欄杆消失，企鵝跳出來圍著家豪
 func open_cage(target: Vector3, cam := Vector3.ZERO) -> void:
@@ -90,7 +101,9 @@ func open_cage(target: Vector3, cam := Vector3.ZERO) -> void:
 	for b in _front_bars:
 		(b as Node3D).visible = false
 	_cage_label.text = "謝謝家豪！"
-	_cage_label.font_size = 48
+	_cage_label.font_size = LABEL_SIZE + 2
+	for p in _penguins:
+		penguin_anim(p.node, "dance")
 
 ## 開籠動畫往前推一步（戰局每 1/60 秒呼叫一次）
 func tick_cage(dt: float) -> void:
@@ -105,17 +118,20 @@ func reset_cage() -> void:
 		_door.rotation.y = 0.0
 	if _cage_label:
 		_cage_label.text = "救我！"
-		_cage_label.font_size = 40
+		_cage_label.font_size = LABEL_SIZE
 	for p in _penguins:
 		(p.node as Node3D).position = p.home
+		(p.node as Node3D).rotation = Vector3(0, 0.2 * (int(p.k) - 1), 0)
+		penguin_anim(p.node, "idle")
 
 func _process(_dt: float) -> void:
 	super(_dt)
 	if _cage_label == null:
 		return
 	var now := Time.get_ticks_msec()
+	UISkin.refresh(_cage_label)          # 字變了泡泡要重畫
 	if not _freed:
-		_cage_label.position = _cage_root.position + Vector3(0, 3.3 + sin(now * 0.004) * 0.12, 0)
+		_cage_label.position = _cage_root.position + Vector3(0, 3.75 + sin(now * 0.004) * 0.12, 0)
 	if _door:
 		# 開籠：籠門往外轉開（0.35 秒）
 		# 籠門轉 90 度貼到側邊；鎖掉到地上
@@ -166,7 +182,7 @@ func _process(_dt: float) -> void:
 		if k == 1:
 			# 「謝謝家豪！」是左邊那隻企鵝說的：跑到定位才開口，字貼在牠頭上
 			_cage_label.text = "謝謝家豪！" if t >= 1.1 else ""
-			_cage_label.position = _cage_root.to_global(n.position) + Vector3(0, 1.75, 0)
+			_cage_label.position = _cage_root.to_global(n.position) + Vector3(0, 1.95, 0)
 
 ## 企鵝的站位（開籠時算一次）：固定在家豪左、右、更左邊（以鏡頭看過去的左右），只避開水
 func _pick_spots() -> void:

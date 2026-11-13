@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://cbul4723t5eai"
-path="res://.godot/imported/reindeer.glb-76da6d8b8f77e625ab68add36e718799.scn"
+uid="uid://bde4k7276kcjd"
+path="res://.godot/imported/snow_rock_a.glb-a9e765453fe7160c165d020b6b800877.scn"
 
 [deps]
 
-source_file="res://levels/ice/assets/kenney_holiday/reindeer.glb"
-dest_files=["res://.godot/imported/reindeer.glb-76da6d8b8f77e625ab68add36e718799.scn"]
+source_file="res://levels/ice/assets/blender/snow_rock_a.glb"
+dest_files=["res://.godot/imported/snow_rock_a.glb-a9e765453fe7160c165d020b6b800877.scn"]
 
 [params]
 

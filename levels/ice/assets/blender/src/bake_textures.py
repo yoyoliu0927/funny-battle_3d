@@ -1,10 +1,12 @@
 # 冰雪島的手繪風貼圖（本組自製）：用 Blender 內建的 numpy 算出來存成 PNG，全部可以無縫拼接。
 #   Blender --background --factory-startup --python bake_textures.py -- <輸出資料夾>
 # 產出：
-#   ice_cracks.png   R=冰裂紋（粗細不一的白線）  G=冰刀刮痕、小氣泡  B=冰層深處的雲霧塊
+#   ice_cracks.png   R=粗的冰裂紋  G=細節（小裂紋、冰刀刮痕、小氣泡；離鏡頭遠就淡掉）  B=冰層深處的雲霧塊
 #   cliff_strata.png 一層一層的岩壁（明暗＋一點冷暖色偏），著色器再依深度上色
 #   snow_soft.png    R=雪地的大起伏  G=風吹的細紋  B=亮晶晶的雪粒位置
-#   sea_waves.png    R=海面的波光線（卡通風，一格一格彎彎的亮線）  G=大片的明暗  B=浪花小點
+#   sea_waves.png    R=海面的波浪筆觸（又大又疏的弧形亮筆）  G=筆觸外面一圈比較寬的中間色  B=打散浪花用的雜訊
+#   shadow_blob.png  東西腳下的一團軟陰影（有透明度）
+#   bird_tracks.png  雪地上的一對雞腳印（有透明度）
 import bpy, sys
 import numpy as np
 
@@ -15,10 +17,13 @@ rng = np.random.default_rng(20261113)
 
 
 def save(name, rgb):
-    h, w, _ = rgb.shape
-    img = bpy.data.images.new(name, w, h, alpha=False)
+    h, w, ch = rgb.shape
+    img = bpy.data.images.new(name, w, h, alpha=(ch == 4))
     px = np.ones((h, w, 4), dtype=np.float32)
-    px[..., :3] = np.clip(rgb, 0.0, 1.0)
+    px[..., :ch] = np.clip(rgb, 0.0, 1.0)
+    if ch == 4:
+        img.alpha_mode = 'STRAIGHT'
+        img.colorspace_settings.name = 'Non-Color'      # 存原始數值，不要預乘或轉色彩空間
     img.pixels = px[::-1].ravel()          # Blender 的影像原點在左下
     img.filepath_raw = outdir + "/" + name
     img.file_format = 'PNG'
@@ -109,9 +114,9 @@ def bake_ice():
     # 小裂紋只出現在一部分格子裡（像是從大裂紋岔出去的）
     m = (mid_id > 0.45).astype(np.float64) * smooth(np.clip((fbm(x, y, 5, 47) - 0.42) * 6.0, 0.0, 1.0))
     small = smooth(1.0 - np.clip(mid / 0.035, 0.0, 1.0)) * m * 0.75
-    r = np.maximum(crack, small)
-    # 刮痕：一條條細長、微彎的線
-    g = np.zeros_like(x)
+    r = crack
+    # 細節：小裂紋＋刮痕（一條條細長、微彎的線）＋小氣泡
+    g = small.copy()
     sr = np.random.default_rng(303)
     for _ in range(70):
         cx, cy = sr.random(2)
@@ -211,29 +216,63 @@ def bake_snow():
 # ------------------------------------------------------------------ 海面
 def bake_sea():
     x, y = grid()
-    # 波光：一小段一小段橫向的弧線（像「～」），疏疏的；不要連成網（會跟冰面的裂紋搞混）
-    lines = np.zeros_like(x)
+    # 波浪筆觸：又大又疏的弧形（像畫筆一撇），兩個色階：中間亮的一筆（R）＋外面寬一圈的中間色（G）
+    core = np.zeros_like(x)
+    halo = np.zeros_like(x)
     sr = np.random.default_rng(1203)
-    for _ in range(150):
+    placed = []
+    tries = 0
+    while len(placed) < 15 and tries < 400:
+        tries += 1
         cx, cy = sr.random(2)
-        ln = 0.035 + sr.random() * 0.075
-        wd = 0.0028 + sr.random() * 0.0035
-        amp = (sr.random() - 0.5) * 0.02
+        if any(np.hypot(wrap_d(cx - q[0]) * 0.6, wrap_d(cy - q[1])) < 0.17 for q in placed):
+            continue                                                # 筆觸之間留空，不要擠在一起
+        placed.append((cx, cy))
+        ln = 0.085 + sr.random() * 0.075
+        wd = 0.011 + sr.random() * 0.007
+        amp = (0.012 + sr.random() * 0.012) * (1 if sr.random() < 0.75 else -1)
         dx = wrap_d(x - cx)
         dy = wrap_d(y - cy)
-        v = dy - amp * np.cos(dx / ln * np.pi)                     # 中間微微拱起或下凹
-        along = np.clip(1.0 - np.abs(dx) / ln, 0.0, 1.0)
-        line = np.clip(1.0 - np.abs(v) / (wd * (0.3 + 0.7 * along)), 0.0, 1.0) * smooth(along)
-        lines = np.maximum(lines, line * (0.5 + 0.5 * sr.random()))
-    big = fbm(x, y, 3, 1206, 4)
-    sp = np.zeros_like(x)
-    for p in sr.random((220, 2)):
-        dd = np.hypot(wrap_d(x - p[0]) * 0.45, wrap_d(y - p[1]))      # 橫向拉長的小浪花
-        sp = np.maximum(sp, np.clip(1.0 - dd / 0.004, 0.0, 1.0) * (0.4 + 0.6 * sr.random()))
-    save("sea_waves.png", np.stack([lines, big, sp], axis=-1))
+        v = dy - amp * np.cos(dx / ln * np.pi * 0.5)
+        along = np.clip(1.0 - (np.abs(dx) / ln) ** 2, 0.0, 1.0)     # 兩頭尖
+        k = np.clip(1.0 - np.abs(v) / (wd * along + 1e-5), 0.0, 1.0)
+        core = np.maximum(core, smooth(np.clip(k * 2.2, 0.0, 1.0)) * (along > 0.02))
+        k2 = np.clip(1.0 - np.abs(v + wd * 0.9) / (wd * 2.6 * along + 1e-5), 0.0, 1.0)
+        halo = np.maximum(halo, smooth(np.clip(k2 * 1.8, 0.0, 1.0)) * (along > 0.02))
+    noise = fbm(x, y, 5, 1206, 4)
+    save("sea_waves.png", np.stack([core, halo, noise], axis=-1))
+
+
+# ------------------------------------------------------------------ 腳下的軟陰影、雞腳印（給 Decal 用，有透明度）
+def bake_decals():
+    n = 128
+    v = (np.arange(n) + 0.5) / n
+    x, y = np.meshgrid(v, v)
+    d = np.hypot(x - 0.5, y - 0.5) * 2.0
+    a = smooth(np.clip(1.0 - d, 0.0, 1.0)) ** 1.3
+    save("shadow_blob.png", np.stack([np.full_like(a, 0.16), np.full_like(a, 0.24), np.full_like(a, 0.50), a], axis=-1))
+    n = 256
+    v = (np.arange(n) + 0.5) / n
+    x, y = np.meshgrid(v, v)
+    a = np.zeros_like(x)
+
+    def seg(ax, ay, bx, by, w):
+        nonlocal a
+        px, py = x - ax, y - ay
+        ex, ey = bx - ax, by - ay
+        t = np.clip((px * ex + py * ey) / (ex * ex + ey * ey), 0.0, 1.0)
+        dd = np.hypot(px - ex * t, py - ey * t)
+        a = np.maximum(a, np.clip(1.5 - dd / w, 0.0, 1.0))
+
+    for fx, fy in ((0.33, 0.72), (0.67, 0.36)):                      # 左腳、右腳，一前一後
+        for ang in (-0.62, 0.0, 0.62):
+            seg(fx, fy, fx + np.sin(ang) * 0.15, fy - np.cos(ang) * 0.15, 0.016)
+        seg(fx, fy, fx, fy + 0.055, 0.014)
+    save("bird_tracks.png", np.stack([np.full_like(a, 0.42), np.full_like(a, 0.54), np.full_like(a, 0.80), a * 0.85], axis=-1))
 
 
 bake_ice()
 bake_cliff()
 bake_snow()
 bake_sea()
+bake_decals()

@@ -1,9 +1,10 @@
 extends RefCounted
 ## 冰雪島「地圖本體」的網格（ice_world.gd 用 preload 拿來用，不是關卡腳本）。
 ## 整張地圖是一塊浮在海上的雪原：build_top() 做頂面（雪和冰同一張網格，邊緣垂下一圈扇形的厚雪簷），
-## build_cliff() 做雪簷底下一層一層的岩壁（一路插進海裡）。表面的質感都在著色器和貼圖裡。
+## build_cliff() 做雪簷底下一層一層的冰崖（往外斜著插進海裡）。表面的質感都在著色器和貼圖裡。
 ## 輪廓用一個字典描述：{"c": 中心 Vector2(x, z), "rx": 橫向半徑, "rz": 縱向半徑, "seed": 亂數,
-##   "pow": 2 = 橢圓、越大越方, "wob": 輪廓歪扭的程度, "depth": 岩壁往下多深, "lobe": 雪簷一片多寬}
+##   "pow": 2 = 橢圓、越大越方, "wob": 輪廓歪扭的程度, "depth": 冰崖往下多深, "slope": 冰崖每往下 1 公尺往外多少, "lobe": 雪簷一片多寬,
+##   "coves": 岸邊凹進來的小海灣 [[方向（弧度）, 凹多深（公尺）, 多寬（弧度）], ...]——從地圖裡面看得到海灣對面的冰崖，地圖才不像一片薄餅}
 
 const BAND_H := 1.25            # 一層岩層的高度（公尺）
 const BANDS_PER_TILE := 9.0     # cliff_strata.png 一張貼圖畫了 9 層
@@ -21,7 +22,15 @@ static func radius(o: Dictionary, a: float) -> float:
 	var w: float = o.get("wob", 1.0)
 	var k := 1.0 + w * (0.050 * sin(2.0 * a + s) + 0.040 * sin(3.0 * a + s * 2.1) + 0.030 * sin(5.0 * a + s * 3.3)
 		+ 0.018 * sin(8.0 * a + s * 1.7) + 0.010 * sin(13.0 * a + s * 4.9))
-	return base * k
+	var r := base * k
+	for cv in o.get("coves", []):
+		var d := angle_difference(a, float(cv[0])) / float(cv[2])
+		r -= float(cv[1]) * exp(-d * d)
+	return r
+
+## 冰崖在頂面往下 drop 公尺的地方（例如海面）離中心多遠
+static func cliff_radius(o: Dictionary, a: float, drop: float) -> float:
+	return radius(o, a) - 0.30 + float(o.get("slope", 0.5)) * drop
 
 ## 邊緣上的點（inset > 0 = 往裡面縮幾公尺）
 static func rim_point(o: Dictionary, a: float, inset := 0.0) -> Vector2:
@@ -103,11 +112,12 @@ static func build_top(o: Dictionary, hf: Callable, segs: int, rings: int, lip :=
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
 
-## 岩壁：從雪簷底下開始，一層一層往下（每層中間鼓出來、層和層之間凹一道縫），底部稍微往外張，插進海裡。
-## rim_y = Callable(角度) -> 邊緣的高度。UV = 岩層貼圖座標，UV2.x = 離頂面幾公尺，COLOR = 每層的明暗
+## 冰崖：從雪簷底下開始，一層一層往下（每層中間鼓出來、層和層之間凹一道縫），整面往外斜，插進海裡。
+## rim_y = Callable(角度) -> 邊緣的高度。UV = 層紋貼圖座標，UV2.x = 離頂面幾公尺，COLOR = 每層的明暗
 static func build_cliff(o: Dictionary, rim_y: Callable, segs: int, rows: int) -> ArrayMesh:
 	var c: Vector2 = o.c
 	var depth: float = o.get("depth", 4.5)
+	var slope: float = o.get("slope", 0.5)
 	var s: float = o.get("seed", 1.0)
 	var per := (float(o.rx) + float(o.rz)) * 0.5
 	var tiles := maxf(roundf(TAU * per / (BAND_H * BANDS_PER_TILE)), 1.0)
@@ -135,7 +145,7 @@ static func build_cliff(o: Dictionary, rim_y: Callable, segs: int, rows: int) ->
 			var v := bc - b
 			var off := (0.26 * pow(sin(PI * v), 0.5) - 0.12) + (hash1(b * 7.3 + s) - 0.4) * 0.5
 			off += 0.22 * sin(a * 9.0 + b * 2.1 + s) * sin(a * 4.0 - b)        # 每層凹凹凸凸，不是完美的圓弧
-			var p := c + dir * (r - 0.30 + off + 0.12 * d)
+			var p := c + dir * (r - 0.30 + off + slope * d)
 			verts.append(Vector3(p.x, y0 - 0.25 - d, p.y))
 			uvs.append(Vector2(float(si) / segs * tiles, bc / BANDS_PER_TILE))
 			uv2.append(Vector2(d, 0.0))

@@ -8,7 +8,7 @@ func _ice_configure() -> void:
 	hero_start = Vector3(-6.0, 0.0, 9.5)
 	# 鏡頭：視角收窄到 45 度、退遠一點（像看一個小模型）。家豪在畫面最下面、籠子在最上面、冰湖佔中間一半以上
 	camera_start = Vector3(-1.5, 11.0, 20.3)
-	camera_look = Vector3(-1.0, -1.4, -1.6)
+	camera_look = Vector3(-1.0, -2.7, -1.6)      # y 只用來調俯角：家豪的圓環完整入鏡、腳下留一點空間
 	camera_fov = 45.0
 	mood = "sunset"
 	cage = Vector3(4.0, 0.0, -11.8)
@@ -20,18 +20,18 @@ func _ice_configure() -> void:
 	snow_piles = [Vector3(-0.6, 0, 6.0)]
 	pines = [Vector3(-5.5, 0, -12.5), Vector3(10.5, 0, -11.5), Vector3(11.5, 0, 2.0)]
 	# ---- 以下都是外觀（不影響玩法）
-	isle = {"seed": 4.6, "c": Vector2(0.0, -4.0), "rz": 19.5}   # 地圖的輪廓：南邊（鏡頭這一側）收短一點，其他照遊玩範圍
+	# 地圖的輪廓：南邊（鏡頭這一側）收短一點；coves 是岸邊凹進來的小海灣（看得到對面的冰崖）
+	isle = {"seed": 4.6, "c": Vector2(0.0, -4.0), "rz": 19.5,
+		"coves": [[0.15, 5.0, 0.13], [-1.30, 4.5, 0.12], [-1.90, 4.5, 0.12], [3.25, 4.5, 0.12]]}
 	# 裝飾要讓開的路線（工人的紅線、滑出去的方向）
 	clear_paths = [[Vector3(-11.0, 0, -6.8), Vector3(-3.0, 0, -6.8), Vector3(7.5, 0, -6.8)], [Vector3(-3.0, 0, -6.8), Vector3(-2.0, 0, -1.0), Vector3(-0.6, 0, 6.0)]]
 	# 工人的冰釣營地（裝飾）：在他們出發點後面
 	camps = [{"pos": Vector3(-15.0, 0, -12.5), "yaw": 1.0}, {"pos": Vector3(13.5, 0, -16.5), "yaw": -0.6}]
-	# 冰湖周圍的區域（純裝飾）：讓整張地圖都有東西看，不只中間一個湖
-	# （冰晶、冰雕、小屋這些高的東西都離冰洞 9 公尺以上：過關特寫的鏡頭會繞著冰洞拍）
+	# 冰湖周圍的區域（純裝飾）。高的東西都離冰洞 9 公尺以上：過關特寫的鏡頭會繞著冰洞拍
 	zones = [
-		{"type": "village", "pos": Vector3(15.5, 0, 0.5), "yaw": -1.57},
+		# 這一關的地標：西岸的冰雕廣場——一圈大冰雕圍著冰晶，夕陽照得透亮
+		{"type": "plaza", "pos": Vector3(-13.8, 0, 0.4), "yaw": 1.57},
 		{"type": "pier", "pos": Vector3(9.0, 0, 3.6), "yaw": 1.57},
-		{"type": "crystals", "pos": Vector3(-13.5, 0, 5.0)},
-		{"type": "crystals", "pos": Vector3(17.0, 0, -10.5)},
-		{"type": "sculptures", "pos": Vector3(4.5, 0, 9.5), "yaw": 0.0},
-		{"type": "creek", "from": Vector3(-17.5, 0, 13.5), "to": Vector3(-9.2, 0, 1.6)},
+		{"type": "crystals", "pos": Vector3(16.5, 0, -11.0)},
+		{"type": "crystals", "pos": Vector3(15.5, 0, 6.0)},
 	]

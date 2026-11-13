@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://fpaymj0xs660"
-path="res://.godot/imported/rocks-medium.glb-a074049188c1937550c6fdc8b3f8210a.scn"
+uid="uid://lfkxmn8yobfr"
+path="res://.godot/imported/market_stall.glb-d98b5e904f7be98ad4a885980e8c5869.scn"
 
 [deps]
 
-source_file="res://levels/ice/assets/kenney_holiday/rocks-medium.glb"
-dest_files=["res://.godot/imported/rocks-medium.glb-a074049188c1937550c6fdc8b3f8210a.scn"]
+source_file="res://levels/ice/assets/blender/market_stall.glb"
+dest_files=["res://.godot/imported/market_stall.glb-d98b5e904f7be98ad4a885980e8c5869.scn"]
 
 [params]
 

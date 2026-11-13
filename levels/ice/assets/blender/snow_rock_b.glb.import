@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://b2vw3sm2dvqyg"
-path="res://.godot/imported/tent-canvas.glb-a4bc7867d9964c28bf9dabf0721fb435.scn"
+uid="uid://rjwt6h6o16y4"
+path="res://.godot/imported/snow_rock_b.glb-64be6e08019000af28e410c9d06ddc6d.scn"
 
 [deps]
 
-source_file="res://levels/ice/assets/kenney_survival/tent-canvas.glb"
-dest_files=["res://.godot/imported/tent-canvas.glb-a4bc7867d9964c28bf9dabf0721fb435.scn"]
+source_file="res://levels/ice/assets/blender/snow_rock_b.glb"
+dest_files=["res://.godot/imported/snow_rock_b.glb-64be6e08019000af28e410c9d06ddc6d.scn"]
 
 [params]
 

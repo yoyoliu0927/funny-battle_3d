@@ -3,13 +3,13 @@
 importer="scene"
 importer_version=1
 type="PackedScene"
-uid="uid://b2ej3t6te3f80"
-path="res://.godot/imported/chest.glb-5ad912c035664a9fea3da2c7879d2841.scn"
+uid="uid://7dmr5qf1x77x"
+path="res://.godot/imported/lantern_string.glb-40c37347228e41914696a65147e9017d.scn"
 
 [deps]
 
-source_file="res://levels/ice/assets/kenney_survival/chest.glb"
-dest_files=["res://.godot/imported/chest.glb-5ad912c035664a9fea3da2c7879d2841.scn"]
+source_file="res://levels/ice/assets/blender/lantern_string.glb"
+dest_files=["res://.godot/imported/lantern_string.glb-40c37347228e41914696a65147e9017d.scn"]
 
 [params]
 

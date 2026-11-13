@@ -9,7 +9,7 @@ uniform int hole_count = 0;
 uniform vec4 holes[8];            // 中心 x, z, 挖空的半徑（洞口的破冰邊緣是模型，蓋在這個圓上面）
 uniform int creek_count = 0;
 uniform vec4 creeks[3];           // 小溪：起點 x, z → 終點 x, z（終點那一頭比較寬，通常接到湖）
-uniform sampler2D crack_tex : repeat_enable, filter_linear_mipmap_anisotropic;   // R 裂紋 G 刮痕 B 深處雲霧
+uniform sampler2D crack_tex : repeat_enable, filter_linear_mipmap_anisotropic;   // R 粗裂紋 G 細節（小裂紋、刮痕、氣泡）B 深處雲霧
 uniform sampler2D snow_tex : repeat_enable, filter_linear_mipmap_anisotropic;    // R 起伏 G 風紋 B 雪粒
 uniform vec3 snow_lit : source_color = vec3(0.97, 0.98, 1.0);
 uniform vec3 snow_shade : source_color = vec3(0.76, 0.85, 0.99);
@@ -21,6 +21,8 @@ uniform float ice_glow = 0.22;      // 冰自己發的光（暖色光、陰影�
 uniform float ice_lit = 0.75;       // 冰吃多少場景的光
 uniform float sparkle = 1.0;
 uniform float drift_amount = 1.0;
+uniform float fine_near = 9.0;      // 冰面的細節（小裂紋、刮痕、氣泡）離鏡頭多遠開始淡
+uniform float fine_far = 24.0;      // …到這個距離只剩四成（遊玩的鏡頭只看得到粗裂紋，特寫才看得到細節）
 
 varying vec3 wpos;
 varying vec3 wnrm;
@@ -75,8 +77,11 @@ void fragment() {
 
 	// ---- 冰：中心深、岸邊淺；表面白裂紋，底下還有一層會跟著視角錯開的深色裂紋和雲霧（看起來有厚度）
 	vec2 uv = p / 9.0;
-	float crack_top = texture(crack_tex, uv).r;
-	float scratch = texture(crack_tex, uv * 1.6 + 0.31).g;
+	float cam_d = length(CAMERA_POSITION_WORLD - wpos);
+	float fine_k = mix(1.0, 0.4, smoothstep(fine_near, fine_far, cam_d));
+	vec2 ctex = texture(crack_tex, uv).rg;
+	float crack_top = ctex.r + ctex.g * 0.75 * fine_k;
+	float scratch = texture(crack_tex, uv * 1.6 + 0.31).g * fine_k;
 	float crack_deep = texture(crack_tex, uv * 0.83 + par * 0.05 + 0.5).r;
 	float cloud = texture(crack_tex, uv * 0.55 + par * 0.09).b;
 	float shore = smoothstep(0.0, 0.95, e2);
@@ -101,7 +106,10 @@ void fragment() {
 	float dune = texture(snow_tex, p * 0.036).r;
 	float ripple = texture(snow_tex, p * 0.11).g;
 	vec3 snowc = mix(snow_shade, snow_lit, smoothstep(0.28, 0.66, dune));
-	snowc -= ripple * 0.035;
+	// 風吹的紋路：一道一道淡藍色的細紋，還有零星的小雪塊（遠看是疏疏的點）
+	snowc = mix(snowc, snow_shade, ripple * 0.30);
+	float clump = texture(snow_tex, p * 0.21 + 0.13).b;
+	snowc = mix(snowc, snow_shade * 0.96, clump * 0.22);
 	// 雪簷的底面和垂下來的地方暗一點、藍一點：看得出雪有厚度
 	snowc = mix(snowc, snow_shade * 0.80, smoothstep(0.35, -0.5, wnrm.y));
 	float bank = 1.0 - smoothstep(1.0, 1.10, e2);
@@ -109,14 +117,15 @@ void fragment() {
 	// 用起伏貼圖歪一下法線：平平的雪地看起來有鼓起來的雪丘
 	float dx = texture(snow_tex, (p + vec2(0.45, 0.0)) * 0.036).r - dune;
 	float dz = texture(snow_tex, (p + vec2(0.0, 0.45)) * 0.036).r - dune;
-	vec3 nw = normalize(wnrm + vec3(-dx, 0.0, -dz) * 5.5 * drift_amount * clamp(wnrm.y, 0.0, 1.0) * (1.0 - ice));
+	vec3 nw = normalize(wnrm + vec3(-dx, 0.0, -dz) * 7.0 * drift_amount * clamp(wnrm.y, 0.0, 1.0) * (1.0 - ice));
 	NORMAL = normalize((VIEW_MATRIX * vec4(nw, 0.0)).xyz);
 	float sp = texture(snow_tex, p * 0.55).b;
 	float tw = sin(dot(floor(p * 31.0), vec2(12.9898, 78.233)) + (V.x + V.z) * 55.0) * 0.5 + 0.5;
 	float glint = sp * smoothstep(0.55, 1.0, tw) * sparkle * (1.0 - ice * (1.0 - frost));
 
 	ALBEDO = mix(snowc, icec * mix(ice_lit, 1.0, frost), ice);
-	ROUGHNESS = mix(1.0, 0.16, ice * (1.0 - frost * 0.75));
-	SPECULAR = mix(0.12, 0.62, ice);
+	// 冰面不要太像鏡子：燈籠照在上面會變成一大顆過曝的白斑
+	ROUGHNESS = mix(1.0, 0.34, ice * (1.0 - frost * 0.75));
+	SPECULAR = mix(0.12, 0.42, ice);
 	EMISSION = icec * ice_glow * ice * (1.0 - frost * 0.8) + vec3(glint * 0.55);
 }
