@@ -47,7 +47,7 @@ var _fade: ColorRect
 var _dlg: PanelContainer
 var _name: Label
 var _text: Label
-var _arrow: Label
+var _arrow: Control        # 「Enter 下一句」那組鍵帽提示（字打完才亮起來）
 
 func _ready() -> void:
 	_world_env = $WorldEnvironment
@@ -285,12 +285,16 @@ func _build_ui() -> void:
 	_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_text.custom_minimum_size = Vector2(0, 80)
 	v.add_child(_text)
-	var as_ := UIStyle.ls(18, Color(UIStyle.INK, 0.6))
-	_arrow = Label.new()
-	_arrow.label_settings = as_
-	_arrow.text = "Enter ▶ 下一句　｜　Esc 跳過開場"
-	_arrow.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	v.add_child(_arrow)
+	# 右下角的按鍵提示：鍵帽＋兩三個字（和其他畫面同一顆鍵帽）
+	var keys := HBoxContainer.new()
+	keys.alignment = BoxContainer.ALIGNMENT_END
+	keys.add_theme_constant_override("separation", 24)
+	v.add_child(keys)
+	_arrow = UIStyle.key_hint("Enter", "下一句", 15, Color(UIStyle.INK, 0.8))
+	keys.add_child(_arrow)
+	var esc := UIStyle.key_hint("Esc", "跳過開場", 15, Color(UIStyle.INK, 0.8))
+	esc.modulate.a = 0.7
+	keys.add_child(esc)
 	_fade = ColorRect.new()
 	_fade.color = Color(0, 0, 0, 1)
 	_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -376,7 +380,7 @@ func _process(dt: float) -> void:
 		if _shown >= _text.text.length():
 			_typing = false
 			_text.visible_characters = -1
-	_arrow.modulate.a = 0.5 + 0.5 * absf(sin(_t * 3.0)) if not _typing else 0.25
+	_arrow.modulate.a = 0.6 + 0.4 * absf(sin(_t * 3.0)) if not _typing else 0.3
 	# 呼吸、Zzz 飄、神明的光環和光點轉
 	if _zzz.visible:
 		_zzz.position = _hero.position + Vector3(0.4, 1.1 + fmod(_t * 0.4, 0.6), 0)
