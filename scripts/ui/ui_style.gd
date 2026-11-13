@@ -10,6 +10,11 @@ extends RefCounted
 ##   Skin.sticky(panel)       便利貼（怎麼玩）
 ##   Skin.ribbon(label)       紅色緞帶（大標題）
 ##   Skin.pill(label)         圓角膠囊（字卡、上方提示）
+##   Skin.slip(label 或 panel) 米色小紙片（畫面角落的小提示、計時、名單；比 paper 小，沒有膠帶和紅線）
+##   Skin.keycap("Enter")     鍵帽（全遊戲的按鍵提示都用這一顆）；Skin.key_hint("R", "重試") 是「鍵帽＋說明」
+##   Skin.go_button("開始 ▶")  綠色的主要按鈕（旁邊通常接一顆鍵帽）
+##   Skin.key_grid([["WASD", "移動"], ["R", "重試"]])   操作說明的表格（一列一組鍵帽＋說明）
+##   Skin.draw_keycap(self, pos, "Enter")   在自己的 _draw() 裡畫同一顆鍵帽
 ##   Skin.plate(label3d, "bubble" / "wood" / "ice" / "red")   3D 字後面加底板（每畫面呼叫 Skin.refresh 更新大小）
 
 const FONT_PATH := "res://assets/fonts/jf-openhuninn-2.1.ttf"
@@ -28,6 +33,9 @@ const ICE_EDGE := Color("2c5d8a")
 const WOOD := Color("9a6a42")
 const WOOD_EDGE := Color("4a2e1b")
 const TAPE := Color(0.95, 0.88, 0.6, 0.75)
+const GO := Color("58b85a")          # 綠色主要按鈕（開始、下一關、重來）
+const GO_EDGE := Color("2f7a33")
+const KEY_SPLIT := "／"              # key_hint 的按鍵用這個字分開，就會畫成好幾顆鍵帽
 
 static var _font: Font
 static var _tex_cache := {}
@@ -177,6 +185,148 @@ static func pill(l: Label, bg := Color(1, 0.98, 0.93, 0.95), edge := INK, color 
 		ls2.font_color = color
 		ls2.outline_size = 0
 		l.label_settings = ls2
+
+# ---------------------------------------------------------------- 鍵帽、小紙片、主要按鈕
+
+## 鍵帽的底：白底、深色邊、底邊厚一點
+static func keycap_box(size := 18) -> StyleBoxFlat:
+	var s := StyleBoxFlat.new()
+	s.bg_color = Color(1, 1, 1)
+	s.border_color = INK
+	s.set_border_width_all(2)
+	s.border_width_bottom = maxi(4, roundi(size * 0.28))
+	s.set_corner_radius_all(maxi(5, roundi(size * 0.4)))
+	s.content_margin_left = roundi(size * 0.55)
+	s.content_margin_right = roundi(size * 0.55)
+	s.content_margin_top = roundi(size * 0.16)
+	s.content_margin_bottom = roundi(size * 0.22)
+	s.anti_aliasing = true
+	return s
+
+## 鍵帽：一顆按鍵的小方塊（size 是字級）。所有畫面的按鍵提示都用這個，長得才會一樣
+static func keycap(key: String, size := 18) -> Label:
+	var l := Label.new()
+	l.text = key
+	l.label_settings = ls(size, INK)
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.add_theme_stylebox_override("normal", keycap_box(size))
+	l.custom_minimum_size = Vector2(roundi(size * 1.9), 0)   # 只有一個字的鍵也接近正方形
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	l.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	l.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return l
+
+## 「鍵帽＋說明」排成一列。key 裡用「／」分開就畫成好幾顆（例如 key_hint("←／→", "島")）；text 空白就只有鍵帽
+static func key_hint(key: String, text := "", size := 18, color := INK) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", maxi(4, roundi(size * 0.3)))
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	for k in key.split(KEY_SPLIT, false):
+		row.add_child(keycap(k.strip_edges(), size))
+	if text != "":
+		var t := Label.new()
+		t.text = text
+		t.label_settings = ls(size + 2, color)
+		t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(t)
+	return row
+
+## 操作說明的表格：rows 是 [[按鍵, 做什麼], ...]，排成 pairs 欄（先由上往下排滿一欄再換欄）；
+## 每一列是「鍵帽靠右＋說明靠左」，所以每欄的鍵帽和字各自對齊
+static func key_grid(rows: Array, pairs := 2, size := 16) -> GridContainer:
+	var g := GridContainer.new()
+	g.columns = pairs * 2
+	g.add_theme_constant_override("h_separation", roundi(size * 0.6))
+	g.add_theme_constant_override("v_separation", roundi(size * 0.5))
+	g.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var n := rows.size()
+	var per := int(ceil(n / float(maxi(pairs, 1))))
+	for r in per:
+		for p in pairs:
+			var i := p * per + r
+			if i >= n:
+				g.add_child(Control.new())
+				g.add_child(Control.new())
+				continue
+			var keys := key_hint(String(rows[i][0]), "", size)
+			keys.alignment = BoxContainer.ALIGNMENT_END
+			g.add_child(keys)
+			var t := Label.new()
+			t.text = String(rows[i][1])
+			t.label_settings = ls(size + 2, INK)
+			t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			if p < pairs - 1:
+				# 兩欄中間留寬一點
+				var m := MarginContainer.new()
+				m.add_theme_constant_override("margin_right", roundi(size * 1.6))
+				m.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				m.add_child(t)
+				g.add_child(m)
+			else:
+				g.add_child(t)
+	return g
+
+## 鍵帽畫出來多大（給 draw_keycap 排版用）
+static func keycap_size(key: String, size := 18.0) -> Vector2:
+	var f := font()
+	if f == null:
+		f = ThemeDB.fallback_font
+	var fs := int(size)
+	var tw := f.get_string_size(key, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	return Vector2(maxf(tw + size * 1.1, size * 1.9), size * 1.3 + size * 0.38)
+
+## 在自己畫的控制項（_draw）裡畫一顆鍵帽；pos 是左上角，回傳它的大小
+static func draw_keycap(c: CanvasItem, pos: Vector2, key: String, size := 18.0) -> Vector2:
+	var f := font()
+	if f == null:
+		f = ThemeDB.fallback_font
+	var sz := keycap_size(key, size)
+	var sb := keycap_box(int(size))
+	c.draw_style_box(sb, Rect2(pos, sz))
+	var fs := int(size)
+	var inner_h := sz.y - sb.border_width_bottom - 2.0
+	var base_y := pos.y + 2.0 + (inner_h - f.get_height(fs)) * 0.5 + f.get_ascent(fs)
+	c.draw_string(f, Vector2(pos.x, base_y), key, HORIZONTAL_ALIGNMENT_CENTER, sz.x, fs, INK)
+	return sz
+
+static func slip_box(pad := Vector2(14, 7), alpha := 0.96) -> StyleBoxFlat:
+	var s := _box(Color(PAPER, alpha), PAPER_EDGE, 7, 2)
+	s.border_width_bottom = 3
+	s.shadow_color = Color(0, 0, 0, 0.22)
+	s.shadow_size = 4
+	s.shadow_offset = Vector2(2, 3)
+	s.content_margin_left = pad.x
+	s.content_margin_right = pad.x
+	s.content_margin_top = pad.y - 1.0
+	s.content_margin_bottom = pad.y + 1.0
+	s.anti_aliasing = true
+	return s
+
+## 米色小紙片：Label 就墊在字後面，PanelContainer 就當底板（裡面再放自己的東西）
+static func slip(c: Control, pad := Vector2(14, 7)) -> void:
+	var s := slip_box(pad)
+	if c is Label:
+		var l := c as Label
+		l.add_theme_stylebox_override("normal", s)
+		use_font(l, -1, INK)
+		l.add_theme_constant_override("outline_size", 0)
+		if l.label_settings:
+			var ls2 := l.label_settings.duplicate() as LabelSettings
+			ls2.font = font()
+			ls2.font_color = INK
+			ls2.outline_size = 0
+			l.label_settings = ls2
+	else:
+		c.add_theme_stylebox_override("panel", s)
+
+## 綠色的主要按鈕（只是長得像按鈕的字；要能點的話自己接 gui_input）
+static func go_button(text: String, size := 30) -> Label:
+	var l := Label.new()
+	l.text = text
+	l.label_settings = ls(size, Color(1, 1, 1))
+	pill(l, GO, GO_EDGE, Color(1, 1, 1))
+	l.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	return l
 
 # ---------------------------------------------------------------- 3D 字的底板
 
