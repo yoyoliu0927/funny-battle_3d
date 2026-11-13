@@ -64,6 +64,10 @@ var show_timing := false
 var _time_labels: Array = []
 var _ghost_label: Label3D
 var _reroute_label: Label3D
+var _cross_label: Label3D
+var _top_cam: Camera3D
+var _std_focus := Vector3.ZERO
+var _std_offset := Vector3(0, 2, 5)
 var _reroute_used := false
 var _pop_seen := {}            # 「字 + 誰」 -> 上次跳字的時間（0.5 秒內同一個字不重複跳）
 
@@ -272,6 +276,7 @@ func _level_reset() -> void:
 		f.data.erase("chase_to")
 		f.data.erase("pair")
 		f.data.erase("hit_any")
+		_set_frost(f, false)
 		f.data.erase("hit_once")
 		f.data.erase("missed")
 		f.data.erase("snow_hat")
@@ -377,6 +382,7 @@ func fall_in(f: Fighter) -> void:
 	f.yaw = atan2(cp.x - f.pos.x, cp.z - f.pos.z)
 	f.data.sunk_yaw = f.yaw
 	f.data.blub = false
+	_set_frost(f, true)
 	if f.data.get("snow_hat") != null:
 		mark("snow_hole")
 	falls += 1
@@ -497,8 +503,25 @@ func _start_win_show() -> void:
 	# 結算會從右邊出來：鏡頭往右偏，家豪和企鵝站在畫面左半邊
 	var focus: Vector3 = bird.pos + to_cage * 0.9 + side * 1.6 + Vector3(0, 0.8, 0)
 	var offset: Vector3 = -to_cage * 5.4 + side * 1.0 + Vector3(0, 2.0, 0)
+	# 結算出來時切回這個正面構圖（家豪、企鵝在左半邊，結算在右邊）
+	_std_focus = focus
+	_std_offset = offset
+	var std_cam: Vector3 = focus + offset
+	# 有受害者而且不太遠：鏡頭擺在受害者後面，讓他在右前景、家豪和企鵝在中景左邊（家豪的吐槽才有對象）
+	var v := _best_victim()
+	if not v.is_empty():
+		var vp: Vector3 = v.target
+		var bv: Vector3 = vp - bird.pos
+		bv.y = 0.0
+		var dist := bv.length()
+		if dist > 2.5 and dist < 10.0:
+			var dirv := bv / dist
+			var left := Vector3.UP.cross(dirv)          # 從受害者看向家豪時的左手邊
+			var cam: Vector3 = ground(vp) + dirv * 2.6 + left * 1.6 + Vector3(0, 1.7, 0)
+			focus = bird.pos.lerp(ground(vp), 0.45) + Vector3(0, 0.7, 0) - left * 0.6
+			offset = cam - focus
 	if world.has_method("open_cage"):
-		world.open_cage(bird.pos, focus + offset)
+		world.open_cage(bird.pos, std_cam)
 	bird.yaw = atan2(offset.x, offset.z)
 	bird.air = 0.0
 	_cut_to(focus, offset, 99.0)
@@ -528,6 +551,8 @@ func _level_step_ended(dt: float) -> void:
 		_summary_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 		_summary_panel.visible = true
 		_update_phase_label()
+		_cut_to(_std_focus, _std_offset, 99.0)
+		bird.yaw = atan2(_std_offset.x, _std_offset.z)
 
 func _win_line() -> String:
 	var best := _best()
@@ -558,7 +583,8 @@ func _show_defeat() -> void:
 	_list_layer.visible = false
 	var tip := _defeat_tip()
 	if _miss_text != "":
-		tip = "差一點！%s　%s" % [_miss_text, tip]
+		var way := "往他的來路挪一點（早點踩到）" if _miss_text.contains("晚") else "往前挪一點（晚點踩到）"
+		tip = "差一點！%s：香蕉皮%s試試。" % [_miss_text, way]
 	_defeat_detail.text = "家豪被%s抓住了　｜　第 %d 次嘗試\n%s\nR 重試　｜　M 回到地圖" % [
 		_caught_by if _caught_by != "" else "工人", attempts.size(), tip]
 
@@ -871,7 +897,7 @@ func _tick_slide(f: Fighter, dt: float) -> void:
 					continue
 				var rel: Vector3 = o.pos - f.pos
 				rel.y = 0.0
-				if flat_dist(o.pos, f.pos) < 2.2 and rel.dot(sdir) < 0.0:
+				if flat_dist(o.pos, f.pos) < 3.0 and rel.dot(sdir) < 0.0:
 					f.data.missed = true
 					o.yaw = _yaw_to(o.pos, f.pos)
 					pop_label("？！", o.pos + Vector3(0, 3.0, 0), Color(1, 0.9, 0.3), 1100, o)
@@ -929,6 +955,19 @@ func _process(dt: float) -> void:
 		crosshair.visible = not cut
 	if _phase_label:
 		_phase_label.visible = not cut   # 特寫時連計時器一起收起來
+	# 準備時按住 Tab：從正上方看整個場地（方便算距離和時間）
+	if _top_cam == null:
+		_top_cam = Camera3D.new()
+		_top_cam.fov = 55.0
+		world.add_child(_top_cam)
+	var want_top: bool = phase == Phase.PREPARE and not cut and Input.is_physical_key_pressed(KEY_TAB)
+	if want_top and not _top_cam.current:
+		var c: Vector3 = world.get("camera_look") if world.get("camera_look") != null else Vector3.ZERO
+		_top_cam.global_position = Vector3(c.x, 26.0, c.z + 0.01)
+		_top_cam.look_at(Vector3(c.x, 0, c.z), Vector3.FORWARD)
+		_top_cam.make_current()
+	elif not want_top and _top_cam.current:
+		camera.make_current()
 	if _hotbar:
 		_hotbar.visible = not cut        # 特寫、過關演出時收起道具格
 	if cut and _preview:
@@ -1261,6 +1300,14 @@ func _hold_bird(b: Fighter) -> void:
 	if hand != null and _catcher.data.get("frozen_pose", "") == "Interact":
 		# 掛在工人伸出去的右手上（手抓著帽T的帽子）
 		var g := ground(hand)
+		# 不要嵌進雪人／樹裡：太近就往外推
+		for ob in world.obstacles:
+			var c2: Vector2 = ob[0]
+			var off := Vector2(g.x - c2.x, g.z - c2.y)
+			var need: float = float(ob[1]) + 0.55
+			if off.length() < need and off.length() > 0.01:
+				var push := off.normalized() * (need - off.length())
+				g += Vector3(push.x, 0, push.y)
 		b.pos = g
 		b.air = minf(b.air + 0.12, maxf((hand as Vector3).y - g.y - HANG, 0.0))
 	else:
@@ -1272,7 +1319,9 @@ func _hold_bird(b: Fighter) -> void:
 func _bird_pose() -> void:
 	var b := bird
 	if b.body != null and (b.state == "lifted" or b.data.get("held", false)):
-		b.body.rotation = Vector3(-0.2, 0, sin(_clock * 23.0) * 0.35)
+		# 每 0.3 秒左右用力扭一下（掙扎）
+		var jerk := 1.0 if fmod(_clock, 0.3) < 0.12 else 0.35
+		b.body.rotation = Vector3(-0.2 + 0.25 * jerk * sin(_clock * 17.0), 0, sin(_clock * 23.0) * 0.6 * jerk)
 		b.body.scale = Vector3.ONE
 		b.body.set_meta("posed", false)
 		for w in b.wings:
@@ -1301,6 +1350,8 @@ func pop_label(text: String, pos: Vector3, color: Color, ms: int, follow: Fighte
 	if _pop_seen.has(key) and _clock - float(_pop_seen[key]) < 0.5:
 		return
 	_pop_seen[key] = _clock
+	if follow and pos.y - follow.pos.y > 2.7:
+		pos.y = follow.pos.y + 2.7   # 貼著頭頂，不要飄到樹上
 	if follow:
 		# 同一個人頭上同時只留一個跳字（新的蓋掉舊的），不會疊成一團
 		for i in range(_labels.size() - 1, -1, -1):
@@ -1352,7 +1403,7 @@ func _tick_sunk(f: Fighter, dt: float) -> void:
 	f.yaw = float(f.data.get("sunk_yaw", f.yaw)) + sin(f.data.sink_t * 45.0) * 0.06
 	if f.data.sink_t > 1.0 and not f.data.get("blub", false):
 		f.data.blub = true
-		pop_label("噗嚕…", f.pos + Vector3(0, 0.0, 0), Color(0.6, 0.85, 1.0), 1400, f)
+		pop_label("喀喀喀…（牙齒打顫）", f.pos + Vector3(0, 0.0, 0), Color(0.6, 0.85, 1.0), 2400, f)
 		var e: Dictionary = _labels.back() if not _labels.is_empty() else {}
 		if not e.is_empty():
 			e.dy = 2.3
@@ -1639,6 +1690,8 @@ func _draw_timing_ghosts(im: ImmediateMesh) -> void:
 		_ghost_label.modulate = Color(0.8, 0.95, 1.0)
 		world.add_child(_ghost_label)
 	_ghost_label.visible = false
+	if _cross_label:
+		_cross_label.visible = false
 	var aiming: bool = show_timing and phase == Phase.PREPARE and aim_point != null and aim_error == "" \
 		and not items.is_empty() and items[selected].id == "banana" and charges[selected] != 0
 	if not aiming:
@@ -1675,6 +1728,8 @@ func _draw_timing_ghosts(im: ImmediateMesh) -> void:
 				if not names.is_empty():
 					_ghost_label.text = "%s：%.1f 秒" % ["、".join(names), t_hit]
 					_ghost_label.visible = true
+				# 交叉點：別人「幾秒經過這裡」（阿土那邊要自己數黃線上的橫槓）
+				_mark_crossing(f, p, Vector3(ab.x, 0, ab.y) / l)
 				return
 			walked += l
 
@@ -1764,3 +1819,50 @@ func _late_by(f: Fighter, o: Fighter) -> String:
 	if absf(dt) < 0.05:
 		return ""
 	return "%s晚了 %.1f 秒" % [f.name, dt] if dt > 0.0 else "%s早了 %.1f 秒" % [f.name, -dt]
+
+## 泡在冰水裡：全身蓋一層藍白色的霜（凍僵的樣子）
+var _frost_mat: StandardMaterial3D
+func _set_frost(f: Fighter, on: bool) -> void:
+	if f.node == null:
+		return
+	if _frost_mat == null:
+		_frost_mat = StandardMaterial3D.new()
+		_frost_mat.albedo_color = Color(0.55, 0.8, 1.0, 0.55)
+		_frost_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_frost_mat.emission_enabled = true
+		_frost_mat.emission = Color(0.25, 0.45, 0.7)
+	for m in f.node.find_children("*", "MeshInstance3D", true, false):
+		(m as MeshInstance3D).material_overlay = _frost_mat if on else null
+
+## 第 3 關：瞄準時在交叉點寫「阿水 3.3 秒經過」
+func _mark_crossing(f: Fighter, p: Vector3, dir: Vector3) -> void:
+	if _cross_label == null:
+		_cross_label = Label3D.new()
+		_cross_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_cross_label.no_depth_test = true
+		_cross_label.font_size = 64
+		_cross_label.pixel_size = 0.0005
+		_cross_label.fixed_size = true
+		_cross_label.outline_size = 16
+		_cross_label.modulate = Color(1.0, 0.95, 0.6)
+		world.add_child(_cross_label)
+	for o in enemies:
+		if o == f or o.data.get("guard", false):
+			continue
+		var route := planned_route(o)
+		var along := 0.0
+		for i in range(1, route.size()):
+			var a: Vector3 = route[i - 1]
+			var b: Vector3 = route[i]
+			var seg := flat_dist(a, b)
+			var n := maxi(int(seg / 0.1), 1)
+			for k in n + 1:
+				var q := a.lerp(b, float(k) / n)
+				var rel := q - p
+				rel.y = 0.0
+				if rel.dot(dir) > 0.0 and (rel - dir * rel.dot(dir)).length() < 0.06:
+					_cross_label.text = "%s %.1f 秒經過這裡" % [o.name, (along + seg * float(k) / n) / RUSH_SPEED]
+					_cross_label.position = q + Vector3(0, 1.7, 0)
+					_cross_label.visible = true
+					return
+			along += seg

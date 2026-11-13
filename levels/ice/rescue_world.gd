@@ -122,7 +122,7 @@ func _process(_dt: float) -> void:
 			# 臉朝鏡頭
 			var to_cam := _cage_root.to_local(_free_cam) - n.position
 			n.rotation.y = atan2(to_cam.x, to_cam.z)
-		if k == 0:
+		if k == 1:
 			# 「謝謝家豪！」是左邊那隻企鵝說的：跑到定位才開口，字貼在牠頭上
 			_cage_label.text = "謝謝家豪！" if t >= 1.1 else ""
 			_cage_label.position = _cage_root.to_global(n.position) + Vector3(0, 1.85, 0)
@@ -135,8 +135,9 @@ func _pick_spots() -> void:
 	away = away.normalized() if away.length() > 0.1 else Vector3.FORWARD
 	var right := away.cross(Vector3.UP)    # 畫面右邊
 	var want: Array = [-1.6, 1.6, -3.1]
+	var back: Array = [0.3, 0.3, 1.5]     # 第三隻站後面一點，三隻不會疊在一起
 	for k in 3:
-		var q: Vector3 = _free_target + right * float(want[k]) + away * 0.3
+		var q: Vector3 = _free_target + right * float(want[k]) + away * float(back[k])
 		if in_water(q.x, q.z):
 			q = _free_target - right * float(want[k]) + away * 0.3
 		_spots[k] = q

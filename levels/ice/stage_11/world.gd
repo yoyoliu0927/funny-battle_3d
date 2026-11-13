@@ -11,7 +11,8 @@ func _ice_configure() -> void:
 	camera_look = Vector3(-0.5, 0.0, -3.0)
 	cage = Vector3(0.0, 0.0, -11.8)
 	bird_path = [Vector3(0.0, 0, 4.0), Vector3(0.0, 0, -9.4)]
-	lakes = [{"center": Vector2(0.0, -4.0), "rx": 10.5, "rz": 6.0}]
+	# 冰湖往西延伸：阿土一出發就在冰上，香蕉皮丟太早也會失敗（他自己先滑過去）
+	lakes = [{"center": Vector2(-2.0, -4.0), "rx": 12.5, "rz": 6.0}]
 	ponds = [{"center": Vector2(7.6, -6.5), "r": 1.4}]
-	snowmen = [Vector3(9.5, 0, 8.5), Vector3(4.8, 0, -7.4)]
+	snowmen = [Vector3(9.5, 0, 8.5), Vector3(4.8, 0, -7.7)]
 	pines = [Vector3(-11.0, 0, -11.5), Vector3(-6.0, 0, -12.5), Vector3(6.0, 0, -13.0), Vector3(11.5, 0, -1.0)]
