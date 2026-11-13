@@ -294,8 +294,17 @@ static func _plate_tex(w: int, h: int, bg: Color, edge: Color, radius: int, tail
 class _Ruled:
 	extends Control
 	func _draw() -> void:
-		# 只畫左邊的紅色邊線（橫線會穿過字，拿掉比較乾淨）
-		draw_line(Vector2(24, 4), Vector2(24, size.y - 4), MARGIN, 2.0)
+		# 只畫左邊的紅色邊線（橫線會穿過字，拿掉比較乾淨）。
+		# PanelContainer 會把這個節點擺進「內容區」（已經往右往下縮了一圈邊距），
+		# 所以要扣掉自己的位移，邊線才會畫在紙的左邊 24 px，而不是貼著每行第一個字。
+		var p := get_parent() as Control
+		var h := p.size.y if p else size.y
+		var x := 24.0 - position.x
+		draw_line(Vector2(x, 4.0 - position.y), Vector2(x, h - 4.0 - position.y), MARGIN, 2.0)
+		# 膠帶也一樣：貼在紙的上緣（跨在邊上），不是內容區的上緣（不然會壓到第一行字）
+		for c in get_children():
+			if c is ColorRect:
+				(c as ColorRect).position = Vector2(26, -11) - position
 	func _notification(what: int) -> void:
 		if what == NOTIFICATION_RESIZED:
 			queue_redraw()
