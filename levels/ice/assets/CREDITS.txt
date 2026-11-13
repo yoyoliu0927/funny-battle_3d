@@ -1,0 +1,20 @@
+冰雪島（levels/ice）使用的外部素材
+====================================
+
+kenney_holiday/   Holiday Kit (2.0) by Kenney — https://kenney.nl/assets/holiday-kit
+                  授權：Creative Commons CC0（公眾領域，可商用、不需署名；這裡仍註明來源）
+                  使用：雪地松樹、岩石、雪堆、雪牆、雪橇、燈籠、長椅、禮物盒、馴鹿、雪人帽、木地板
+
+kenney_survival/  Survival Kit by Kenney — https://kenney.nl/assets/survival-kit
+                  授權：Creative Commons CC0
+                  使用：帳篷、營火、烤魚架、木桶、木箱、水桶、魚、路標、鏟子、寶箱、木材、睡袋
+
+各資料夾內附原始的 License.txt。
+
+polypizza/        "Penguins" by sugamo — https://poly.pizza/m/2daAMXwJLa-
+                  授權：Creative Commons Attribution（CC-BY 3.0），需署名：sugamo
+                  使用：從原檔挑出一隻站著、一隻趴著的企鵝，置中、轉向、統一高度（見 blender/src/pick_penguin.py）
+
+blender/          雪人（頭和身體分開）、企鵝籠（籠門可以打開）：本組用 Blender 4.5 腳本建模（blender/src/build_props.py），自製
+
+faces/            工人的表情貼圖（凍僵、暈、嚇到）：本組用 Codex（OpenAI 圖片生成）產生，透明背景 PNG

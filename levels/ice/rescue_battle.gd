@@ -66,6 +66,7 @@ var _ghost_label: Label3D
 var _reroute_label: Label3D
 var _cross_label: Label3D
 var _top_cam: Camera3D
+var _cross_lead: Array = []
 var _std_focus := Vector3.ZERO
 var _std_offset := Vector3(0, 2, 5)
 var _reroute_used := false
@@ -393,6 +394,12 @@ func fall_in(f: Fighter) -> void:
 		mark("guard_carom")
 	if _cut_cam and _cut_cam.current:
 		_cut_t = maxf(_cut_t, 1.7 if f.data.get("snow_hat") != null else 0.9)
+	elif phase == Phase.RUNNING and camera:
+		# 沒有特寫的時候掉洞：補一個 1 秒近拍，對準掉下去的人
+		var away2: Vector3 = camera.global_position - f.pos
+		away2.y = 0.0
+		away2 = away2.normalized() if away2.length() > 0.1 else Vector3.BACK
+		_cut_to(f.pos + Vector3(0, 0.6, 0), away2 * 3.2 + Vector3(0, 1.6, 0), 1.0)
 
 func _on_carom(_a: Fighter, b: Fighter) -> void:
 	caroms += 1
@@ -520,6 +527,10 @@ func _start_win_show() -> void:
 			var cam: Vector3 = ground(vp) + dirv * 2.6 + left * 1.6 + Vector3(0, 1.7, 0)
 			focus = bird.pos.lerp(ground(vp), 0.45) + Vector3(0, 0.7, 0) - left * 0.6
 			offset = cam - focus
+			# 洞裡的受害者轉向鏡頭（看得到臉），家豪在他們後面吐槽
+			for e in enemies:
+				if e.data.get("sunk", false) and flat_dist(e.pos, vp) < 3.0:
+					e.data.sunk_yaw = atan2(cam.x - e.pos.x, cam.z - e.pos.z)
 	if world.has_method("open_cage"):
 		world.open_cage(bird.pos, std_cam)
 	bird.yaw = atan2(offset.x, offset.z)
@@ -563,6 +574,8 @@ func _win_line() -> String:
 	for c in list:
 		var tag := "☑ " if best.has(c.id) else "☐ "
 		lines.append(tag + String(c.text) + ("　新！" if _new_stars.has(c.id) else ""))
+		if not best.has(c.id) and String(c.get("hint", "")) != "":
+			lines.append("　　（%s）" % c.hint)
 	lines.append("按 Enter 下一關")
 	return "\n".join(lines)
 
@@ -583,7 +596,8 @@ func _show_defeat() -> void:
 	_list_layer.visible = false
 	var tip := _defeat_tip()
 	if _miss_text != "":
-		var way := "往他的來路挪一點（早點踩到）" if _miss_text.contains("晚") else "往前挪一點（晚點踩到）"
+		var who := _miss_text.substr(0, _miss_text.find("晚") if _miss_text.contains("晚") else _miss_text.find("早"))
+		var way := "往%s的來路挪一點（早點踩到）" % who if _miss_text.contains("晚") else "往%s的去路挪一點（晚點踩到）" % who
 		tip = "差一點！%s：香蕉皮%s試試。" % [_miss_text, way]
 	_defeat_detail.text = "家豪被%s抓住了　｜　第 %d 次嘗試\n%s\nR 重試　｜　M 回到地圖" % [
 		_caught_by if _caught_by != "" else "工人", attempts.size(), tip]
@@ -776,6 +790,13 @@ func _level_step(dt: float) -> void:
 			_catcher = f
 			bird.set_state("lifted")
 			_face(f, bird.pos)
+			# 旁邊有雪人或樹：轉身背對它，家豪拎在另一邊，不會嵌進去
+			for ob in world.obstacles:
+				var c2: Vector2 = ob[0]
+				var away := Vector2(f.pos.x - c2.x, f.pos.z - c2.y)
+				if float(ob[1]) > 0.0 and away.length() < float(ob[1]) + 2.0 and away.length() > 0.01:
+					f.yaw = atan2(away.x, away.y)
+					break
 			anim(f, "Idle")
 			log_event("%s抓住了家豪" % f.name)
 			bubble("……完了", bird, 1.75, 4000)
@@ -1072,7 +1093,10 @@ func _draw_routes() -> void:
 		_reroute_label.visible = false
 	_reroute_used = false
 	_draw_time_dots()
+	_cross_lead = []
 	_draw_timing_ghosts(im)
+	if _cross_lead.size() == 2:
+		_solid(im, _cross_lead[0], _cross_lead[1], Color(1.0, 0.95, 0.6, 0.9), 0.04)
 	_flush(im)
 
 func _cross(b: Vector3, c: Color) -> void:
@@ -1403,7 +1427,7 @@ func _tick_sunk(f: Fighter, dt: float) -> void:
 	f.yaw = float(f.data.get("sunk_yaw", f.yaw)) + sin(f.data.sink_t * 45.0) * 0.06
 	if f.data.sink_t > 1.0 and not f.data.get("blub", false):
 		f.data.blub = true
-		pop_label("喀喀喀…（牙齒打顫）", f.pos + Vector3(0, 0.0, 0), Color(0.6, 0.85, 1.0), 2400, f)
+		pop_label("喀喀喀…", f.pos + Vector3(0, 0.0, 0), Color(0.6, 0.85, 1.0), 2400, f)
 		var e: Dictionary = _labels.back() if not _labels.is_empty() else {}
 		if not e.is_empty():
 			e.dy = 2.3
@@ -1412,6 +1436,10 @@ func _tick_sunk(f: Fighter, dt: float) -> void:
 func _level_visuals() -> void:
 	super()
 	for f in enemies:
+		if f.data.get("sunk", false):
+			# 凍得發抖：左右小幅快速抖動
+			f.node.global_position += Vector3(sin(_clock * 63.0) * 0.035, 0, 0)
+		_update_face(f)
 		if f == _catcher and (bird.state == "lifted" or bird.data.get("held", false)):
 			_freeze_pose(f, "Interact", 0.7)   # 手往前伸：拎著家豪
 			continue
@@ -1726,7 +1754,9 @@ func _draw_timing_ghosts(im: ImmediateMesh) -> void:
 					names.append(o.name)
 					_ghost_label.position = oq + Vector3(0, 1.6, 0)
 				if not names.is_empty():
-					_ghost_label.text = "%s：%.1f 秒" % ["、".join(names), t_hit]
+					_ghost_label.text = "踩到時%s在這（%.1f 秒）" % ["、".join(names), t_hit]
+					_ghost_label.font_size = 44
+					_ghost_label.modulate = Color(0.8, 0.9, 1.0, 0.85)
 					_ghost_label.visible = true
 				# 交叉點：別人「幾秒經過這裡」（阿土那邊要自己數黃線上的橫槓）
 				_mark_crossing(f, p, Vector3(ab.x, 0, ab.y) / l)
@@ -1827,10 +1857,10 @@ func _set_frost(f: Fighter, on: bool) -> void:
 		return
 	if _frost_mat == null:
 		_frost_mat = StandardMaterial3D.new()
-		_frost_mat.albedo_color = Color(0.55, 0.8, 1.0, 0.55)
+		_frost_mat.albedo_color = Color(0.7, 0.88, 1.0, 0.3)
 		_frost_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_frost_mat.emission_enabled = true
-		_frost_mat.emission = Color(0.25, 0.45, 0.7)
+		_frost_mat.emission = Color(0.12, 0.22, 0.35)
 	for m in f.node.find_children("*", "MeshInstance3D", true, false):
 		(m as MeshInstance3D).material_overlay = _frost_mat if on else null
 
@@ -1862,7 +1892,57 @@ func _mark_crossing(f: Fighter, p: Vector3, dir: Vector3) -> void:
 				rel.y = 0.0
 				if rel.dot(dir) > 0.0 and (rel - dir * rel.dot(dir)).length() < 0.06:
 					_cross_label.text = "%s %.1f 秒經過這裡" % [o.name, (along + seg * float(k) / n) / RUSH_SPEED]
-					_cross_label.position = q + Vector3(0, 1.7, 0)
+					# 字放在交叉點南邊（離開路線和白點），拉一條引線指回去
+					var off := Vector3(0, 0, 2.2)
+					_cross_label.position = q + off + Vector3(0, 0.5, 0)
+					_cross_lead = [q, q + off]
 					_cross_label.visible = true
 					return
 			along += seg
+
+# ---------------------------------------------------------------- 工人的表情（Codex 生成的貼圖，貼在臉上）
+
+const FACES := {
+	"frozen": "res://levels/ice/assets/faces/face_frozen.png",
+	"dizzy": "res://levels/ice/assets/faces/face_dizzy.png",
+	"shock": "res://levels/ice/assets/faces/face_shock.png",
+}
+var _face_tex := {}
+var _faces := {}             # 工人 -> Sprite3D
+
+func _update_face(f: Fighter) -> void:
+	var want := ""
+	if f.data.get("pile") != null:
+		want = ""                      # 倒栽在雪堆裡：看不到臉
+	elif f.data.get("sunk", false):
+		want = "frozen"
+	elif f.alive() and f.state in ["stunned", "giveup"]:
+		want = "dizzy"
+	elif f.alive() and f.state == "kslide":
+		want = "shock"
+	if not _faces.has(f):
+		if want == "":
+			return
+		var sp := Sprite3D.new()
+		sp.pixel_size = 0.00024
+		sp.no_depth_test = true      # 卡通臉畫在最上層（背面會被剔除，背對時看不到）
+		sp.render_priority = 2
+		sp.alpha_cut = SpriteBase3D.ALPHA_CUT_DISCARD
+		sp.shaded = false
+		sp.double_sided = false
+		world.add_child(sp)
+		_faces[f] = sp
+	var sp: Sprite3D = _faces[f]
+	sp.visible = want != ""
+	if want == "":
+		return
+	if not _face_tex.has(want):
+		_face_tex[want] = load(FACES[want])
+	sp.texture = _face_tex[want]
+	# 貼在頭的正前方（跟著身體轉向）
+	var basis := f.node.global_basis.orthonormalized()
+	var fwd := basis.z
+	var hb = bone_pos(f, "Head")
+	var hp: Vector3 = (hb as Vector3) if hb != null else head_pos(f) - Vector3(0, 0.2, 0)
+	# 頭骨原點大約在臉的上緣：往下一點、往前貼到臉上
+	sp.global_transform = Transform3D(basis, hp + fwd * 0.24 + Vector3(0, 0.04, 0))

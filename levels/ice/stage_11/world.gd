@@ -4,8 +4,8 @@ extends "res://levels/ice/rescue_world.gd"
 ## 只有一片香蕉皮：要讓阿土剛好在阿水經過時滑出去，兩個一起撞進冰洞。
 
 func _ice_configure() -> void:
-	play_min = Vector2(-13.5, -14.0)
-	play_max = Vector2(13.5, 14.0)
+	play_min = Vector2(-17.0, -20.0)
+	play_max = Vector2(17.0, 16.0)
 	hero_start = Vector3(0.0, 0.0, 7.0)
 	camera_start = Vector3(0.0, 12.0, 13.5)
 	camera_look = Vector3(-0.5, 0.0, -3.0)
@@ -15,4 +15,6 @@ func _ice_configure() -> void:
 	lakes = [{"center": Vector2(-2.0, -4.0), "rx": 12.5, "rz": 6.0}]
 	ponds = [{"center": Vector2(7.6, -6.5), "r": 1.4}]
 	snowmen = [Vector3(9.5, 0, 8.5), Vector3(4.8, 0, -7.7)]
-	pines = [Vector3(-11.0, 0, -11.5), Vector3(-6.0, 0, -12.5), Vector3(6.0, 0, -13.0), Vector3(11.5, 0, -1.0)]
+	pines = [Vector3(-6.0, 0, -12.5), Vector3(6.0, 0, -13.0), Vector3(11.5, 0, -1.0)]
+	# 工人的冰釣營地（裝飾）：在他們出發點後面
+	camps = [{"pos": Vector3(-13.0, 0, -12.5), "yaw": 0.6}, {"pos": Vector3(10.5, 0, -15.0), "yaw": -0.8}]

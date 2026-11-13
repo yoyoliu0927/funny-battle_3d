@@ -3,8 +3,8 @@ extends "res://levels/ice/rescue_world.gd"
 ##   第一段在雪地上（只會跌倒）；第二段看起來對著一個冰洞，但中間有雪人擋著；最後一段才真的對著另一個冰洞。
 
 func _ice_configure() -> void:
-	play_min = Vector2(-13.0, -14.0)
-	play_max = Vector2(13.0, 14.0)
+	play_min = Vector2(-17.0, -20.0)
+	play_max = Vector2(17.0, 16.0)
 	hero_start = Vector3(0.0, 0.0, 9.5)
 	camera_start = Vector3(0.0, 15.0, 18.0)
 	camera_look = Vector3(4.5, 0.0, -4.5)
@@ -15,4 +15,6 @@ func _ice_configure() -> void:
 		# 東邊的小冰洞：被雪人扣頭的工人爬起來再踩一次香蕉皮，就會往這裡滑
 		{"center": Vector2(5.0, -4.2), "r": 1.2}]
 	snowmen = [Vector3(-1.5, 0, -2.0), Vector3(9.5, 0, 9.0)]
-	pines = [Vector3(-11.0, 0, -11.5), Vector3(-6.0, 0, -12.5), Vector3(6.0, 0, -12.5), Vector3(11.0, 0, -9.0)]
+	pines = [Vector3(-6.0, 0, -12.5), Vector3(6.0, 0, -12.5), Vector3(11.0, 0, -9.0)]
+	# 工人的冰釣營地（裝飾）：在他們出發點後面
+	camps = [{"pos": Vector3(-13.0, 0, -12.5), "yaw": 0.9}, {"pos": Vector3(12.5, 0, -14.0), "yaw": -0.7}]

@@ -10,14 +10,14 @@ func _make_items() -> Array:
 func _enemy_specs() -> Array:
 	return [
 		rusher("阿土", Vector3(-12.0, 0, -6.5), [Vector3(-1.0, 0, -6.5)]),
-		rusher("阿水", Vector3(6.0, 0, -12.0), [Vector3(0.6, 0, -5.0)]),
+		rusher("阿水", Vector3(7.2, 0, -13.6), [Vector3(0.6, 0, -5.0)]),
 	]
 
 func _checklist() -> Array:
 	return [
 		{"id": "rescue", "text": "救出企鵝"},
-		{"id": "snow_hole", "text": "讓阿水戴著雪人頭泡進冰洞"},
-		{"id": "clean_fall2", "text": "不碰雪人，兩個一起泡進冰洞"},
+		{"id": "snow_hole", "text": "讓阿水戴著雪人頭泡進冰洞", "hint": "提早約 0.3 秒撞到他，他會偏到雪人那邊"},
+		{"id": "clean_fall2", "text": "不碰雪人，兩個一起泡進冰洞", "hint": "算到阿土和阿水剛好同時到交叉點"},
 	]
 
 func _how_to() -> String:

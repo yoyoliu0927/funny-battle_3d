@@ -15,8 +15,8 @@ func _enemy_specs() -> Array:
 func _checklist() -> Array:
 	return [
 		{"id": "rescue", "text": "救出企鵝"},
-		{"id": "guard_carom", "text": "一片香蕉皮撞兩個人"},
-		{"id": "guard_slip", "text": "讓守衛自己撲上香蕉皮"},
+		{"id": "guard_carom", "text": "一片香蕉皮撞兩個人", "hint": "工人第一段紅線的延長線上站著誰？"},
+		{"id": "guard_slip", "text": "讓守衛自己撲上香蕉皮", "hint": "守衛撲過來的橘色箭頭上也能放"},
 	]
 
 func _how_to() -> String:

@@ -12,6 +12,7 @@ const CAGE_SCALE := 1.4
 var _cage_root: Node3D
 var _cage_label: Label3D
 var _front_bars: Array = []
+var _door: Node3D             # 籠門（模型版）
 var _penguins: Array = []      # {node, home, out, t0}
 var _freed := false
 var _free_target := Vector3.ZERO
@@ -20,6 +21,9 @@ var _spots := {}
 var _free_cam := Vector3.ZERO  # 過關鏡頭的位置：企鵝只站在家豪背後（不擋鏡頭），臉朝鏡頭
 
 func _build_extra() -> void:
+	keep_clear.append(cage)
+	for p in bird_path:
+		keep_clear.append(p)
 	super()
 	_build_cage()
 
@@ -30,18 +34,23 @@ func _build_cage() -> void:
 	_cage_root.position = Vector3(cage.x, height_at(cage.x, cage.z), cage.z)
 	_cage_root.scale = Vector3.ONE * CAGE_SCALE
 	add_child(_cage_root)
-	var wood := _toon(Color(0.55, 0.38, 0.24))
-	var bar := _toon(Color(0.35, 0.38, 0.42))
-	_box(_cage_root, Vector3(2.6, 0.15, 2.0), Vector3(0, 0.07, 0), wood)
-	_box(_cage_root, Vector3(2.6, 0.15, 2.0), Vector3(0, 1.45, 0), wood)
-	for i in 9:
-		var x := -1.2 + i * 0.3
-		_front_bars.append(_box(_cage_root, Vector3(0.05, 1.4, 0.05), Vector3(x, 0.75, 0.95), bar))
-		_box(_cage_root, Vector3(0.05, 1.4, 0.05), Vector3(x, 0.75, -0.95), bar)
-	for i in 6:
-		var z := -0.9 + i * 0.36
-		_box(_cage_root, Vector3(0.05, 1.4, 0.05), Vector3(1.25, 0.75, z), bar)
-		_box(_cage_root, Vector3(0.05, 1.4, 0.05), Vector3(-1.25, 0.75, z), bar)
+	# Blender 做的籠子（籠門 Door 是獨立節點，轉軸在左前角，過關時會轉開）
+	var model := _prop(_cage_root, MB + "cage.glb", Vector3.ZERO, 0.0, 1.0)
+	if model:
+		_door = model.find_child("Door", true, false) as Node3D
+	else:
+		var wood := _toon(Color(0.55, 0.38, 0.24))
+		var bar := _toon(Color(0.35, 0.38, 0.42))
+		_box(_cage_root, Vector3(2.6, 0.15, 2.0), Vector3(0, 0.07, 0), wood)
+		_box(_cage_root, Vector3(2.6, 0.15, 2.0), Vector3(0, 1.45, 0), wood)
+		for i in 9:
+			var x := -1.2 + i * 0.3
+			_front_bars.append(_box(_cage_root, Vector3(0.05, 1.4, 0.05), Vector3(x, 0.75, 0.95), bar))
+			_box(_cage_root, Vector3(0.05, 1.4, 0.05), Vector3(x, 0.75, -0.95), bar)
+		for i in 6:
+			var z := -0.9 + i * 0.36
+			_box(_cage_root, Vector3(0.05, 1.4, 0.05), Vector3(1.25, 0.75, z), bar)
+			_box(_cage_root, Vector3(0.05, 1.4, 0.05), Vector3(-1.25, 0.75, z), bar)
 	for k in 3:
 		var home := Vector3(-0.65 + k * 0.65, 0.15, 0.15 * k)
 		var p := make_penguin(_cage_root, Vector3.ZERO, 0.2 * (k - 1))
@@ -82,6 +91,8 @@ func reset_cage() -> void:
 	_freed = false
 	for b in _front_bars:
 		(b as Node3D).visible = true
+	if _door:
+		_door.rotation.y = 0.0
 	if _cage_label:
 		_cage_label.text = "救我！"
 		_cage_label.font_size = 96
@@ -89,11 +100,15 @@ func reset_cage() -> void:
 		(p.node as Node3D).position = p.home
 
 func _process(_dt: float) -> void:
+	super(_dt)
 	if _cage_label == null:
 		return
 	var now := Time.get_ticks_msec()
 	if not _freed:
 		_cage_label.position = _cage_root.position + Vector3(0, 3.0 + sin(now * 0.004) * 0.12, 0)
+	if _door:
+		# 開籠：籠門往外轉開（0.35 秒）
+		_door.rotation.y = -1.9 * clampf(_free_t / 0.35, 0.0, 1.0) if _freed else 0.0
 	for p in _penguins:
 		var n := p.node as Node3D
 		var k: int = p.k

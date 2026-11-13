@@ -15,8 +15,8 @@ func _enemy_specs() -> Array:
 func _checklist() -> Array:
 	return [
 		{"id": "rescue", "text": "救出企鵝"},
-		{"id": "fall1", "text": "讓工人滑進冰洞"},
-		{"id": "snow_hole", "text": "讓他戴著雪人頭掉進冰洞"},
+		{"id": "fall1", "text": "讓工人滑進冰洞", "hint": "瞄紅線的每一段，看哪一段的黃線通到冰洞"},
+		{"id": "snow_hole", "text": "讓他戴著雪人頭掉進冰洞", "hint": "先讓他撞雪人，再把第二片丟在粉紅線上"},
 	]
 
 func _how_to() -> String:
