@@ -256,6 +256,7 @@ func _tick_clock(dt: float) -> void:
 		_toast_until = -1.0
 		if _toast_label:
 			_toast_label.text = ""
+			_toast_label.visible = false
 
 func _level_step_ended(dt: float) -> void:
 	super(dt)

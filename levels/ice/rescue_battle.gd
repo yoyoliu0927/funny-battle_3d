@@ -14,7 +14,7 @@ extends "res://levels/ice/billiards_battle.gd"
 ## 小關的 battle.gd：extends 這個檔案，設定 _make_items()、_enemy_specs()、_checklist()、_how_to()。
 ## 工人：rusher(名字, 出生點, [衝刺路線點…])；守衛：guard(名字, 位置)。
 
-const UISkin := preload("res://levels/ice/ui_skin.gd")
+const UISkin := preload("res://scripts/ui/ui_style.gd")
 const BIRD_WALK := 2.3         # 家豪走路的速度
 const BIRD_RUN := 4.5          # 擋路的人都解決了：家豪衝向籠子
 const RUSH_SPEED := 2.1        # 工人衝刺的速度
@@ -1021,7 +1021,7 @@ func _process(dt: float) -> void:
 	if crosshair:
 		crosshair.visible = not cut
 	if _phase_label:
-		_phase_label.visible = not cut   # 特寫時連計時器一起收起來
+		_phase_label.visible = not cut and _phase_label.text != ""   # 特寫時連計時器一起收起來；沒字時收起膠囊
 	# 準備時按住 Tab：從正上方看整個場地（方便算距離和時間）
 	if _top_cam == null:
 		_top_cam = Camera3D.new()
@@ -2145,6 +2145,7 @@ var _plated: Array = []
 
 ## 共用介面（字卡、上方提示、結算、失敗說明）在這一關換成冰釣手帳風格（只改執行時的外觀，不改共用檔案）
 func _skin_hud() -> void:
+	UISkin.use_theme("ice")
 	if _toast_label:
 		UISkin.pill(_toast_label)
 	if _phase_label:
