@@ -23,6 +23,7 @@ const DIALOGUE := [
 ]
 
 const NEXT_SCENE := "res://scenes/level_select.tscn"
+const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術
 const TYPE_SPEED := 38.0        # 每秒打幾個字
 
 var _i := -1
@@ -263,13 +264,7 @@ func _build_ui() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 	_dlg = PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.1, 0.12, 0.17, 0.88)
-	sb.set_corner_radius_all(16)
-	sb.set_content_margin_all(22)
-	sb.border_color = Color(1, 0.9, 0.6, 0.6)
-	sb.set_border_width_all(2)
-	_dlg.add_theme_stylebox_override("panel", sb)
+	UIStyle.paper(_dlg, 0.0)             # 對話框＝筆記紙
 	_dlg.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	_dlg.offset_left = 120
 	_dlg.offset_right = -120
@@ -279,23 +274,18 @@ func _build_ui() -> void:
 	var v := VBoxContainer.new()
 	v.add_theme_constant_override("separation", 10)
 	_dlg.add_child(v)
-	var ns := LabelSettings.new()
-	ns.font_size = 26
-	ns.font_color = Color(1.0, 0.86, 0.45)
+	var ns := UIStyle.ls(26, UIStyle.accent())
 	_name = Label.new()
 	_name.label_settings = ns
 	v.add_child(_name)
-	var ts := LabelSettings.new()
-	ts.font_size = 28
+	var ts := UIStyle.ls(28, UIStyle.INK)
 	ts.line_spacing = 6
 	_text = Label.new()
 	_text.label_settings = ts
 	_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_text.custom_minimum_size = Vector2(0, 80)
 	v.add_child(_text)
-	var as_ := LabelSettings.new()
-	as_.font_size = 18
-	as_.font_color = Color(1, 1, 1, 0.6)
+	var as_ := UIStyle.ls(18, Color(UIStyle.INK, 0.6))
 	_arrow = Label.new()
 	_arrow.label_settings = as_
 	_arrow.text = "Enter ▶ 下一句　｜　Esc 跳過開場"

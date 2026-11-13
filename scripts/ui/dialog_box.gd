@@ -41,14 +41,19 @@ func _draw() -> void:
 	var a := e
 	var box := Rect2(off, Vector2(W, H))
 	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.07, 0.07, 0.09, 0.45 * a)   # 半透明，看得到後面的場景
-	sb.border_color = Color(1, 1, 1, 0.6 * a)
-	sb.set_border_width_all(4)
-	sb.set_corner_radius_all(10)
+	sb.bg_color = Color(1.0, 0.973, 0.906, 0.96 * a)   # 手帳風格：米白紙
+	sb.border_color = Color(0.231, 0.165, 0.125, 0.9 * a)
+	sb.set_border_width_all(3)
+	sb.border_width_bottom = 5
+	sb.set_corner_radius_all(14)
+	sb.shadow_color = Color(0, 0, 0, 0.25 * a)
+	sb.shadow_size = 6
+	sb.shadow_offset = Vector2(3, 5)
 	draw_style_box(sb, box)
 	# 左邊：家豪的頭像（圓形大頭照，外面一圈白框）
 	var pc := off + Vector2(70, H * 0.5)
-	draw_circle(pc, 50, Color(1, 1, 1, 0.85 * a))
+	draw_circle(pc, 52, Color(0.231, 0.165, 0.125, 0.9 * a))
+	draw_circle(pc, 50, Color(1, 1, 1, 0.95 * a))
 	if portrait:
 		draw_texture_rect(portrait, Rect2(pc - Vector2(47, 47), Vector2(94, 94)), false, Color(1, 1, 1, a))
 	# 右邊：文字
@@ -61,8 +66,7 @@ func _draw() -> void:
 		fs -= 2
 		tw = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	var ty := off.y + H * 0.5 + fs * 0.35
-	draw_string(font, Vector2(tx + 3, ty + 3), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0, 0, 0, 0.8 * a))
-	draw_string(font, Vector2(tx, ty), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, a))
+	draw_string(font, Vector2(tx, ty), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0.231, 0.165, 0.125, a))
 	# 右側的圖：底部貼著框底，往上超出框外
 	if pic:
 		var ph := 210.0

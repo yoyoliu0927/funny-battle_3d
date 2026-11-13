@@ -23,6 +23,7 @@ const Hotbar := preload("res://scripts/ui/hotbar.gd")
 const DialogBox := preload("res://scripts/ui/dialog_box.gd")
 const TutArrow := preload("res://scripts/ui/tut_arrow.gd")
 const EnemyFace := preload("res://scripts/ui/enemy_face.gd")
+const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術（手帳風格）
 const Progress := preload("res://scripts/progress.gd")
 const LEVEL_SELECT_SCENE := "res://scenes/level_select.tscn"
 
@@ -224,6 +225,9 @@ func _ready() -> void:
 	world = get_node("../World")
 	player = get_node("../Player")
 	camera = player.get_node("Head/Camera3D")
+	var hint := get_node_or_null("../HUD/Hint") as Label
+	if hint:
+		UIStyle.pill(hint, Color(0.1, 0.13, 0.2, 0.75), Color(1, 1, 1, 0.35), Color(1, 1, 1))   # 操作說明＝深色膠囊
 	crosshair = get_node_or_null("../HUD/Crosshair")
 	stage_id = String(Engine.get_meta("stage_id", ""))
 	fx_root = Node3D.new()
@@ -691,6 +695,7 @@ func _process(dt: float) -> void:
 		_toast_t -= dt
 		if _toast_t <= 0.0:
 			_toast_label.text = ""
+			_toast_label.visible = false
 	if _defeat_delay > 0.0:
 		_defeat_delay -= dt
 		if _defeat_delay <= 0.0:
@@ -1438,6 +1443,7 @@ func log_event(text: String) -> void:
 ## 畫面中間跳一行黃字
 func toast(text: String, dur: float) -> void:
 	_toast_label.text = text
+	_toast_label.visible = text != ""     # 沒字時連膠囊底一起收起來
 	_toast_t = dur
 
 ## 下方對話框（左邊是家豪的頭像，pic 是右邊額外的圖）
@@ -1563,6 +1569,7 @@ func _build_hud() -> void:
 
 	# 道具欄：畫面下方一整條相連的快捷欄（方塊遊戲風格）
 	_hotbar = Hotbar.new()
+	UIStyle.apply_theme(_hotbar)
 	_hotbar.skills = items
 	_hotbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var hb := _hotbar.bar_size()
@@ -1575,6 +1582,7 @@ func _build_hud() -> void:
 	layer.add_child(_hotbar)
 	# 對話框：放在快捷欄上方
 	_dialog = DialogBox.new()
+	UIStyle.apply_theme(_dialog)
 	_dialog.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_dialog.visible = false
 	_dialog.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
@@ -1590,27 +1598,18 @@ func _build_hud() -> void:
 	_tut_arrow.visible = false
 	layer.add_child(_tut_arrow)
 	_tut_panel = PanelContainer.new()
-	var tsb := StyleBoxFlat.new()
-	tsb.bg_color = Color(0.06, 0.06, 0.06, 0.78)
-	tsb.border_color = Color(1, 1, 1, 0.9)
-	tsb.set_border_width_all(3)
-	tsb.set_content_margin_all(14)
-	_tut_panel.add_theme_stylebox_override("panel", tsb)
+	UIStyle.sticky(_tut_panel, 0.0)       # 教學框＝便利貼
 	_tut_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_tut_panel.visible = false
 	_tut_label = Label.new()
-	var tls := LabelSettings.new()
-	tls.font_size = 22
+	var tls := UIStyle.ls(22, UIStyle.INK)
 	tls.line_spacing = 4
 	_tut_label.label_settings = tls
 	_tut_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_tut_panel.add_child(_tut_label)
 	layer.add_child(_tut_panel)
 
-	var top := LabelSettings.new()
-	top.font_size = 26
-	top.outline_size = 8
-	top.outline_color = Color(0, 0, 0, 0.6)
+	var top := UIStyle.ls(24, Color(1, 1, 1))
 	# 右上角敵人欄：一列一個敵人（頭像方格 + 右側血條），Boss 排最上面
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 8)
@@ -1621,10 +1620,7 @@ func _build_hud() -> void:
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(col)
 	var order: Array = enemies.filter(func(f): return f.is_boss) + enemies.filter(func(f): return not f.is_boss)
-	var ns := LabelSettings.new()
-	ns.font_size = 17
-	ns.outline_size = 6
-	ns.outline_color = Color(0, 0, 0, 0.6)
+	var ns := UIStyle.ls(17, Color(1, 1, 1), 6)
 	for f in order:
 		var erow := HBoxContainer.new()
 		erow.add_theme_constant_override("separation", 10)
@@ -1669,32 +1665,25 @@ func _build_hud() -> void:
 	_phase_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_phase_label.offset_top = 56
 	_phase_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	UIStyle.pill(_phase_label, Color(0.1, 0.13, 0.2, 0.78), Color(1, 1, 1, 0.4), Color(1, 1, 1))   # 上方提示＝深色膠囊
 	layer.add_child(_phase_label)
 
-	var ts := LabelSettings.new()
-	ts.font_size = 30
-	ts.font_color = Color(1, 0.92, 0.55)
-	ts.outline_size = 10
-	ts.outline_color = Color(0, 0, 0, 0.65)
+	var ts := UIStyle.ls(30)
 	_toast_label = Label.new()
 	_toast_label.label_settings = ts
 	_toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_toast_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	_toast_label.offset_top = -140
 	_toast_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	UIStyle.pill(_toast_label)            # 字卡＝米白膠囊
 	layer.add_child(_toast_label)
 
 	_summary_panel = PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.08, 0.1, 0.12, 0.78)
-	sb.set_corner_radius_all(14)
-	sb.set_content_margin_all(22)
-	_summary_panel.add_theme_stylebox_override("panel", sb)
+	UIStyle.paper(_summary_panel, 0.01)   # 結算＝筆記紙
 	_summary_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	_summary_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_summary_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
-	var ss := LabelSettings.new()
-	ss.font_size = 22
+	var ss := UIStyle.ls(22, UIStyle.INK)
 	ss.line_spacing = 6
 	_summary_label = Label.new()
 	_summary_label.label_settings = ss
@@ -1732,6 +1721,7 @@ func _update_phase_label() -> void:
 			_phase_label.text = "戰鬥中  %.1f 秒　｜　R 重試" % time
 		Phase.ENDED:
 			_phase_label.text = ("勝利！" if outcome == "win" else "落敗…") + "　按 R 重試"
+	_phase_label.visible = _phase_label.text != ""
 
 func _show_summary() -> void:
 	var lines: PackedStringArray = []
@@ -1773,15 +1763,12 @@ func _build_defeat() -> void:
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_theme_constant_override("separation", 6)
 	band.add_child(box)
-	var big := LabelSettings.new()
-	big.font_size = 34
+	var big := UIStyle.ls(34, Color(1, 0.96, 0.86))
 	_defeat_label = Label.new()
 	_defeat_label.label_settings = big
 	_defeat_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_defeat_label)
-	var small := LabelSettings.new()
-	small.font_size = 19
-	small.font_color = Color(1, 1, 1, 0.75)
+	var small := UIStyle.ls(19, Color(1, 0.96, 0.86, 0.85))
 	_defeat_detail = Label.new()
 	_defeat_detail.label_settings = small
 	_defeat_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER

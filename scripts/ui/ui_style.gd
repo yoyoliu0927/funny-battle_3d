@@ -1,16 +1,18 @@
 extends RefCounted
-## 冰雪島的介面美術：「冰釣手帳」風格（參考 Untitled Goose Game 的筆記紙待辦清單）。
-## 所有底板都用程式畫（圓角、邊框、陰影、對話框尾巴），放大也清楚；字型用 jf 粉圓體（OFL）。
+## 全遊戲共用的介面美術：「手帳」風格（參考 Untitled Goose Game 的筆記紙待辦清單）。
+## 所有底板都用程式畫（圓角、邊框、陰影、對話框尾巴），放大也清楚；字型用 jf 粉圓體（OFL，assets/fonts/）。
+## 每個大關可以換「主題色」（UIStyle.use_theme("ice") 之類），形狀和字型全遊戲一致。
 ##
 ## 用法：
-##   const Skin := preload("res://levels/ice/ui_skin.gd")
+##   const UIStyle := preload("res://scripts/ui/ui_style.gd")
+##   UIStyle.ls(28)           做一個用共用字型的 LabelSettings（2D 字）
 ##   Skin.paper(panel)        筆記紙（整人清單、結算）
 ##   Skin.sticky(panel)       便利貼（怎麼玩）
 ##   Skin.ribbon(label)       紅色緞帶（大標題）
 ##   Skin.pill(label)         圓角膠囊（字卡、上方提示）
 ##   Skin.plate(label3d, "bubble" / "wood" / "ice" / "red")   3D 字後面加底板（每畫面呼叫 Skin.refresh 更新大小）
 
-const FONT_PATH := "res://levels/ice/assets/fonts/jf-openhuninn-2.1.ttf"
+const FONT_PATH := "res://assets/fonts/jf-openhuninn-2.1.ttf"
 
 const INK := Color("3b2a20")
 const PAPER := Color("fff8e7")
@@ -29,6 +31,46 @@ const TAPE := Color(0.95, 0.88, 0.6, 0.75)
 
 static var _font: Font
 static var _tex_cache := {}
+
+## 主題色：各大關的強調色（緞帶、標籤）。形狀、字型、紙張全遊戲一樣，只換這幾個顏色
+const THEMES := {
+	"default": {"accent": Color("e2483d"), "accent_edge": Color("8f231c"), "tag": Color("e2f4ff"), "tag_edge": Color("2c5d8a")},
+	"ice": {"accent": Color("e2483d"), "accent_edge": Color("8f231c"), "tag": Color("e2f4ff"), "tag_edge": Color("2c5d8a")},
+	"farm": {"accent": Color("d9822b"), "accent_edge": Color("7a4512"), "tag": Color("fff1c9"), "tag_edge": Color("8a6a1c")},
+	"forest": {"accent": Color("4f9a4a"), "accent_edge": Color("244d22"), "tag": Color("e8f6df"), "tag_edge": Color("3d6b35")},
+	"volcano": {"accent": Color("d6452b"), "accent_edge": Color("6e1d10"), "tag": Color("ffe3d6"), "tag_edge": Color("8a3a22")},
+}
+static var theme_name := "default"
+
+static func use_theme(name: String) -> void:
+	theme_name = name if THEMES.has(name) else "default"
+
+static func accent() -> Color:
+	return THEMES[theme_name].accent
+
+static func accent_edge() -> Color:
+	return THEMES[theme_name].accent_edge
+
+## 用共用字型的 LabelSettings（2D 字）。outline 0 就是沒有外框
+static func ls(size: int, color := INK, outline := 0, outline_color := Color(0, 0, 0, 0.6)) -> LabelSettings:
+	var s := LabelSettings.new()
+	var f := font()
+	if f:
+		s.font = f
+	s.font_size = size
+	s.font_color = color
+	s.outline_size = outline
+	s.outline_color = outline_color
+	return s
+
+## 把一整棵 2D 介面（沒有用 LabelSettings 的字）都換成共用字型
+static func apply_theme(root: Control) -> void:
+	var f := font()
+	if f == null:
+		return
+	var t := Theme.new()
+	t.default_font = f
+	root.theme = t
 
 static func font() -> Font:
 	if _font == null and ResourceLoader.exists(FONT_PATH):
@@ -83,24 +125,42 @@ static func sticky(panel: Control, tilt := 0.015) -> void:
 	_tape(panel)
 
 static func _tape(panel: Control) -> void:
+	# 容器會把直接子節點拉滿：膠帶放在一個不會被拉伸的子節點（_Deco）裡面
+	var holder: Control = null
+	for c in panel.get_children():
+		if c is _Ruled or (c is Control and c.name == "Deco"):
+			holder = c
+	if holder == null:
+		holder = Control.new()
+		holder.name = "Deco"
+		holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		panel.add_child(holder)
+		panel.move_child(holder, 0)
 	var t := ColorRect.new()
 	t.color = TAPE
 	t.size = Vector2(86, 22)
 	t.position = Vector2(26, -11)
 	t.rotation = -0.06
 	t.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	panel.add_child(t)
+	holder.add_child(t)
 
 ## 紅色緞帶（大標題）
 static func ribbon(l: Label) -> void:
-	var s := _box(RIBBON, RIBBON_EDGE, 14, 4)
+	var s := _box(accent(), accent_edge(), 14, 4)
 	s.content_margin_left = 34
 	s.content_margin_right = 34
 	s.content_margin_top = 6
 	s.content_margin_bottom = 10
 	l.add_theme_stylebox_override("normal", s)
 	use_font(l, -1, Color(1, 0.97, 0.88))
-	l.add_theme_color_override("font_outline_color", RIBBON_EDGE)
+	l.add_theme_color_override("font_outline_color", accent_edge())
+	if l.label_settings:
+		var ls2 := l.label_settings.duplicate() as LabelSettings
+		ls2.font = font()
+		ls2.font_color = Color(1, 0.97, 0.88)
+		ls2.outline_color = accent_edge()
+		ls2.outline_size = 8
+		l.label_settings = ls2
 	l.add_theme_constant_override("outline_size", 10)
 
 ## 圓角膠囊（字卡、提示列）
@@ -111,6 +171,12 @@ static func pill(l: Label, bg := Color(1, 0.98, 0.93, 0.95), edge := INK, color 
 	l.add_theme_stylebox_override("normal", s)
 	use_font(l, -1, color)
 	l.add_theme_constant_override("outline_size", 0)
+	if l.label_settings:
+		var ls2 := l.label_settings.duplicate() as LabelSettings
+		ls2.font = font()
+		ls2.font_color = color
+		ls2.outline_size = 0
+		l.label_settings = ls2
 
 # ---------------------------------------------------------------- 3D 字的底板
 
@@ -122,9 +188,20 @@ const KINDS := {
 	"yellow": {"bg": STICKY, "edge": Color("98802f"), "text": INK, "radius": 16, "tail": false},
 }
 
+## 底板樣式（"red"／"ice" 跟著主題色換）
+static func _kind(kind: String) -> Dictionary:
+	var k: Dictionary = KINDS.get(kind, KINDS.bubble).duplicate()
+	if kind == "red":
+		k.bg = accent()
+		k.edge = accent_edge()
+	elif kind == "ice":
+		k.bg = THEMES[theme_name].tag
+		k.edge = THEMES[theme_name].tag_edge
+	return k
+
 ## 幫 3D 字加底板（Sprite3D 子節點，跟字一樣的大小規則）。之後文字變了要呼叫 refresh()
 static func plate(l: Label3D, kind: String) -> void:
-	var k: Dictionary = KINDS.get(kind, KINDS.bubble)
+	var k: Dictionary = _kind(kind)
 	var f := font()
 	if f:
 		l.font = f
@@ -161,7 +238,7 @@ static func refresh(l: Label3D) -> void:
 	var sz := Vector2(l.font_size * 4, l.font_size)
 	if f:
 		sz = f.get_multiline_string_size(l.text, HORIZONTAL_ALIGNMENT_CENTER, -1, l.font_size)
-	var k: Dictionary = KINDS.get(l.get_meta("plate_kind"), KINDS.bubble)
+	var k: Dictionary = _kind(l.get_meta("plate_kind"))
 	var pad := Vector2(l.font_size * 0.7, l.font_size * 0.45)
 	var w := int(ceil((sz.x + pad.x * 2.0) / 16.0) * 16)
 	var h := int(ceil((sz.y + pad.y * 2.0) / 8.0) * 8)

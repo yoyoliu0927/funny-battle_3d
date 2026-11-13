@@ -11,6 +11,7 @@ extends Node3D
 const TerrainShader := preload("res://shaders/terrain.gdshader")
 const Progress := preload("res://scripts/progress.gd")
 const Registry := preload("res://scripts/registry.gd")
+const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術
 const TEX := "res://assets/textures/"
 
 ## 城市在地圖上的位置（由南往北）。大關的 chapter.gd 寫了 CITY 就放那裡，沒寫就照順序補空位。
@@ -377,6 +378,7 @@ func _build_markers() -> void:
 		label.outline_modulate = Color(0, 0, 0, 0.6)
 		label.position = Vector3(0, 2.15, 0)
 		holder.add_child(label)
+		UIStyle.plate(label, "wood" if open else "ice")   # 大關名牌＝木牌（還沒開放的是淡藍牌）
 		_markers.append({"root": root, "flag": flag, "ring": ring, "label": label, "holder": holder})
 
 func _build_hero() -> void:
@@ -397,10 +399,7 @@ func _build_hero() -> void:
 func _build_ui() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
-	var big := LabelSettings.new()
-	big.font_size = 44
-	big.outline_size = 12
-	big.outline_color = Color(0, 0, 0, 0.55)
+	var big := UIStyle.ls(44)
 	_title = Label.new()
 	_title.text = "家豪的起義之路"
 	_title.label_settings = big
@@ -408,29 +407,23 @@ func _build_ui() -> void:
 	_title.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_title.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_title.offset_top = 26
+	UIStyle.ribbon(_title)               # 標題＝緞帶
 	layer.add_child(_title)
 
 	var panel := PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.08, 0.1, 0.12, 0.72)
-	sb.set_corner_radius_all(14)
-	sb.set_content_margin_all(18)
-	panel.add_theme_stylebox_override("panel", sb)
+	UIStyle.paper(panel, 0.0)            # 大關資訊＝筆記紙
 	panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	panel.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	panel.offset_bottom = -26
 	var box := VBoxContainer.new()
 	panel.add_child(box)
-	var mid := LabelSettings.new()
-	mid.font_size = 30
+	var mid := UIStyle.ls(30, UIStyle.INK)
 	_info = Label.new()
 	_info.label_settings = mid
 	_info.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_info)
-	var small := LabelSettings.new()
-	small.font_size = 19
-	small.font_color = Color(1, 1, 1, 0.8)
+	var small := UIStyle.ls(19, Color(UIStyle.INK, 0.75))
 	_hint = Label.new()
 	_hint.label_settings = small
 	_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -438,17 +431,14 @@ func _build_ui() -> void:
 	box.add_child(_hint)
 	layer.add_child(panel)
 
-	var ts := LabelSettings.new()
-	ts.font_size = 28
-	ts.font_color = Color(1, 0.92, 0.55)
-	ts.outline_size = 10
-	ts.outline_color = Color(0, 0, 0, 0.65)
+	var ts := UIStyle.ls(28)
 	_toast = Label.new()
 	_toast.label_settings = ts
 	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_toast.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	_toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_toast.offset_top = 120
+	UIStyle.pill(_toast)
 	layer.add_child(_toast)
 
 func select(i: int) -> void:
@@ -506,6 +496,7 @@ func start_selected() -> bool:
 
 func _show_toast(t: String) -> void:
 	_toast.text = t
+	_toast.visible = true
 	_toast_t = 2.0
 
 func _unhandled_input(e: InputEvent) -> void:
@@ -559,6 +550,7 @@ func _process(dt: float) -> void:
 		_toast_t -= dt
 		if _toast_t <= 0.0:
 			_toast.text = ""
+			_toast.visible = false
 
 # ---------------------------------------------------------------- 自動驗收（--autotest）
 

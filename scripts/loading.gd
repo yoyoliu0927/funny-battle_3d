@@ -3,6 +3,7 @@ extends Node3D
 ## 在背景載入下一個場景（Engine 的 meta "next_scene"），最少顯示 MIN_TIME 秒。
 
 const MIN_TIME := 2.0
+const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術
 const TIPS := [
 	"提示：撒飼料可以把家豪引開，讓他一次只對上一個農夫。",
 	"提示：走進農夫前方的紅色區域就會被發現。",
@@ -124,8 +125,7 @@ func _build_ui() -> void:
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_theme_constant_override("separation", 8)
 	band.add_child(box)
-	var ls := LabelSettings.new()
-	ls.font_size = 28
+	var ls := UIStyle.ls(28, Color(1, 0.97, 0.9))
 	_label = Label.new()
 	_label.label_settings = ls
 	_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -140,9 +140,7 @@ func _build_ui() -> void:
 	_bar.color = Color(1.0, 0.85, 0.35)
 	_bar.size = Vector2(0, 8)
 	_bar_bg.add_child(_bar)
-	var ts := LabelSettings.new()
-	ts.font_size = 18
-	ts.font_color = Color(1, 1, 1, 0.7)
+	var ts := UIStyle.ls(18, Color(1, 0.97, 0.9, 0.75))
 	_tip = Label.new()
 	_tip.label_settings = ts
 	_tip.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
