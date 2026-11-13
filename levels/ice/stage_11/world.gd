@@ -13,5 +13,5 @@ func _ice_configure() -> void:
 	bird_path = [Vector3(0.0, 0, 4.0), Vector3(0.0, 0, -9.4)]
 	lakes = [{"center": Vector2(0.0, -4.0), "rx": 10.5, "rz": 6.0}]
 	ponds = [{"center": Vector2(7.6, -6.5), "r": 1.4}]
-	snowmen = [Vector3(9.5, 0, 8.5)]
+	snowmen = [Vector3(9.5, 0, 8.5), Vector3(4.8, 0, -7.4)]
 	pines = [Vector3(-11.0, 0, -11.5), Vector3(-6.0, 0, -12.5), Vector3(6.0, 0, -13.0), Vector3(11.5, 0, -1.0)]

@@ -16,15 +16,15 @@ func _enemy_specs() -> Array:
 func _checklist() -> Array:
 	return [
 		{"id": "rescue", "text": "救出企鵝"},
-		{"id": "carom", "text": "一片香蕉皮撞兩個人"},
-		{"id": "first_try", "text": "第一次就成功（先看白點再丟）"},
+		{"id": "snow_hole", "text": "讓阿水戴著雪人頭泡進冰洞"},
+		{"id": "clean_fall2", "text": "不碰雪人，兩個一起泡進冰洞"},
 	]
 
 func _how_to() -> String:
-	return "新規則：時機\n・只有一片香蕉皮，卻有兩個人\n・紅線上的白點：每 1 秒走到哪\n・瞄準時白圈＝他踩到的那一刻，另一個人在哪"
+	return "新規則：時機\n・紅線上的白點：每 1 秒走到哪\n・瞄準時黃線上的橫槓：滑 0.5 秒（滑比跑快 3 倍）\n・白圈＝他踩到香蕉皮那一刻，另一個人在哪"
 
 func _defeat_tip() -> String:
-	return "提示：讓阿土滑出去的時候，阿水剛好擋在他前面——看白圈在哪。"
+	return "提示：阿土滑到交叉點要多久（數黃線上的橫槓）？那時阿水要剛好走到那裡。"
 
 func _level_setup() -> void:
 	super()
