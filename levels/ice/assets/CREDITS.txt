@@ -55,3 +55,7 @@ blender/          救企鵝模式的小道具和特效零件：本組用 Blender
 
 faces/face_eyes.png   平常的臉（只有眼睛）：從 face_frozen.png（Codex 生成）把兩顆眼睛裁出來，其他部分去掉（影像裁切，不是重畫）
 blender/rescue/fx_ring.glb   細圓環（落水的水環、家豪腳下的圈、準星的小圈）：Blender 腳本自製（blender/src/build_rescue_props.py）
+
+faces/face_bird.png   家豪的厭世半閉眼：從 face_frozen.png（Codex 生成）裁出兩顆眼睛，上半蓋上眼皮的顏色（影像裁切＋蓋色，不是重畫）
+blender/rescue/       第五輪新增（Blender 腳本自製，blender/src/build_rescue_props.py）：
+                      rooster_tail.glb（家豪的尾羽）、mitten.glb（工人的連指手套）、scarf.glb（工人的圍巾）、dinner_table.glb（失敗晚餐的木桌）

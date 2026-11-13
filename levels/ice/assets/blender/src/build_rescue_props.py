@@ -3,14 +3,20 @@
 #   fx_ring.glb            細細的圓環（落水的水環、家豪腳下的圈、準星的小圈）
 #   rooster_comb.glb       家豪的雞冠
 #   rooster_beak.glb       家豪的嘴
+#   rooster_tail.glb       家豪的尾巴（一把往上翹的紅、橘、黃色尾羽：從背後一眼認得出是雞）
+#   mitten.glb             工人的連指手套（1×1×1 的大小，遊戲裡依手臂粗細縮放）
+#   scarf.glb              工人的圍巾（繞脖子一圈＋前面垂一截）
+#   dinner_table.glb       失敗晚餐的木桌（木板桌面、四支腳、桌巾）
 #   banana_peel_icon.png   道具格的圖示：直接拿 banana_peel.glb 這個模型算一張透明底的圖（只讀取，不改它）
-# 用法：Blender --background --factory-startup --python build_rescue_props.py -- <輸出資料夾> <banana_peel.glb 的路徑>
+# 用法：Blender --background --factory-startup --python build_rescue_props.py -- <輸出資料夾> <banana_peel.glb 的路徑> [只做哪幾個…]
+#   後面不寫就全部重做；寫名字（例如 rooster_tail mitten）就只做那幾個，其他檔案不動
 import bpy, bmesh, sys, math
 from mathutils import Vector, Matrix
 
 argv = sys.argv[sys.argv.index("--") + 1:]
 outdir = argv[0]
 peel_glb = argv[1]
+only = argv[2:]
 
 def clear():
     bpy.ops.object.select_all(action='SELECT')
@@ -118,6 +124,10 @@ def banana_icon():
         if m.use_nodes and "Principled BSDF" in m.node_tree.nodes:
             c = m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value
             m.diffuse_color = (c[0], c[1], c[2], 1.0)
+        if "Inside" in m.name:
+            m.diffuse_color = (1.0, 0.86, 0.3, 1.0)       # 遊戲裡果皮裡面也換成鮮黃色（遠看才是黃的）
+        elif "Yellow" in m.name:
+            m.diffuse_color = (0.98, 0.72, 0.1, 1.0)
     sc = bpy.context.scene
     cam_d = bpy.data.cameras.new("cam")
     cam_d.type = 'ORTHO'
@@ -138,8 +148,8 @@ def banana_icon():
     sc.display.shading.show_cavity = True
     sc.view_settings.view_transform = 'Standard'
     sc.render.film_transparent = True
-    sc.render.resolution_x = 160
-    sc.render.resolution_y = 160
+    sc.render.resolution_x = 256
+    sc.render.resolution_y = 256
     sc.render.image_settings.file_format = 'PNG'
     sc.render.image_settings.color_mode = 'RGBA'
     sc.render.filepath = outdir + "/banana_peel_icon.png"
@@ -166,7 +176,133 @@ def fx_ring():
     obj_from_bm(bm, "Ring", [white])
     export("fx_ring")
 
-aim_ring()
-fx_ring()
-rooster_parts()
-banana_icon()
+# ---------------------------------------------------------------- 小工具：倒角方塊
+def bevel_box(bm, size, center, mi=0, bevel=0.0, rot=None):
+    ret = bmesh.ops.create_cube(bm, size=1.0)
+    verts = ret["verts"]
+    for v in verts:
+        v.co = Vector((v.co.x * size[0], v.co.y * size[1], v.co.z * size[2]))
+    faces = set()
+    for v in verts:
+        for f in v.link_faces:
+            faces.add(f)
+    if bevel > 0.0:
+        edges = set()
+        for f in faces:
+            for e in f.edges:
+                edges.add(e)
+        r = bmesh.ops.bevel(bm, geom=list(edges), offset=bevel, segments=1, affect='EDGES')
+        faces = set(r["faces"]) | {f for f in faces if f.is_valid}
+        verts = list({v for f in faces for v in f.verts})
+    for v in verts:
+        if rot is not None:
+            v.co = rot @ v.co
+        v.co += Vector(center)
+    for f in faces:
+        if f.is_valid:
+            f.material_index = mi
+
+# ---------------------------------------------------------------- 家豪的尾巴
+def rooster_tail():
+    clear()
+    mats = [mat("TailRed", (0.89, 0.16, 0.12), 0.7), mat("TailOrange", (0.98, 0.50, 0.12), 0.7), mat("TailYellow", (1.0, 0.80, 0.18), 0.7)]
+    bm = bmesh.new()
+    # 五根尾羽：從尾巴根部往後上方翹、尾端往下彎；y＝後面（+），z＝上
+    plumes = [(-0.07, 62, 0.50, 0), (0.07, 60, 0.50, 0), (-0.035, 82, 0.60, 1), (0.035, 80, 0.60, 1), (0.0, 98, 0.66, 2)]
+    for x0, deg, length, mi in plumes:
+        n = 7
+        phi = math.radians(deg)
+        curl = math.radians(105)
+        pos = Vector((x0, 0.0, 0.0))
+        rings = []
+        for i in range(n + 1):
+            s = i / n
+            a = phi - curl * s * s
+            if i > 0:
+                pos = pos + Vector((x0 * 0.8 / n, math.cos(a), math.sin(a))) * (length / n)
+            w = 0.075 * math.sin(math.pi * (0.12 + 0.86 * s)) + 0.012
+            t = 0.03 * (1.0 - 0.7 * s) + 0.008
+            up = Vector((0, -math.sin(a), math.cos(a)))
+            side = Vector((1, 0, 0))
+            rings.append([bm.verts.new(pos - side * w), bm.verts.new(pos + up * t), bm.verts.new(pos + side * w), bm.verts.new(pos - up * t)])
+        for i in range(n):
+            a_, b_ = rings[i], rings[i + 1]
+            for k in range(4):
+                f = bm.faces.new((a_[k], a_[(k + 1) % 4], b_[(k + 1) % 4], b_[k]))
+                f.material_index = mi
+        f = bm.faces.new(rings[0]); f.material_index = mi
+        f = bm.faces.new(list(reversed(rings[-1]))); f.material_index = mi
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    obj_from_bm(bm, "Tail", mats)
+    export("rooster_tail")
+
+# ---------------------------------------------------------------- 工人的手套、圍巾
+def mitten():
+    clear()
+    mats = [mat("Mitten", (0.9, 0.3, 0.2), 0.9), mat("Cuff", (1.0, 0.96, 0.86), 0.9)]
+    bm = bmesh.new()
+    # x＝手臂的方向（+x 是指尖），手掌是一塊圓角方塊、大拇指在前面（-y）、袖口一圈白邊
+    bevel_box(bm, (0.78, 0.92, 0.9), (0.11, 0.0, 0.0), 0, 0.2)
+    bevel_box(bm, (0.36, 0.34, 0.4), (0.0, -0.52, 0.02), 0, 0.1)
+    bevel_box(bm, (0.26, 1.06, 1.04), (-0.38, 0.0, 0.0), 1, 0.08)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    obj_from_bm(bm, "Mitten", mats)
+    export("mitten")
+
+def scarf():
+    clear()
+    mats = [mat("Scarf", (0.9, 0.3, 0.2), 0.95), mat("ScarfStripe", (1.0, 0.96, 0.86), 0.95)]
+    bm = bmesh.new()
+    # 繞脖子一圈（12 邊、截面是壓扁的六邊形）；前面是 -y
+    n = 12
+    rx, ry = 0.205, 0.2
+    prof = [(0.0, -0.038), (0.03, -0.022), (0.03, 0.022), (0.0, 0.038), (-0.03, 0.022), (-0.03, -0.022)]
+    rings = []
+    for i in range(n):
+        a = i * math.tau / n
+        c, sn = math.cos(a), math.sin(a)
+        dip = -0.012 * (1.0 - sn) * 0.5 - 0.012 * max(-sn, 0.0)      # 前面低一點（搭在胸口）
+        rings.append([bm.verts.new(((rx + r) * c, (ry + r) * sn, z + dip)) for r, z in prof])
+    for i in range(n):
+        a_, b_ = rings[i], rings[(i + 1) % n]
+        for k in range(len(prof)):
+            f = bm.faces.new((a_[k], b_[k], b_[(k + 1) % len(prof)], a_[(k + 1) % len(prof)]))
+            f.material_index = 0
+    # 結、垂下來的兩截（一長一短，尾端一條淺色的邊）
+    bevel_box(bm, (0.085, 0.07, 0.08), (0.075, -0.235, -0.02), 0, 0.02)
+    tilt = Matrix.Rotation(math.radians(8), 3, 'Y')
+    bevel_box(bm, (0.075, 0.035, 0.17), (0.07, -0.245, -0.125), 0, 0.012, tilt)
+    bevel_box(bm, (0.078, 0.038, 0.03), (0.082, -0.245, -0.2), 1, 0.008, tilt)
+    tilt2 = Matrix.Rotation(math.radians(-14), 3, 'Y')
+    bevel_box(bm, (0.07, 0.03, 0.11), (0.11, -0.228, -0.09), 0, 0.012, tilt2)
+    bevel_box(bm, (0.073, 0.033, 0.026), (0.123, -0.228, -0.138), 1, 0.008, tilt2)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    obj_from_bm(bm, "Scarf", mats)
+    export("scarf")
+
+# ---------------------------------------------------------------- 失敗晚餐的木桌
+def dinner_table():
+    clear()
+    mats = [mat("TableWood", (0.66, 0.44, 0.26), 0.9), mat("TableDark", (0.45, 0.29, 0.17), 0.9), mat("Cloth", (0.96, 0.93, 0.86), 0.95), mat("ClothRed", (0.85, 0.3, 0.25), 0.95)]
+    bm = bmesh.new()
+    # 桌面 3.2 × 1.9、高 0.94：五片木板（深淺相間）、四支粗腳、兩根橫木、中間一條桌巾
+    for i in range(5):
+        y = -0.76 + i * 0.38
+        bevel_box(bm, (3.2, 0.36, 0.1), (0.0, y, 0.89), 0 if i % 2 == 0 else 1, 0.02)
+    for sx in (-1.38, 1.38):
+        for sy in (-0.74, 0.74):
+            bevel_box(bm, (0.2, 0.2, 0.86), (sx, sy, 0.43), 1, 0.03)
+        bevel_box(bm, (0.12, 1.5, 0.12), (sx, 0.0, 0.62), 1, 0.02)
+    bevel_box(bm, (0.9, 1.94, 0.02), (0.0, 0.0, 0.95), 2, 0.0)
+    for sy in (-0.98, 0.98):
+        bevel_box(bm, (0.9, 0.02, 0.22), (0.0, sy, 0.85), 2, 0.0)
+        bevel_box(bm, (0.9, 0.022, 0.04), (0.0, sy, 0.78), 3, 0.0)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    obj_from_bm(bm, "Table", mats)
+    export("dinner_table")
+
+jobs = {"aim_ring": aim_ring, "fx_ring": fx_ring, "rooster_parts": rooster_parts, "rooster_tail": rooster_tail,
+        "mitten": mitten, "scarf": scarf, "dinner_table": dinner_table, "banana_icon": banana_icon}
+for name, fn in jobs.items():
+    if not only or name in only:
+        fn()

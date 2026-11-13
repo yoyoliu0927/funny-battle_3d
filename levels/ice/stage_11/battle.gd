@@ -16,12 +16,12 @@ func _enemy_specs() -> Array:
 func _checklist() -> Array:
 	return [
 		{"id": "rescue", "text": "救出企鵝"},
-		{"id": "snow_hole", "text": "阿水戴雪人頭進冰洞", "hint": "早一點撞到他，他會偏到雪人那邊"},
-		{"id": "clean_fall2", "text": "不碰雪人，兩人進冰洞", "hint": "讓阿土和阿水剛好同時到"},
+		{"id": "snow_hole", "text": "阿水戴雪人頭進洞", "hint": "早一點撞，阿水會偏向雪人"},
+		{"id": "clean_fall2", "text": "兩人乾淨進洞", "hint": "兩人剛好同時到交叉點"},
 	]
 
 func _how_to() -> String:
-	return "同時到，才撞得到（Tab：從上面看秒數）"
+	return "同時到才撞得到 [Tab]"
 
 func _defeat_tip() -> String:
 	return "要兩人同時到交叉點"
