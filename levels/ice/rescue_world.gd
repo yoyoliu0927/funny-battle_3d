@@ -166,10 +166,18 @@ func _process(_dt: float) -> void:
 			# 臉朝鏡頭
 			var to_cam := _cage_root.to_local(_free_cam) - n.position
 			n.rotation.y = atan2(to_cam.x, to_cam.z)
+		# 收尾小動作：最後一隻企鵝撲倒，用肚子往前滑一段
+		if k == 2 and _free_t > 2.4:
+			var sl := clampf((_free_t - 2.4) / 0.6, 0.0, 1.0)
+			var fwd := (_cage_root.to_local(_free_cam) - around)
+			fwd.y = 0.0
+			fwd = fwd.normalized() if fwd.length() > 0.01 else Vector3.BACK
+			n.position = around + fwd * (sl * 1.0) + Vector3(0, 0.05, 0)
+			n.rotation = Vector3(1.4 * minf(sl * 3.0, 1.0), atan2(fwd.x, fwd.z), 0)
 		if k == 1:
 			# 「謝謝家豪！」是左邊那隻企鵝說的：跑到定位才開口，字貼在牠頭上
 			_cage_label.text = "謝謝家豪！" if t >= 1.1 else ""
-			_cage_label.position = _cage_root.to_global(n.position) + Vector3(0, 1.45, 0)
+			_cage_label.position = _cage_root.to_global(n.position) + Vector3(0, 1.75, 0)
 
 ## 企鵝的站位（開籠時算一次）：固定在家豪左、右、更左邊（以鏡頭看過去的左右），只避開水
 func _pick_spots() -> void:

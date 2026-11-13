@@ -31,6 +31,7 @@ const MB := "res://levels/ice/assets/blender/"
 const MP := "res://levels/ice/assets/polypizza/"
 var _jump_fish: Array = []     # 冰洞裡偶爾跳出來的魚 {node, center, phase}
 var _fires: Array = []         # 營火的光 {light, flame}
+var _snow_ps: GPUParticles3D
 var _clutter: Array = []       # 過關演出時要收起來的小東西（釣竿、水桶、招牌字）
 
 ## 執行中的薄冰：[{center, r, state ("solid" / "cracking" / "broken"), t, node, water, dynamic}]
@@ -662,6 +663,7 @@ func _snowfall(root: Node3D) -> void:
 	ps.draw_pass_1 = q
 	ps.position = Vector3((play_min.x + play_max.x) * 0.5, 18, (play_min.y + play_max.y) * 0.5)
 	root.add_child(ps)
+	_snow_ps = ps
 
 func _process(_dt: float) -> void:
 	_animate_decor()
@@ -692,3 +694,8 @@ func set_clutter(on: bool) -> void:
 	for n in _clutter:
 		if n != null and is_instance_valid(n):
 			(n as Node3D).visible = on
+
+## 俯視時暫停下雪（雪花跟時間白點長得很像）
+func set_snow(on: bool) -> void:
+	if _snow_ps:
+		_snow_ps.visible = on

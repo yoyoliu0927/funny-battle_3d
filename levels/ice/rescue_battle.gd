@@ -68,6 +68,9 @@ var _cross_label: Label3D
 var _top_cam: Camera3D
 var _cross_lead: Array = []
 var _victim_in_shot := false
+var _pending_line := ""          # 過關時家豪晚一點才說的台詞
+var _prep_t0 := 0.0              # 準備階段開始的時間（開場示範用）
+var _demo_labels: Array = []
 ## 測試／截圖用：不用按 Tab 也切到正上方視角
 var force_top := false
 var _std_focus := Vector3.ZERO
@@ -266,6 +269,8 @@ func _level_reset() -> void:
 	_pop_seen.clear()
 	_recap_t = 0.0
 	_told_giveup = false
+	_pending_line = ""
+	_prep_t0 = _clock
 	if world.has_method("set_clutter"):
 		world.set_clutter(true)
 	_miss_text = ""
@@ -273,6 +278,10 @@ func _level_reset() -> void:
 	# 雪人扶正（被撞倒過的）
 	for sn in world.get("snowman_nodes"):
 		(sn.node as Node3D).rotation = Vector3(0, (sn.pos as Vector3).x * 0.7, 0)
+		for nm in ["Scarf", "ScarfTail"]:
+			var sc := (sn.node as Node3D).find_child(nm, true, false) as Node3D
+			if sc:
+				sc.visible = true
 		(sn.node as Node3D).position = sn.pos
 		for ob in world.obstacles:
 			if (ob[0] as Vector2).distance_to(Vector2(sn.pos.x, sn.pos.z)) < 0.05:
@@ -449,6 +458,12 @@ func _end(result: String) -> void:
 			l.node.queue_free()
 		_labels.remove_at(i)
 	if result == "win":
+		# 特寫一開始就把小道具、招牌字收起來，水花也清掉（不然會蓋住受害者）
+		if world.has_method("set_clutter"):
+			world.set_clutter(false)
+		for c in fx_root.get_children():
+			if c is MeshInstance3D and (c as MeshInstance3D).mesh is SphereMesh:
+				(c as Node3D).visible = false
 		# 先演：籠門打開、企鵝衝出來圍著家豪，家豪轉向鏡頭；WIN_SHOW 秒後才從右邊跳結算
 		_summary_panel.visible = false
 		_summary_pending = true
@@ -534,10 +549,18 @@ func _start_win_show() -> void:
 			focus = bird.pos.lerp(ground(vp), 0.45) + Vector3(0, 0.7, 0) - left * 0.6
 			offset = cam - focus
 			# 洞裡的受害者轉向鏡頭（看得到臉），家豪在他們後面吐槽
-			for e in enemies:
-				if e.data.get("sunk", false) and flat_dist(e.pos, vp) < 3.0:
-					e.data.sunk_yaw = atan2(cam.x - e.pos.x, cam.z - e.pos.z)
-					e.yaw = e.data.sunk_yaw   # 戰局已經停了，直接轉（不等下一步）
+			var near: Array = enemies.filter(func(e): return e.data.get("sunk", false) and flat_dist(e.pos, vp) < 3.0)
+			if near.size() >= 2:
+				# 兩個人並排（以這個鏡頭的左右排開），兩張臉都入鏡
+				var ctr: Vector3 = (near[0].pos + near[1].pos) * 0.5
+				var vd: Vector3 = cam - ctr
+				vd.y = 0.0
+				var sideways := vd.normalized().cross(Vector3.UP)
+				near[0].pos = ctr - sideways * 0.42
+				near[1].pos = ctr + sideways * 0.42
+			for e in near:
+				e.data.sunk_yaw = atan2(cam.x - e.pos.x, cam.z - e.pos.z)
+				e.yaw = e.data.sunk_yaw   # 戰局已經停了，直接轉（不等下一步）
 	if world.has_method("set_clutter"):
 		world.set_clutter(false)       # 過關演出時收起釣竿、水桶、招牌字（不搶畫面）
 	if world.has_method("open_cage"):
@@ -552,7 +575,8 @@ func _start_win_show() -> void:
 		line = "……那是腿嗎" if _victim_in_shot else "……我什麼都沒看到"
 	elif _done.has("guard_carom") or _done.has("carom") or _done.has("clean_fall2"):
 		line = "……一次兩個"
-	bubble(line, bird, 1.9, int((WIN_SHOW + 4.0) * 1000))
+	# 企鵝先說「謝謝家豪！」，家豪 0.8 秒後才吐槽（一來一往）
+	_pending_line = line
 
 func _level_step_ended(dt: float) -> void:
 	super(dt)
@@ -564,6 +588,9 @@ func _level_step_ended(dt: float) -> void:
 	_ended_t += dt
 	if world.has_method("tick_cage"):
 		world.tick_cage(dt)
+	if _pending_line != "" and _ended_t >= 1.9:
+		bubble(_pending_line, bird, 1.7, int((WIN_SHOW + 3.0) * 1000))
+		_pending_line = ""
 	if _summary_pending and _ended_t >= WIN_SHOW:
 		_summary_pending = false
 		_summary_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER_RIGHT)
@@ -909,6 +936,10 @@ func _tick_slide(f: Fighter, dt: float) -> void:
 				f.data.snow_hat = h
 				# 雪人剩下的身體也倒了（一眼看得出「雪人被撞爛、頭跑到他頭上」）
 				(sn.node as Node3D).rotation.z = 1.35
+				for nm in ["Scarf", "ScarfTail"]:
+					var sc := (sn.node as Node3D).find_child(nm, true, false) as Node3D
+					if sc:
+						sc.visible = false   # 倒下時不露出圍巾（正面看像救生圈）
 				(sn.node as Node3D).position = (sn.pos as Vector3) + Vector3(0, 0.25, 0)
 				# 倒掉的雪人不再擋路（等他停下來才拿掉，不然這一步會直接穿過去）
 				f.data.knock_at = Vector2(sn.pos.x, sn.pos.z)
@@ -998,6 +1029,12 @@ func _process(dt: float) -> void:
 		_top_cam.make_current()
 	elif not want_top and _top_cam.current:
 		camera.make_current()
+	var top_now := _top_cam.current
+	if _list_layer and phase == Phase.PREPARE:
+		for ch in _list_layer.get_children():
+			(ch as CanvasItem).visible = not top_now   # 俯視時收起左邊面板和大標題
+	if world.has_method("set_snow"):
+		world.set_snow(not top_now)
 	if _hotbar:
 		_hotbar.visible = not cut        # 特寫、過關演出時收起道具格
 	if cut and _preview:
@@ -1101,6 +1138,7 @@ func _draw_routes() -> void:
 	if not _reroute_used and _reroute_label:
 		_reroute_label.visible = false
 	_reroute_used = false
+	_draw_demo(im)
 	_draw_time_dots()
 	_cross_lead = []
 	_draw_timing_ghosts(im)
@@ -1709,7 +1747,9 @@ func _draw_time_dots() -> void:
 					_time_labels.append(l)
 				var tl: Label3D = _time_labels[used]
 				tl.text = "%d" % sec
-				tl.position = p + Vector3(0, 0.6, 0)
+				var top_on: bool = _top_cam != null and _top_cam.current
+				tl.position = p + (Vector3(0, 0.3, 0.75) if top_on else Vector3(0, 0.6, 0))
+				tl.font_size = 84 if top_on else 60
 				tl.visible = not (_cut_cam != null and _cut_cam.current)
 				used += 1
 				sec += 1
@@ -1763,7 +1803,7 @@ func _draw_timing_ghosts(im: ImmediateMesh) -> void:
 						pts.append(ground(oq + Vector3(cos(ang), 0, sin(ang)) * 0.7))
 					_dashes(im, pts, Color(0.8, 0.95, 1.0, 0.95), 0.07)
 					names.append(o.name)
-					_ghost_label.position = oq + Vector3(0, 1.6, 0)
+					_ghost_label.position = oq + Vector3(2.2, 1.0, 0.4)
 				if not names.is_empty():
 					_ghost_label.text = "踩到時%s在這（%.1f 秒）" % ["、".join(names), t_hit]
 					_ghost_label.font_size = 60
@@ -1960,3 +2000,107 @@ func _update_face(f: Fighter) -> void:
 	var hp: Vector3 = (hb as Vector3) if hb != null else head_pos(f) - Vector3(0, 0.2, 0)
 	# 頭骨原點大約在臉的上緣：往下一點、往前貼到臉上
 	sp.global_transform = Transform3D(basis, hp + fwd * 0.24 + Vector3(0, 0.04, 0))
+
+# ---------------------------------------------------------------- 第 3 關開場示範（一個「太早」的例子，教怎麼看時間，不洩漏答案）
+
+const DEMO_SPEED := 1.1
+const DEMO_HOLD := 3.0
+
+## 在準備階段一開始自動播一次：虛影香蕉皮→阿土虛影走過去、滑出去（黃線格子一格一格亮）→阿水虛影同步走→在交叉點比時間
+func _draw_demo(im: ImmediateMesh) -> void:
+	for l in _demo_labels:
+		(l as Label3D).visible = false
+	if not show_timing or phase != Phase.PREPARE or enemies.size() < 2:
+		return
+	var a_f: Fighter = enemies[0]
+	var b_f: Fighter = enemies[1]
+	var ra := planned_route(a_f)
+	var rb := planned_route(b_f)
+	if ra.size() < 2 or rb.size() < 2:
+		return
+	var dir: Vector3 = (ra[1] as Vector3) - (ra[0] as Vector3)
+	dir.y = 0.0
+	var la := dir.length()
+	dir = dir / la
+	var peel_d := la * 0.2                       # 示範：香蕉皮放在紅線前 20%（太早的例子）
+	var step_d := maxf(peel_d - PEEL_STEP, 0.0)
+	var t_step := step_d / RUSH_SPEED
+	# 交叉點：阿水路線上離阿土那條線最近的點
+	var best_d := 1e9
+	var cross := Vector3.ZERO
+	var along_b := 0.0
+	var acc := 0.0
+	for i in range(1, rb.size()):
+		var p0: Vector3 = rb[i - 1]
+		var p1: Vector3 = rb[i]
+		var seg := flat_dist(p0, p1)
+		for k in 41:
+			var q := p0.lerp(p1, k / 40.0)
+			var rel := q - (ra[0] as Vector3)
+			rel.y = 0.0
+			var perp := (rel - dir * rel.dot(dir)).length()
+			if perp < best_d:
+				best_d = perp
+				cross = (ra[0] as Vector3) + dir * rel.dot(dir)
+				along_b = acc + seg * k / 40.0
+		acc += seg
+	var slide_to_cross := flat_dist(cross, (ra[0] as Vector3) + dir * step_d)
+	var t_a := t_step + slide_to_cross / SLIDE_SPEED
+	var t_b := along_b / RUSH_SPEED
+	var tau := (_clock - _prep_t0) * DEMO_SPEED
+	var t_end := t_a + 0.4
+	if tau > t_end + DEMO_HOLD * DEMO_SPEED or tau < 0.0:
+		return
+	var tt := minf(tau, t_end)
+	# 阿土虛影
+	var pa: Vector3
+	if tt < t_step:
+		pa = (ra[0] as Vector3) + dir * (tt * RUSH_SPEED)
+	else:
+		pa = (ra[0] as Vector3) + dir * (step_d + (tt - t_step) * SLIDE_SPEED)
+	var pb := _along(rb, tt * RUSH_SPEED)
+	var ghost := Color(1, 1, 1, 0.85)
+	_demo_ring(pa, 0.55, ghost)
+	_demo_ring(pb, 0.55, Color(0.75, 0.9, 1.0, 0.85))
+	# 示範的香蕉皮位置＋已經滑過的黃線格子
+	_demo_ring((ra[0] as Vector3) + dir * peel_d, 0.3, Color(1.0, 0.92, 0.25, 0.9))
+	if tt > t_step:
+		var slid := (tt - t_step) * SLIDE_SPEED
+		var s0 := (ra[0] as Vector3) + dir * step_d
+		_solid(im, s0, s0 + dir * slid, Color(1.0, 0.92, 0.25, 0.9), 0.08)
+		var k := 1
+		while k * SLIDE_SPEED * 0.5 <= slid:
+			var q := s0 + dir * (k * SLIDE_SPEED * 0.5)
+			_solid(im, q - dir.cross(Vector3.UP) * 0.35, q + dir.cross(Vector3.UP) * 0.35, Color(1.0, 0.92, 0.25, 1.0), 0.07)
+			k += 1
+	if tau < t_end:
+		_demo_label(0, pa + Vector3(0, 1.5, 0), "阿土（示範）")
+		_demo_label(1, pb + Vector3(0, 1.5, 0), "阿水 %.1f 秒" % tt)
+	else:
+		# 停格：只留一句比較（放在湖面空曠的地方，不壓到其他字）
+		_demo_label(2, cross + Vector3(0, 0.5, 3.2), "示範：阿土 %.1f 秒滑到交叉點，阿水 %.1f 秒才到 → 早了！\n讓兩個數字一樣就撞得到" % [t_a, t_b])
+
+func _demo_ring(c: Vector3, r: float, col: Color) -> void:
+	var pts: Array = []
+	for k in 21:
+		var a := k * TAU / 20.0
+		pts.append(ground(c + Vector3(cos(a), 0, sin(a)) * r))
+	_dashes(_route_line.mesh as ImmediateMesh, pts, col, 0.06)
+
+func _demo_label(i: int, pos: Vector3, text: String) -> void:
+	while _demo_labels.size() <= i:
+		var l := Label3D.new()
+		l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		l.no_depth_test = true
+		l.font_size = 56
+		l.pixel_size = 0.0005
+		l.fixed_size = true
+		l.outline_size = 20
+		l.outline_modulate = Color(0.05, 0.08, 0.15, 1.0)
+		l.modulate = Color(1.0, 0.97, 0.8)
+		world.add_child(l)
+		_demo_labels.append(l)
+	var lb: Label3D = _demo_labels[i]
+	lb.text = text
+	lb.position = pos
+	lb.visible = true
