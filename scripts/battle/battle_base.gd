@@ -10,8 +10,7 @@ extends Node
 ##   - 道具欄（1~9 / 滾輪切換、左鍵施放、次數分準備／開打兩段、冷卻）
 ##   - 家豪的 AI（衝去打最近的敵人、吃飼料、挨打飛走、飛過圍欄和水、偷襲）
 ##   - 一般近戰敵人的 AI（巡邏、紅色偵測扇形、聽到打鬥趕來、踢、重踢、掉進水裡）
-##   - 血條、右上角敵人名單、提示文字、開場教學、勝敗結算、輸了的晚餐畫面
-##   - 畫面上平常只留：左上「?」（按 H 看操作）、右上敵人名單、下方道具格、右下「開始 ▶」
+##   - 血條、右上角敵人欄、提示文字、開場教學、勝敗結算、輸了的晚餐畫面
 ##
 ## 戰局可重演：角色邏輯固定每 1/60 秒算一步，沒有亂數。
 
@@ -48,7 +47,6 @@ const ALERT_RADIUS := 11.0     # 打鬥聲傳得到的距離：哪裡有人挨�
 const DEFEAT_ORIGIN := Vector3(600.0, 0.0, 600.0)
 const SIM_DT := 1.0 / 60.0
 const TUT_STEP_TIME := 5.5
-const TUT_WIDTH := 400.0       # 教學便利貼的寬度（字會自動換行）
 const PAN_STEP := 3.0
 
 var phase: Phase = Phase.PREPARE
@@ -108,26 +106,12 @@ var _summary_label: Label
 var _hotbar: Hotbar
 var _dialog: DialogBox
 var _enemy_rows: Array = []    # 右上角敵人欄 {fighter, face, fill, chip, width}
-var _summary_box: VBoxContainer   # 結算卡的內容（標題＋歷次嘗試＋按鈕列）
-var _summary_title: Label
-var _summary_keys: HBoxContainer
-# 預設的小按鈕（右下「開始 ▶」、開打後的「R 重試」、左上「?」＋操作說明卡）
-var _hud_default := false      # _update_phase_label() 跑過＝這一關用預設的這幾個（見那個函式的說明）
-var _hud_start: Control
-var _hud_retry: Control
-var _hud_help_chip: Control
-var _hud_help_card: PanelContainer
-var _hud_help_key := ""        # 說明卡目前的內容（內容變了才重排）
-var _hud_help_pin := false     # 按一下 H：釘住；再按一下：收起來
-var _hud_help_down := false
-var _hud_help_ms := 0
 var tutorial_step := -1        # -1 = 沒在教學
 var _tut_t := 0.0
 var _tut_seen := false
 var _tut_arrow: TutArrow
 var _tut_panel: PanelContainer
 var _tut_label: Label
-var _tut_page: Label
 # 輸了的畫面
 var defeat_room: Node3D
 var defeat_shown := false
@@ -209,30 +193,8 @@ func _tutorial_texts() -> Array:
 		out.append("【%d %s】%s" % [i + 1, items[i].name, items[i].tutorial])
 	return out
 
-## 準備階段上方小紙片的提示（一句話就好；不用再寫「準備中」和「按 Enter 開始」，右下角有開始鈕）。
-## 回傳空字串就不顯示
 func _prepare_hint() -> String:
-	return ""
-
-## 按 H 看到的操作說明：一列一組 [按鍵, 做什麼]。按鍵用「／」分開會畫成好幾顆鍵帽（例如 "數字鍵／滾輪"）。
-## 預設讀場景裡 HUD/Hint 那一行字（「WASD 飄移｜空白 上升｜…」），所以關卡只改 Hint.text 也可以
-func _help_rows() -> Array:
-	var hint := get_node_or_null("../HUD/Hint") as Label
-	var src: String = hint.text if hint else ""
-	var rows: Array = []
-	for seg in src.split("｜" if src.contains("｜") else "　", false):
-		var t := seg.strip_edges()
-		if t == "":
-			continue
-		var hold := t.begins_with("按住 ")
-		if hold:
-			t = t.substr(3)
-		var cut := t.find(" ")
-		if cut < 0:
-			rows.append(["", t])
-		else:
-			rows.append([t.substr(0, cut), ("按住" if hold else "") + t.substr(cut + 1).strip_edges()])
-	return rows
+	return "準備中：可以先放道具、換觀察位置　按 Enter 開始"
 
 func _win_line() -> String:
 	return "過關！這場是你偷偷扳回來的。"
@@ -265,16 +227,13 @@ func _ready() -> void:
 	camera = player.get_node("Head/Camera3D")
 	var hint := get_node_or_null("../HUD/Hint") as Label
 	if hint:
-		# 操作說明那一長行字預設收起來：左上角只留「?」，按 H 才用鍵帽排出來（_help_rows）
-		UIStyle.slip(hint)
-		hint.visible = false
+		UIStyle.pill(hint, Color(0.1, 0.13, 0.2, 0.75), Color(1, 1, 1, 0.35), Color(1, 1, 1))   # 操作說明＝深色膠囊
 	crosshair = get_node_or_null("../HUD/Crosshair")
 	stage_id = String(Engine.get_meta("stage_id", ""))
 	fx_root = Node3D.new()
 	fx_root.name = "MiracleFX"
 	world.add_child(fx_root)
 	_ensure_actions()
-	UIStyle.use_theme("default")   # 每一關都從預設主題色開始；要換的關卡在 _level_setup() 呼叫 UIStyle.use_theme()
 	items = _make_items()
 	_build_fighters()
 	_build_preview()
@@ -470,7 +429,6 @@ func reset() -> void:
 	_level_reset()
 	_apply_visuals()
 	_summary_panel.visible = false
-	_summary_box.visible = false
 	if _dialog:
 		_dialog.t = -1.0
 		_dialog.visible = false
@@ -710,8 +668,6 @@ func _step(dt: float) -> void:
 func _process(dt: float) -> void:
 	_tick_tutorial(dt)
 	_tick_cooldowns(dt)
-	if _hud_default:
-		_hud_tick_help()
 	_update_aim()
 	if items.is_empty():
 		_preview.visible = false
@@ -1580,8 +1536,6 @@ func _bird_pose() -> void:
 		w.rotation = Vector3(0, 0, sx * flap)
 
 # ================================================================== HUD
-# 手帳風格（scripts/ui/ui_style.gd）：米色紙片、便利貼、鍵帽。平常畫面上只留四樣東西：
-#   左上「?」（按 H 看操作）、右上敵人名單、下方道具格、右下「開始 ▶」；其他都是需要時才出現。
 
 func _build_hud() -> void:
 	var layer := CanvasLayer.new()
@@ -1589,13 +1543,12 @@ func _build_hud() -> void:
 	add_child(layer)
 	_hud_layer = layer
 
-	# 頭上的血條（主角綠色、敵人紅色）
 	for f in all_fighters():
 		var bar := Control.new()
 		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		bar.size = Vector2(96, 12)
 		var bg := ColorRect.new()
-		bg.color = Color(UIStyle.INK, 0.85)
+		bg.color = Color(0.08, 0.06, 0.06, 0.75)
 		bg.size = Vector2(96, 12)
 		bar.add_child(bg)
 		var chip := ColorRect.new()
@@ -1604,7 +1557,8 @@ func _build_hud() -> void:
 		chip.size = Vector2(92, 8)
 		bar.add_child(chip)
 		var fill := ColorRect.new()
-		fill.color = Color(0.3, 0.82, 0.32) if f.is_bird else Color(0.89, 0.28, 0.24)
+		# 主角綠色、敵人紅色
+		fill.color = Color(0.3, 0.82, 0.32) if f.is_bird else Color(0.86, 0.13, 0.12)
 		fill.position = Vector2(2, 2)
 		fill.size = Vector2(92, 8)
 		bar.add_child(fill)
@@ -1613,7 +1567,7 @@ func _build_hud() -> void:
 		f.bar_fill = fill
 		f.bar_chip = chip
 
-	# 道具欄：畫面下方一排紙卡
+	# 道具欄：畫面下方一整條相連的快捷欄（方塊遊戲風格）
 	_hotbar = Hotbar.new()
 	UIStyle.apply_theme(_hotbar)
 	_hotbar.skills = items
@@ -1638,63 +1592,48 @@ func _build_hud() -> void:
 	_dialog.offset_bottom = -hb.y - 22 - 20
 	layer.add_child(_dialog)
 	_dialog.portrait = _load_tex("res://assets/ui/jiahao_portrait.png")
-	# 開場教學：箭頭指著道具格，上面一張便利貼（限制寬度、自動換行），右下角小字是第幾張
 	_tut_arrow = TutArrow.new()
 	_tut_arrow.size = Vector2(70, 120)
 	_tut_arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_tut_arrow.visible = false
 	layer.add_child(_tut_arrow)
 	_tut_panel = PanelContainer.new()
-	UIStyle.sticky(_tut_panel, 0.0)
+	UIStyle.sticky(_tut_panel, 0.0)       # 教學框＝便利貼
 	_tut_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_tut_panel.visible = false
-	var tut_box := VBoxContainer.new()
-	tut_box.add_theme_constant_override("separation", 2)
-	_tut_panel.add_child(tut_box)
 	_tut_label = Label.new()
-	var tls := UIStyle.ls(21, UIStyle.INK)
-	tls.line_spacing = 6
+	var tls := UIStyle.ls(22, UIStyle.INK)
+	tls.line_spacing = 4
 	_tut_label.label_settings = tls
-	_tut_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_tut_label.custom_minimum_size = Vector2(TUT_WIDTH, 0)
-	tut_box.add_child(_tut_label)
-	_tut_page = Label.new()
-	_tut_page.label_settings = UIStyle.ls(15, Color(UIStyle.INK, 0.55))
-	_tut_page.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
-	tut_box.add_child(_tut_page)
+	_tut_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_tut_panel.add_child(_tut_label)
 	layer.add_child(_tut_panel)
 
-	# 右上角敵人名單：一張米色小紙片，一列一個敵人（小頭像＋名字＋血條），Boss 排最上面
+	var top := UIStyle.ls(24, Color(1, 1, 1))
+	# 右上角敵人欄：一列一個敵人（頭像方格 + 右側血條），Boss 排最上面
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 7)
+	col.add_theme_constant_override("separation", 8)
 	col.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	col.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	col.offset_right = -32
-	col.offset_top = 28
+	col.offset_right = -20
+	col.offset_top = 16
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(col)
-	# 紙片直接畫在這個直排後面（不多包一層，關卡要收起名單時只要隱藏這個直排）
-	var card := UIStyle.slip_box(Vector2(12, 10))
-	col.draw.connect(func():
-		if col.get_child_count() > 0:
-			col.draw_style_box(card, Rect2(Vector2(-12, -10), col.size + Vector2(24, 20))))
 	var order: Array = enemies.filter(func(f): return f.is_boss) + enemies.filter(func(f): return not f.is_boss)
-	var ns := UIStyle.ls(15, UIStyle.INK)
+	var ns := UIStyle.ls(17, Color(1, 1, 1), 6)
 	for f in order:
 		var erow := HBoxContainer.new()
-		erow.add_theme_constant_override("separation", 8)
+		erow.add_theme_constant_override("separation", 10)
 		erow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		col.add_child(erow)
 		var face := EnemyFace.new()
 		face.boss = f.face == "boss"
 		face.portrait = f.portrait
-		face.custom_minimum_size = Vector2(36, 36)   # 大小都一樣，名字才會對齊；Boss 用金色邊框和比較長的血條區分
-		face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		face.custom_minimum_size = Vector2(64, 64) if f.is_boss else Vector2(52, 52)
 		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		erow.add_child(face)
 		var info := VBoxContainer.new()
 		info.alignment = BoxContainer.ALIGNMENT_CENTER
-		info.add_theme_constant_override("separation", 1)
 		info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		erow.add_child(info)
 		var nm := Label.new()
@@ -1702,11 +1641,11 @@ func _build_hud() -> void:
 		nm.label_settings = ns
 		info.add_child(nm)
 		var bar := Control.new()
-		bar.custom_minimum_size = Vector2(124 if f.is_boss else 104, 10)
+		bar.custom_minimum_size = Vector2(170 if f.is_boss else 140, 14)
 		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		info.add_child(bar)
 		var bg := ColorRect.new()
-		bg.color = Color(UIStyle.INK, 0.85)
+		bg.color = Color(0.08, 0.06, 0.06, 0.8)
 		bg.size = bar.custom_minimum_size
 		bar.add_child(bg)
 		var chip := ColorRect.new()
@@ -1715,23 +1654,21 @@ func _build_hud() -> void:
 		chip.size = bar.custom_minimum_size - Vector2(4, 4)
 		bar.add_child(chip)
 		var fill := ColorRect.new()
-		fill.color = Color(0.89, 0.28, 0.24)
+		fill.color = Color(0.86, 0.13, 0.12)
 		fill.position = Vector2(2, 2)
 		fill.size = bar.custom_minimum_size - Vector2(4, 4)
 		bar.add_child(fill)
 		_enemy_rows.append({"fighter": f, "face": face, "fill": fill, "chip": chip, "width": bar.custom_minimum_size.x - 4.0})
-
-	# 上方中間的小紙片：準備時是關卡的一句提示（沒有就不出現），開打後是計時
 	_phase_label = Label.new()
-	_phase_label.label_settings = UIStyle.ls(20)
+	_phase_label.label_settings = top
 	_phase_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_phase_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	_phase_label.offset_top = 18
+	_phase_label.offset_top = 56
 	_phase_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	UIStyle.slip(_phase_label)
+	UIStyle.pill(_phase_label, Color(0.1, 0.13, 0.2, 0.78), Color(1, 1, 1, 0.4), Color(1, 1, 1))   # 上方提示＝深色膠囊
 	layer.add_child(_phase_label)
 
-	var ts := UIStyle.ls(28)
+	var ts := UIStyle.ls(30)
 	_toast_label = Label.new()
 	_toast_label.label_settings = ts
 	_toast_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1741,131 +1678,17 @@ func _build_hud() -> void:
 	UIStyle.pill(_toast_label)            # 字卡＝米白膠囊
 	layer.add_child(_toast_label)
 
-	# 結算＝筆記紙：一行標題、歷次嘗試、按鈕列
 	_summary_panel = PanelContainer.new()
-	UIStyle.paper(_summary_panel, 0.01)
+	UIStyle.paper(_summary_panel, 0.01)   # 結算＝筆記紙
 	_summary_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	_summary_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_summary_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
-	_summary_box = VBoxContainer.new()
-	_summary_box.add_theme_constant_override("separation", 12)
-	_summary_box.visible = false
-	_summary_panel.add_child(_summary_box)
-	_summary_title = Label.new()
-	_summary_title.label_settings = UIStyle.ls(30, UIStyle.INK)
-	_summary_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_summary_box.add_child(_summary_title)
-	var ss := UIStyle.ls(19, Color(UIStyle.INK, 0.72))
-	ss.line_spacing = 4
+	var ss := UIStyle.ls(22, UIStyle.INK)
+	ss.line_spacing = 6
 	_summary_label = Label.new()
 	_summary_label.label_settings = ss
-	_summary_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_summary_box.add_child(_summary_label)
-	_summary_keys = HBoxContainer.new()
-	_summary_keys.alignment = BoxContainer.ALIGNMENT_CENTER
-	_summary_box.add_child(_summary_keys)
+	_summary_panel.add_child(_summary_label)
 	layer.add_child(_summary_panel)
-	_hud_build_buttons(layer)
-
-## 預設的小按鈕：右下「開始 ▶ [Enter]」、開打後換成「[R] 重試」、左上「? [H]」和按 H 才出現的操作說明卡。
-## 一開始都收著，_update_phase_label() 才會把它們打開
-func _hud_build_buttons(layer: CanvasLayer) -> void:
-	var sbx := HBoxContainer.new()
-	sbx.add_theme_constant_override("separation", 10)
-	sbx.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	sbx.add_child(UIStyle.go_button("開始 ▶", 30))
-	sbx.add_child(UIStyle.keycap("Enter", 22))
-	layer.add_child(sbx)
-	sbx.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
-	sbx.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	sbx.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	sbx.offset_right = -36
-	sbx.offset_bottom = -40
-	sbx.visible = false
-	_hud_start = sbx
-	var rbx := PanelContainer.new()
-	UIStyle.slip(rbx, Vector2(12, 7))
-	rbx.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	rbx.add_child(UIStyle.key_hint("R", "重試", 18))
-	layer.add_child(rbx)
-	rbx.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
-	rbx.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-	rbx.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	rbx.offset_right = -36
-	rbx.offset_bottom = -40
-	rbx.visible = false
-	_hud_retry = rbx
-	var chip := PanelContainer.new()
-	UIStyle.slip(chip, Vector2(10, 6))
-	chip.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var crow := HBoxContainer.new()
-	crow.add_theme_constant_override("separation", 8)
-	chip.add_child(crow)
-	var q := Label.new()
-	q.text = "?"
-	q.label_settings = UIStyle.ls(22, UIStyle.INK)
-	crow.add_child(q)
-	crow.add_child(UIStyle.keycap("H", 16))
-	chip.position = Vector2(24, 20)
-	chip.visible = false
-	layer.add_child(chip)
-	_hud_help_chip = chip
-	_hud_help_card = PanelContainer.new()
-	UIStyle.paper(_hud_help_card, 0.0)
-	_hud_help_card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_hud_help_card.position = Vector2(24, 78)
-	_hud_help_card.visible = false
-	layer.add_child(_hud_help_card)
-
-## 操作說明卡要列的東西（_help_rows() 整理過的版本；暫停選單也用這一份）
-func help_list() -> Array:
-	return _help_rows()
-
-## H：按住的時候顯示操作說明；輕按一下是釘住／收起來
-func _hud_tick_help() -> void:
-	var down := Input.is_physical_key_pressed(KEY_H)
-	var now := Time.get_ticks_msec()
-	if down and not _hud_help_down:
-		_hud_help_ms = now
-		_hud_help_pin = not _hud_help_pin
-	elif not down and _hud_help_down and now - _hud_help_ms > 350:
-		_hud_help_pin = false
-	_hud_help_down = down
-	var on := (_hud_help_pin or down) and not defeat_shown
-	if on:
-		var rows := help_list()
-		var key := str(rows)
-		if key != _hud_help_key:
-			_hud_help_key = key
-			for c in _hud_help_card.get_children():
-				if c is GridContainer:
-					c.queue_free()
-			_hud_help_card.add_child(UIStyle.key_grid(rows, 2, 16))
-			_hud_help_card.reset_size()
-	_hud_help_card.visible = on
-
-## 結算／失敗卡片底下那一排：綠色主要按鈕＋它的鍵帽，後面接其他「鍵帽＋說明」
-func _hud_button_row(row: HBoxContainer, go_text: String, go_key: String, others: Array) -> void:
-	for c in row.get_children():
-		row.remove_child(c)
-		c.queue_free()
-	row.alignment = BoxContainer.ALIGNMENT_CENTER
-	row.add_theme_constant_override("separation", 10)
-	row.add_child(UIStyle.go_button(go_text, 26))
-	row.add_child(UIStyle.keycap(go_key, 18))
-	for o in others:
-		var gap := Control.new()
-		gap.custom_minimum_size = Vector2(12, 0)
-		row.add_child(gap)
-		row.add_child(UIStyle.key_hint(String(o[0]), String(o[1]), 18))
-
-## 卡片內容換過之後：縮回內容的大小，再照 preset 擺回去（off 是離那個位置多遠）
-func _hud_place(card: Control, preset: int, off := Vector2.ZERO) -> void:
-	card.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	card.grow_vertical = Control.GROW_DIRECTION_BOTH
-	card.reset_size()
-	card.set_anchors_and_offsets_preset(preset, Control.PRESET_MODE_MINSIZE)
-	card.position += off
 
 func _refresh_slots() -> void:
 	if _hotbar == null:
@@ -1890,47 +1713,30 @@ func _update_bars(dt: float) -> void:
 		f.bar_fill.size.x = 92.0 * r
 		f.bar_chip.size.x = 92.0 * f.chip
 
-## 關卡的 _prepare_hint() 以前都寫成「準備中：……　按 Enter 開始」；頭尾現在由右下角的開始鈕負責，只留中間那句
-static func _hint_core(t: String) -> String:
-	var trim := " 　｜|：:"
-	var s := t.strip_edges().lstrip(trim).rstrip(trim)
-	for tail in ["按 Enter 開始", "Enter 開始"]:
-		if s.ends_with(tail):
-			s = s.substr(0, s.length() - tail.length()).rstrip(trim)
-	if s.begins_with("準備中"):
-		s = s.substr(3).lstrip(trim)
-	return s
-
-## 上方的小紙片（準備時的提示／開打後的計時），順便開關預設的「開始 ▶」「R 重試」「?」。
-## 關卡如果整個覆寫這個函式、不呼叫 super()（例如冰雪島自己畫開始鈕），預設的那幾個就不會出現。
 func _update_phase_label() -> void:
-	_hud_default = true
 	match phase:
 		Phase.PREPARE:
-			_phase_label.text = _hint_core(_prepare_hint())
+			_phase_label.text = _prepare_hint()
 		Phase.RUNNING:
-			_phase_label.text = "%.1f 秒" % time
+			_phase_label.text = "戰鬥中  %.1f 秒　｜　R 重試" % time
 		Phase.ENDED:
-			_phase_label.text = "" if outcome == "win" else "落敗…"
+			_phase_label.text = ("勝利！" if outcome == "win" else "落敗…") + "　按 R 重試"
 	_phase_label.visible = _phase_label.text != ""
-	_hud_start.visible = phase == Phase.PREPARE
-	_hud_retry.visible = phase == Phase.RUNNING
-	_hud_help_chip.visible = true
 
 func _show_summary() -> void:
-	var win := outcome == "win"
-	_summary_title.text = _win_line() if win else _lose_line(enemies_left())
 	var lines: PackedStringArray = []
-	for a in attempts.slice(maxi(attempts.size() - 5, 0)):
-		lines.append("第 %d 次　%s　%.1f 秒" % [a.num, "過關" if a.outcome == "win" else "失敗（剩 %d 個敵人）" % a.left, a.time])
-	_summary_label.text = "\n".join(lines)
-	if win:
-		_hud_button_row(_summary_keys, "回地圖 ▶", "M", [["R", "重試"]])
+	if outcome == "win":
+		lines.append(_win_line())
 	else:
-		_hud_button_row(_summary_keys, "重試 ▶", "R", [["M", "地圖"]])
-	_summary_box.visible = true
+		lines.append(_lose_line(enemies_left()))
+	lines.append("")
+	lines.append("歷次嘗試：")
+	for a in attempts.slice(maxi(attempts.size() - 5, 0)):
+		lines.append("  #%d　%s（%.1f 秒）" % [a.num, "勝" if a.outcome == "win" else "敗，剩 %d 個敵人" % a.left, a.time])
+	lines.append("")
+	lines.append("按 R 回到起點重試（觀察位置會保留）　｜　按 M 回到地圖")
+	_summary_label.text = "\n".join(lines)
 	_summary_panel.visible = true
-	_hud_place(_summary_panel, Control.PRESET_CENTER)
 
 # ================================================================== 輸了的畫面
 
@@ -1946,27 +1752,27 @@ func _build_defeat() -> void:
 	_defeat_layer.layer = 6
 	_defeat_layer.visible = false
 	add_child(_defeat_layer)
-	# 下方一張筆記紙：標題、這一次的結果和提示、按鈕列（跟結算卡同一套）
-	var band := PanelContainer.new()
-	UIStyle.paper(band, -0.01)
-	band.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var band := ColorRect.new()
+	band.color = Color(0.11, 0.14, 0.2)
+	band.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	band.anchor_top = 0.82
+	band.offset_top = 0
 	_defeat_layer.add_child(band)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 8)
+	box.set_anchors_preset(Control.PRESET_FULL_RECT)
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.add_theme_constant_override("separation", 6)
 	band.add_child(box)
+	var big := UIStyle.ls(34, Color(1, 0.96, 0.86))
 	_defeat_label = Label.new()
-	_defeat_label.label_settings = UIStyle.ls(32, UIStyle.INK)
+	_defeat_label.label_settings = big
 	_defeat_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_defeat_label)
-	var small := UIStyle.ls(19, Color(UIStyle.INK, 0.72))
-	small.line_spacing = 4
+	var small := UIStyle.ls(19, Color(1, 0.96, 0.86, 0.85))
 	_defeat_detail = Label.new()
 	_defeat_detail.label_settings = small
 	_defeat_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_defeat_detail)
-	var keys := HBoxContainer.new()
-	box.add_child(keys)
-	_hud_button_row(keys, "重試 ▶", "R", [["M", "地圖"]])
 
 func _show_defeat() -> void:
 	defeat_shown = true
@@ -1978,9 +1784,8 @@ func _show_defeat() -> void:
 		main_hud.visible = false
 	_preview.visible = false
 	_defeat_label.text = _defeat_title()
-	_defeat_detail.text = "第 %d 次嘗試　·　撐了 %.1f 秒　·　還剩 %d 個敵人\n%s" % [attempts.size(), time, enemies_left(), _defeat_tip()]
+	_defeat_detail.text = "第 %d 次嘗試　｜　撐了 %.1f 秒　｜　還剩 %d 個敵人\n%s\nR 重試　｜　M 回到地圖" % [attempts.size(), time, enemies_left(), _defeat_tip()]
 	_defeat_layer.visible = true
-	_hud_place(_defeat_label.get_parent().get_parent() as Control, Control.PRESET_CENTER_BOTTOM, Vector2(0, -44))
 
 func _hide_defeat() -> void:
 	_defeat_delay = -1.0
@@ -2016,18 +1821,7 @@ func _set_tut_step(i: int) -> void:
 		return
 	select_skill(mini(i, items.size() - 1))
 	_hotbar.name_t = 0.0   # 教學時說明框已經寫了名字，不用再浮一次
-	_tut_label.text = String(texts[i]).replace("\n", "")   # 便利貼自己會換行，不用手動斷行
-	_tut_page.text = "%d / %d" % [i + 1, texts.size()]
-	_tut_fit()
-
-## 便利貼的高度跟著換行後的行數走（寬度固定 TUT_WIDTH）
-func _tut_fit() -> void:
-	var f: Font = _tut_label.label_settings.font if _tut_label.label_settings.font else _tut_label.get_theme_default_font()
-	var fs: int = _tut_label.label_settings.font_size
-	var sz := f.get_multiline_string_size(_tut_label.text, HORIZONTAL_ALIGNMENT_LEFT, TUT_WIDTH, fs, -1,
-		TextServer.BREAK_MANDATORY | TextServer.BREAK_WORD_BOUND | TextServer.BREAK_ADAPTIVE)
-	var lines := maxi(1, roundi(sz.y / f.get_height(fs)))
-	_tut_label.custom_minimum_size = Vector2(TUT_WIDTH, sz.y + (lines - 1) * _tut_label.label_settings.line_spacing)
+	_tut_label.text = texts[i] + "\n（%d / %d）" % [i + 1, texts.size()]
 	_tut_panel.reset_size()
 
 func _tick_tutorial(dt: float) -> void:

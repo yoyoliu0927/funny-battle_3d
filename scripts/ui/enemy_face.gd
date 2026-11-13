@@ -1,33 +1,24 @@
 extends Control
-## 右上角敵人名單的小頭像（用畫的：農夫戴草帽、老闆戴深色帽子和眼鏡）
+## 右上角敵人欄的頭像（用畫的：農夫戴草帽、老闆戴深色帽子和眼鏡）
 ## 所有關卡共用（template）。有給 portrait（頭像圖片）就直接畫圖片。
-## 手帳風格：米色圓角小方塊、深色細邊（Boss 是金色邊）。
 var boss := false
 var dead := false
 var portrait: Texture2D
 
 func _draw() -> void:
 	var r := Rect2(Vector2.ZERO, size)
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color("f1e5c8")
-	sb.border_color = Color("c9962b") if boss else Color("3b2a20")
-	sb.set_border_width_all(3 if boss else 2)
-	sb.set_corner_radius_all(int(size.x * 0.24))
-	sb.anti_aliasing = true
-	draw_style_box(sb, r)
-	var c := size * Vector2(0.5, 0.6)
-	var k := size.x / 60.0
+	draw_rect(r, Color(0.1, 0.11, 0.13, 0.8))
+	draw_rect(r, Color(1, 0.85, 0.4, 0.9) if boss else Color(1, 1, 1, 0.35), false, 3.0 if boss else 2.0)
+	var c := size * Vector2(0.5, 0.58)
+	var k := size.x / 56.0
 	if portrait:
 		draw_texture_rect(portrait, r.grow(-3.0), false)
 	else:
 		_draw_face(c, k)
 	if dead:
-		sb.bg_color = Color(0.2, 0.17, 0.15, 0.6)
-		sb.set_border_width_all(0)
-		draw_style_box(sb, r)
-		var m := size.x * 0.24
-		draw_line(Vector2(m, m), size - Vector2(m, m), Color(0.95, 0.3, 0.25), 4.0 * k, true)
-		draw_line(Vector2(size.x - m, m), Vector2(m, size.y - m), Color(0.95, 0.3, 0.25), 4.0 * k, true)
+		draw_rect(r, Color(0.1, 0.1, 0.1, 0.55))
+		draw_line(Vector2(8, 8) * k, size - Vector2(8, 8) * k, Color(0.95, 0.3, 0.25), 4.0 * k)
+		draw_line(Vector2(size.x - 8 * k, 8 * k), Vector2(8 * k, size.y - 8 * k), Color(0.95, 0.3, 0.25), 4.0 * k)
 
 func _draw_face(c: Vector2, k: float) -> void:
 	var skin := Color(0.96, 0.78, 0.62)
