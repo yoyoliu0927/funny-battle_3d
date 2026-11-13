@@ -2,19 +2,24 @@ extends Node3D
 ## 選關畫面（卡片式）
 ##
 ## 參考市面上的選關畫面：
-##   - Angry Birds／Cut the Rope：一個大關一張大卡片，卡片上寫標題、星星進度；還沒開放的卡片蓋一個大鎖。
-##   - Candy Crush／瑪利歐世界地圖：選了大關之後，小關是一串編號圓點，沿著一條小路排開，過了的打勾、沒解鎖的上鎖。
+##   - Angry Birds／Cut the Rope：一個大關一張卡片、星星進度；還沒開放的只有一個鎖。
+##   - Candy Crush／瑪利歐世界地圖：小關是一條路上的編號圓點，每一關底下三顆星。
 ##   - Overcooked 的世界地圖：背景是一座可愛的小島，前景的介面一眼就看得懂。
 ##
-## 版面（由上到下）：
-##   標題緞帶 → 四張「島」卡片（四個組員各一座；還沒做出來的顯示「建造中」上鎖）
-##   → 這座島的小關（編號圓點＋小路）→ 下方筆記紙：這一關的名字、說明、大「開始」按鈕
-##   右下角另外一小塊「範例關（開發測試用）」：農場範例、範本大關，跟正式的島分開。
+## 版面（盡量不用字，留白讓背景小島露出來）：
+##   標題緞帶 → 島的卡片（開放的是大卡片：島名＋圓徽章＋總星數「★ 7/9」；還沒做好的是小卡片：鎖頭＋？？？）
+##   → 這座島的小關：同一條路上的編號圓點，每個圓點底下三顆小星＋名字
+##   → 下方面板：編號徽章＋關名＋三顆星＋綠色「開始」按鈕（Enter 鍵帽畫在按鈕裡）
+##   「範例關」（農場範例、範本大關）是開發測試用的：預設收起來，按 F1 才顯示／收起。
 ##
-## 背景沿用原本的低多邊形小島（調暗、鏡頭慢慢繞），讓前景的字看得清楚。
 ## 大關從 scripts/registry.gd 自動找到（levels/*/chapter.gd、examples/*/chapter.gd），各關不用改這個檔案。
+## chapter.gd 可以多寫兩個選用的常數：
+##   const ICON := "冰"                                   # 卡片圓徽章上的字（不寫：冰雪島畫雪花，其他畫旗子）
+##   const STARS_SCRIPT := "res://levels/xxx/battle.gd"   # 有 static var best_stars 的腳本（不寫：找大關資料夾裡的 rescue_battle.gd）
+## 沒有三星紀錄的大關，過關就用打勾表示。
 ##
-## 操作：← → 選島、↑ ↓ 或數字鍵選小關、Enter 開始、Esc 回到開場；滑鼠移到卡片／圓點上會選取，點「開始」或再點一次圓點就開始。
+## 操作：← → 選島、↑ ↓ 或數字鍵選小關、Enter 開始、Esc 回到開場、F1 範例關；
+##       滑鼠移到卡片／圓點上會選取，點「開始」或再點一次圓點就開始。
 
 const TerrainShader := preload("res://shaders/terrain.gdshader")
 const Progress := preload("res://scripts/progress.gd")
@@ -25,6 +30,9 @@ const INTRO_SCENE := "res://scenes/intro.tscn"
 
 ## 正式的「島」一共幾座（四個組員各一座）；不夠的用「建造中」補滿
 const ISLAND_SLOTS := 4
+## 每個小關幾顆星
+const STAR_MAX := 3
+const SHAKE_TIME := 0.5
 
 ## 島的輪廓（背景裝飾用的小島）
 const OUTLINE := [
@@ -76,6 +84,11 @@ var _path_pad: _Pad          # 小關之間的小路
 var _detail: _Pad            # 下方的筆記紙（這一關的資訊＋開始按鈕）
 var _start_rect := Rect2()   # 「開始」按鈕在 _detail 裡的位置
 var _ex_box: _Pad            # 範例區的底
+var _ex_visible := false     # 範例區有沒有打開（F1 切換）
+var _shake_t := 0.0          # 鎖頭還要抖多久
+var _shake_i := -1           # 哪一張卡片的鎖頭在抖
+var _star_src := {}          # 大關 id -> 星星紀錄表（Dictionary）或 null
+var _consts := {}            # 大關 id -> chapter.gd 的常數
 
 # ================================================================== 啟動
 
@@ -290,9 +303,54 @@ func _build_trees() -> void:
 	mmi.material_override = m
 	add_child(mmi)
 
+# ================================================================== 星星、圖示的資料
+
+## 這個大關 chapter.gd 裡的常數（ICON、STARS_SCRIPT 這類選用的設定）
+func _chapter_consts(ch: Dictionary) -> Dictionary:
+	if ch.is_empty():
+		return {}
+	if not _consts.has(ch.id):
+		var c := {}
+		var path := String(ch.dir).path_join("chapter.gd")
+		if ResourceLoader.exists(path):
+			var scr := load(path) as Script
+			if scr:
+				c = scr.get_script_constant_map()
+		_consts[ch.id] = c
+	return _consts[ch.id]
+
+## 這個大關的星星紀錄表（{關卡場景路徑: {條件 id: true}}）；沒有三星制度的大關回傳 null
+## 預設找大關資料夾裡的 rescue_battle.gd 的 static var best_stars；chapter.gd 也可以用 STARS_SCRIPT 指定別的腳本。
+## 注意：這張表只在這次開遊戲期間累積，所以重開遊戲後，過關的小關至少算 1 顆（照存檔）。
+func _star_table(ch: Dictionary):
+	if ch.is_empty():
+		return null
+	if not _star_src.has(ch.id):
+		var table = null
+		var path := String(_chapter_consts(ch).get("STARS_SCRIPT", String(ch.dir).path_join("rescue_battle.gd")))
+		if ResourceLoader.exists(path):
+			var scr = load(path)
+			if scr is Script:
+				var v = (scr as Script).get("best_stars")
+				if v is Dictionary:
+					table = v
+		_star_src[ch.id] = table
+	return _star_src[ch.id]
+
+## 這一小關拿了幾顆星（0～STAR_MAX）；-1 代表這個大關沒有三星制度（只用打勾表示過關）
+func _stars(ch: Dictionary, st: Dictionary) -> int:
+	var table = _star_table(ch)
+	if table == null:
+		return -1
+	var got = (table as Dictionary).get(String(st.scene), {})
+	var n := mini(STAR_MAX, (got as Dictionary).size()) if got is Dictionary else 0
+	if n == 0 and Progress.is_cleared(st.id):
+		n = 1
+	return n
+
 # ================================================================== 介面
 
-## 自己畫的方塊（卡片、圓點、筆記紙都用它）：畫圖交給 painter，滑鼠交給 on_hover／on_click
+## 自己畫的方塊（卡片、圓點、面板都用它）：畫圖交給 painter，滑鼠交給 on_hover／on_click
 class _Pad:
 	extends Control
 	var painter: Callable
@@ -319,27 +377,19 @@ func _pad(parent: Node, painter: Callable, stop_mouse := true) -> _Pad:
 func _build_ui() -> void:
 	_layer = CanvasLayer.new()
 	add_child(_layer)
-	# 背景調暗：上面深一點（標題、卡片的字才看得清楚）
+	# 只在最上面壓一層淡淡的漸層（標題看得清楚），其他地方讓背景小島露出來
 	var dim := _pad(_layer, _paint_dim, false)
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_title = Label.new()
 	_title.text = "家豪的起義之路"
-	_title.label_settings = UIStyle.ls(42)
+	_title.label_settings = UIStyle.ls(40)
 	_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_title.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
 	_title.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_title.offset_top = 14
 	UIStyle.ribbon(_title)
 	_layer.add_child(_title)
-	var sub := Label.new()
-	sub.text = "選一座島，把被人類關起來的動物救出來！"
-	sub.label_settings = UIStyle.ls(20, Color(1, 0.97, 0.9), 6, Color(0.05, 0.08, 0.15, 0.85))
-	sub.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	sub.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	sub.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	sub.offset_top = 88
-	_layer.add_child(sub)
-	# 四座島的卡片＋範例區
+	# 島的卡片；範例區（預設收起來，F1 才打開）
 	_ex_box = _pad(_layer, _paint_ex_box, false)
 	for k in entries.size():
 		var c := _pad(_layer, _paint_card)
@@ -347,23 +397,23 @@ func _build_ui() -> void:
 		c.on_hover = func(_p, _e): _hover_entry(k)
 		c.on_click = func(_p, _e): select(k)
 		_cards.append(c)
-	# 小關的小路（在圓點底下）
+	# 小關之間的路（在圓點底下）
 	_path_pad = _pad(_layer, _paint_path, false)
-	# 下方筆記紙
+	# 下方面板：這一關＋開始按鈕
 	_detail = _pad(_layer, _paint_detail)
 	_detail.on_click = func(_p, e: InputEventMouseButton):
 		if _start_rect.has_point(e.position):
 			start_selected()
-	# 操作說明
+	# 操作說明（只留最少的字）
 	var hint := Label.new()
-	hint.text = "← → 選島　｜　↑ ↓ 或數字鍵 選小關　｜　Enter 開始　｜　Esc 回到開場　｜　滑鼠：點卡片選島、點圓點選關"
-	hint.label_settings = UIStyle.ls(17)
+	hint.text = "←→ 島　　↑↓ 關　　Esc 返回"
+	hint.label_settings = UIStyle.ls(16)
 	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
 	hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	hint.offset_bottom = -10
-	UIStyle.pill(hint, Color(0.1, 0.13, 0.2, 0.8), Color(1, 1, 1, 0.35), Color(1, 1, 1))
+	hint.offset_bottom = -12
+	UIStyle.pill(hint, Color(0.1, 0.13, 0.2, 0.7), Color(1, 1, 1, 0.3), Color(1, 1, 1))
 	_layer.add_child(hint)
 	# 提示字卡
 	_toast = Label.new()
@@ -371,7 +421,7 @@ func _build_ui() -> void:
 	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_toast.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	_toast.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	_toast.offset_top = 40
+	_toast.offset_top = -60
 	_toast.visible = false
 	UIStyle.pill(_toast)
 	_layer.add_child(_toast)
@@ -382,75 +432,86 @@ func _build_ui() -> void:
 func _layout() -> void:
 	var vs := get_viewport().get_visible_rect().size
 	var u := minf(vs.x / 1600.0, vs.y / 900.0)
-	var islands := entries.filter(func(e): return not e.example)
-	var exs := entries.filter(func(e): return e.example)
-	var cw := 290.0 * u
-	var ch := 250.0 * u
-	var gap := 26.0 * u
-	var total := islands.size() * cw + (islands.size() - 1) * gap
-	var x0 := (vs.x - total) * 0.5
-	var y0 := 132.0 * u
+	# 上排：開放的島是大卡片（主角），還沒做好的島是小卡片（只有鎖頭）
+	var big := Vector2(230.0, 200.0) * u
+	var small := Vector2(140.0, 180.0) * u
+	var gap := 20.0 * u
+	var y0 := 112.0 * u
+	var total := 0.0
+	var n_isl := 0
+	for e in entries:
+		if not e.example:
+			total += (big.x if _playable(e.ch) else small.x) + (gap if n_isl > 0 else 0.0)
+			n_isl += 1
+	var x := (vs.x - total) * 0.5
 	for k in entries.size():
 		var e: Dictionary = entries[k]
+		if e.example:
+			continue
 		var c: _Pad = _cards[k]
-		if not e.example:
-			var j := int(e.slot)
-			c.position = Vector2(x0 + j * (cw + gap), y0)
-			c.size = Vector2(cw, ch)
-			c.data.small = false
-	# 範例區：右下角一個小盒子，裡面一排小卡
+		var sz := big if _playable(e.ch) else small
+		c.position = Vector2(x, y0 + (big.y - sz.y) * 0.5)
+		c.size = sz
+		c.data.small = false
+		x += sz.x + gap
+	# 範例區：右下角一個小盒子（預設隱藏）
 	var ew := 200.0 * u
-	var eh := 70.0 * u
-	var bx := vs.x - (ew + 30.0 * u) - 14.0 * u
-	var by := 560.0 * u
-	_ex_box.position = Vector2(bx - 14.0 * u, by - 42.0 * u)
-	_ex_box.size = Vector2(ew + 28.0 * u, 42.0 * u + exs.size() * (eh + 10.0 * u) + 6.0 * u)
-	_ex_box.visible = not exs.is_empty()
-	var n := 0
+	var eh := 66.0 * u
+	var n_ex := entries.filter(func(e2): return e2.example).size()
+	var box_h := 40.0 * u + n_ex * (eh + 8.0 * u) + 6.0 * u
+	var bx := vs.x - ew - 34.0 * u
+	var by := vs.y - box_h - 70.0 * u + 40.0 * u
+	_ex_box.position = Vector2(bx - 12.0 * u, by - 40.0 * u)
+	_ex_box.size = Vector2(ew + 24.0 * u, box_h)
+	_ex_box.visible = _ex_visible and n_ex > 0
+	var j := 0
 	for k in entries.size():
 		if entries[k].example:
 			var c: _Pad = _cards[k]
-			c.position = Vector2(bx, by + n * (eh + 10.0 * u))
+			c.position = Vector2(bx, by + j * (eh + 8.0 * u))
 			c.size = Vector2(ew, eh)
 			c.data.small = true
-			n += 1
-	# 小關的圓點區、下方筆記紙
-	_path_pad.position = Vector2(40.0 * u, 400.0 * u)
-	_path_pad.size = Vector2(vs.x - 80.0 * u - (ew + 60.0 * u), 170.0 * u)
-	_detail.position = Vector2(60.0 * u, 600.0 * u)
-	_detail.size = Vector2(vs.x - 120.0 * u - (ew + 60.0 * u), 220.0 * u)
+			c.visible = _ex_visible
+			j += 1
+	# 下方面板（置中、不佔滿整排）、小關的路（卡片和面板中間，壓在背景小島上，像地圖上的站點）
+	var pw := 720.0 * u
+	var ph := 150.0 * u
+	_detail.position = Vector2((vs.x - pw) * 0.5, vs.y - ph - 64.0 * u)
+	_detail.size = Vector2(pw, ph)
+	var top := y0 + big.y
+	_path_pad.position = Vector2(60.0 * u, top)
+	_path_pad.size = Vector2(vs.x - 120.0 * u, _detail.position.y - top)
 	_rebuild_stage_pads()
-	for c in _cards:
-		(c as _Pad).queue_redraw()
-	_ex_box.queue_redraw()
+	_redraw_all()
 
-## 目前大關的小關圓點，沿著一條波浪小路排開
+## 目前大關的小關圓點：排在同一條水平的路上
 func _rebuild_stage_pads() -> void:
 	for p in _stage_pads:
 		(p as _Pad).queue_free()
 	_stage_pads.clear()
 	var ch := _cur()
 	var area := Rect2(_path_pad.position, _path_pad.size)
-	var n: int = 0 if ch.is_empty() else ch.stages.size()
+	var n: int = ch.stages.size() if _playable(ch) else 0
 	_path_pad.data = {"pts": []}
+	_detail.visible = n > 0
 	if n == 0:
 		_path_pad.queue_redraw()
-		_detail.queue_redraw()
 		return
-	var u := area.size.y / 170.0
+	var u := minf(get_viewport().get_visible_rect().size.x / 1600.0, get_viewport().get_visible_rect().size.y / 900.0)
 	var r := 34.0 * u
-	var step := minf(140.0 * u, (area.size.x - 2.0 * r - 40.0 * u) / maxf(n - 1, 1))
+	var step := minf(170.0 * u, (area.size.x - 2.0 * r - 40.0 * u) / maxf(n - 1, 1))
 	var span := step * (n - 1)
 	var sx := area.position.x + (area.size.x - span) * 0.5
+	var base_y := area.position.y + area.size.y * 0.5 - 26.0 * u
+	var pw := minf(step - 6.0 * u, r * 4.4) if n > 1 else r * 4.4
 	var pts: Array = []
 	for k in n:
 		var cx := sx + k * step
-		var cy := area.position.y + area.size.y * 0.42 + sin(k * 1.1) * 18.0 * u
-		pts.append(Vector2(cx, cy))
+		pts.append(Vector2(cx, base_y))
 		var p := _pad(_layer, _paint_stage)
-		p.position = Vector2(cx - r * 1.6, cy - r * 1.3)
-		p.size = Vector2(r * 3.2, r * 3.5)
-		p.data = {"k": k, "r": r}
+		p.position = Vector2(cx - pw * 0.5, base_y - r * 1.3)
+		p.size = Vector2(pw, r * 2.3 + 74.0 * u)
+		p.data = {"k": k, "r": r, "u": u}
 		p.on_hover = func(_p, _e): _hover_stage(k)
 		p.on_click = func(_p, _e):
 			if stage_sel == k:
@@ -458,17 +519,26 @@ func _rebuild_stage_pads() -> void:
 			else:
 				select_stage(k)
 		_stage_pads.append(p)
-	_path_pad.data = {"pts": pts}
+	_path_pad.data = {"pts": pts, "u": u}
 	_path_pad.queue_redraw()
 	_detail.queue_redraw()
 
+## 滑鼠移到卡片上：開放的島就選它；上鎖的島只抖一下鎖頭（不搶走目前的選擇）
 func _hover_entry(k: int) -> void:
-	if k != selected:
+	if k == selected:
+		return
+	if entries[k].example or _playable(entries[k].ch):
 		select(k)
+	elif _shake_t <= 0.0:
+		_shake(k)
 
 func _hover_stage(k: int) -> void:
 	if k != stage_sel:
 		select_stage(k)
+
+func _shake(k: int) -> void:
+	_shake_i = k
+	_shake_t = SHAKE_TIME
 
 # ---------------------------------------------------------------- 畫圖
 
@@ -492,35 +562,99 @@ func _box(bg: Color, edge: Color, radius: float, border := 3.0, shadow := true) 
 func _text(c: Control, pos: Vector2, t: String, size: float, col: Color, w := -1.0, align := HORIZONTAL_ALIGNMENT_LEFT) -> void:
 	c.draw_string(_font(), pos, t, align, w, int(size), col)
 
-func _lock_icon(c: Control, center: Vector2, s: float, col: Color) -> void:
-	# 大鎖：U 形鎖環＋圓角鎖身＋鑰匙孔
-	c.draw_arc(center + Vector2(0, -s * 0.15), s * 0.42, PI, TAU, 24, col, s * 0.14, true)
-	c.draw_line(center + Vector2(-s * 0.42, -s * 0.15), center + Vector2(-s * 0.42, s * 0.1), col, s * 0.14, true)
-	c.draw_line(center + Vector2(s * 0.42, -s * 0.15), center + Vector2(s * 0.42, s * 0.1), col, s * 0.14, true)
-	c.draw_style_box(_box(col, col.darkened(0.3), s * 0.12, 2.0, false), Rect2(center + Vector2(-s * 0.62, 0.0), Vector2(s * 1.24, s * 0.9)))
-	c.draw_circle(center + Vector2(0, s * 0.36), s * 0.11, Color(0, 0, 0, 0.45))
-	c.draw_rect(Rect2(center + Vector2(-s * 0.04, s * 0.38), Vector2(s * 0.08, s * 0.22)), Color(0, 0, 0, 0.45))
+## 字太寬就縮小字級（不截斷）
+func _fit(t: String, size: float, w: float, min_size := 11.0) -> float:
+	var f := _font()
+	while size > min_size and f.get_string_size(t, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size)).x > w:
+		size -= 1.0
+	return size
+
+func _lock_icon(c: Control, center: Vector2, s: float, col: Color, rot := 0.0) -> void:
+	# 大鎖：U 形鎖環＋圓角鎖身＋鑰匙孔（rot 是抖動的角度，以鎖身中心為軸）
+	c.draw_set_transform(center + Vector2(0, s * 0.3), rot, Vector2.ONE)
+	var o := Vector2(0, -s * 0.3)
+	c.draw_arc(o + Vector2(0, -s * 0.15), s * 0.42, PI, TAU, 24, col, s * 0.14, true)
+	c.draw_line(o + Vector2(-s * 0.42, -s * 0.15), o + Vector2(-s * 0.42, s * 0.1), col, s * 0.14, true)
+	c.draw_line(o + Vector2(s * 0.42, -s * 0.15), o + Vector2(s * 0.42, s * 0.1), col, s * 0.14, true)
+	c.draw_style_box(_box(col, col.darkened(0.3), s * 0.12, 2.0, false), Rect2(o + Vector2(-s * 0.62, 0.0), Vector2(s * 1.24, s * 0.9)))
+	c.draw_circle(o + Vector2(0, s * 0.36), s * 0.11, Color(0, 0, 0, 0.45))
+	c.draw_rect(Rect2(o + Vector2(-s * 0.04, s * 0.38), Vector2(s * 0.08, s * 0.22)), Color(0, 0, 0, 0.45))
+	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 func _check_icon(c: Control, center: Vector2, s: float, col: Color) -> void:
 	c.draw_polyline(PackedVector2Array([center + Vector2(-s * 0.45, 0), center + Vector2(-s * 0.1, s * 0.35), center + Vector2(s * 0.5, -s * 0.4)]), col, s * 0.2, true)
 
-func _star(c: Control, center: Vector2, r: float, col: Color) -> void:
+func _star(c: Control, center: Vector2, r: float, col: Color, edge := Color(0, 0, 0, 0)) -> void:
 	var pts := PackedVector2Array()
 	for i in 10:
 		var a := -PI * 0.5 + i * PI / 5.0
-		var rr := r if i % 2 == 0 else r * 0.45
+		var rr := r if i % 2 == 0 else r * 0.47
 		pts.append(center + Vector2(cos(a), sin(a)) * rr)
 	c.draw_colored_polygon(pts, col)
+	if edge.a > 0.0:
+		pts.append(pts[0])
+		c.draw_polyline(pts, edge, maxf(r * 0.16, 1.5), true)
+
+## 三顆星：拿到幾顆亮幾顆（沒拿到的是空心灰星）
+func _star_row(c: Control, center: Vector2, r: float, have: int, on_dark := false) -> void:
+	var gap := r * 2.5
+	for i in STAR_MAX:
+		var p := center + Vector2((i - (STAR_MAX - 1) * 0.5) * gap, 0)
+		if i < have:
+			_star(c, p, r, GOLD, Color("8a6410"))
+		else:
+			_star(c, p, r, Color(1, 1, 1, 0.35) if on_dark else Color(0, 0, 0, 0.12), Color(1, 1, 1, 0.75) if on_dark else Color(0, 0, 0, 0.3))
+
+## 雪花（冰雪島的圖示）
+func _snowflake(c: Control, center: Vector2, r: float, col: Color, w: float) -> void:
+	for i in 6:
+		var a := i * PI / 3.0 - PI * 0.5
+		var d := Vector2(cos(a), sin(a))
+		c.draw_line(center, center + d * r, col, w, true)
+		for sgn in [-1.0, 1.0]:
+			var b: Vector2 = d.rotated(sgn * 0.85)
+			c.draw_line(center + d * r * 0.55, center + d * r * 0.55 + b * r * 0.34, col, w, true)
+	c.draw_circle(center, w * 0.9, col)
+
+## 預設圖示：小土丘上一支旗子
+func _flag_icon(c: Control, center: Vector2, r: float, col: Color, w: float) -> void:
+	c.draw_arc(center + Vector2(0, r * 0.95), r * 0.75, PI * 1.15, PI * 1.85, 16, col, w, true)
+	c.draw_line(center + Vector2(-r * 0.15, r * 0.3), center + Vector2(-r * 0.15, -r * 0.85), col, w, true)
+	c.draw_colored_polygon(PackedVector2Array([center + Vector2(-r * 0.15, -r * 0.85), center + Vector2(r * 0.7, -r * 0.5), center + Vector2(-r * 0.15, -r * 0.15)]), col)
+
+## 島的圓徽章：chapter.gd 有 ICON 常數就用那個字；冰雪島畫雪花；其他畫旗子
+func _island_badge(c: Control, ch: Dictionary, center: Vector2, r: float, col: Color) -> void:
+	c.draw_circle(center + Vector2(0, r * 0.08), r, col.darkened(0.35))
+	c.draw_circle(center, r, col.darkened(0.12))
+	c.draw_circle(center, r * 0.86, col.lightened(0.25))
+	var glyph := String(_chapter_consts(ch).get("ICON", ""))
+	var ink := col.darkened(0.6)
+	if glyph != "":
+		_text(c, center + Vector2(-r, r * 0.36), glyph.substr(0, 1), r * 1.0, INK, r * 2.0, HORIZONTAL_ALIGNMENT_CENTER)
+	elif String(ch.id) == "ice":
+		_snowflake(c, center, r * 0.62, ink, r * 0.17)
+		_snowflake(c, center, r * 0.62, Color(1, 1, 1), r * 0.09)
+	else:
+		_flag_icon(c, center, r * 0.6, ink, r * 0.12)
+
+## 圓形數字徽章（小關編號）
+func _num_badge(c: Control, center: Vector2, r: float, n: int, col: Color, ring := Color(1, 1, 1, 0.95)) -> void:
+	c.draw_circle(center + Vector2(0, r * 0.14), r + r * 0.1, Color(0, 0, 0, 0.22))
+	c.draw_circle(center, r + maxf(r * 0.12, 3.0), ring)
+	c.draw_circle(center, r, col)
+	_text(c, center + Vector2(-r, r * 0.38), str(n), r * 1.05, INK, r * 2.0, HORIZONTAL_ALIGNMENT_CENTER)
 
 func _paint_dim(c: Control) -> void:
-	var h := c.size.y
-	c.draw_rect(Rect2(Vector2.ZERO, c.size), Color(0.05, 0.09, 0.16, 0.38))
-	c.draw_rect(Rect2(Vector2.ZERO, Vector2(c.size.x, h * 0.42)), Color(0.05, 0.09, 0.16, 0.25))
+	var bands := 14
+	var h := c.size.y * 0.3
+	for i in bands:
+		var a := 0.34 * (1.0 - float(i) / bands)
+		c.draw_rect(Rect2(Vector2(0, h * i / bands), Vector2(c.size.x, h / bands + 1.0)), Color(0.05, 0.09, 0.16, a))
 
 func _paint_ex_box(c: Control) -> void:
 	c.draw_style_box(_box(Color(0.1, 0.13, 0.2, 0.72), Color(1, 1, 1, 0.3), 12, 2.0, false), Rect2(Vector2.ZERO, c.size))
-	var u := c.size.x / 228.0
-	_text(c, Vector2(14 * u, 28 * u), "範例關（開發測試用）", 17 * u, Color(1, 0.95, 0.8))
+	var u := c.size.x / 224.0
+	_text(c, Vector2(14 * u, 27 * u), "範例關（F1 收起）", 16 * u, Color(1, 0.95, 0.8))
 
 ## 一座島的卡片
 func _paint_card(c: Control) -> void:
@@ -531,96 +665,84 @@ func _paint_card(c: Control) -> void:
 	var playable := _playable(ch)
 	var col := _color_of(e)
 	var r := Rect2(Vector2.ZERO, c.size)
-	var lift := (-8.0 if sel else 0.0) + (sin(_t * 3.0) * 2.0 if sel else 0.0)
-	r.position.y += lift
-	var u := c.size.x / (200.0 if c.data.get("small", false) else 290.0)
 	if c.data.get("small", false):
 		# 範例區的小卡：一條色帶＋名字＋小關數
+		var us := c.size.x / 200.0
 		c.draw_style_box(_box(PAPER if playable else LOCKED, Color("f7d35a") if sel else (PAPER_EDGE if playable else LOCKED_EDGE), 10, 4.0 if sel else 2.0), r)
-		c.draw_rect(Rect2(r.position + Vector2(4, 4), Vector2(14 * u, r.size.y - 8)), col)
-		_text(c, r.position + Vector2(28 * u, 30 * u), String(ch.title), 18 * u, INK, r.size.x - 34 * u)
-		_text(c, r.position + Vector2(28 * u, 54 * u), "%d 小關" % ch.stages.size(), 14 * u, Color(INK, 0.65))
+		c.draw_rect(Rect2(r.position + Vector2(4, 4), Vector2(14 * us, r.size.y - 8)), col)
+		_text(c, r.position + Vector2(28 * us, 28 * us), String(ch.title), _fit(String(ch.title), 18 * us, r.size.x - 36 * us), INK)
+		_text(c, r.position + Vector2(28 * us, 52 * us), "%d 小關" % ch.stages.size(), 14 * us, Color(INK, 0.65))
 		return
-	var paper := PAPER if playable else LOCKED
-	var edge := Color("f7d35a") if sel else (PAPER_EDGE if playable else LOCKED_EDGE)
-	c.draw_style_box(_box(paper, edge, 16, 6.0 if sel else 3.0), r)
-	# 上面的色帶：第幾座島＋島名
-	var head := Rect2(r.position + Vector2(6, 6), Vector2(r.size.x - 12, 58 * u))
+	if not playable:
+		# 還沒做好的島：小小一張，只有鎖頭和「？？？」；選到的時候鎖頭抖一下、多一行「即將開放」
+		var us := c.size.x / 140.0
+		var rot := 0.0
+		if _shake_i == k and _shake_t > 0.0:
+			rot = sin(_shake_t * 42.0) * 0.28 * (_shake_t / SHAKE_TIME)
+		c.draw_style_box(_box(Color(LOCKED, 0.9), Color("f7d35a") if sel else LOCKED_EDGE, 14, 4.0 if sel else 2.0), r)
+		_lock_icon(c, Vector2(r.get_center().x, 70 * us), 40 * us, Color("8a857a"), rot)
+		_text(c, Vector2(0, 136 * us), "？？？", 22 * us, Color("7d776c"), r.size.x, HORIZONTAL_ALIGNMENT_CENTER)
+		if sel:
+			_text(c, Vector2(0, 162 * us), "即將開放", 15 * us, Color("7d776c"), r.size.x, HORIZONTAL_ALIGNMENT_CENTER)
+		return
+	# 開放的島：大卡片＝島名色帶＋圓徽章＋總星數
+	var u := c.size.x / 230.0
+	var lift := (-6.0 + sin(_t * 3.0) * 2.0) * u if sel else 0.0
+	r.position.y += lift
+	r.size.y -= 8.0 * u
+	c.draw_style_box(_box(PAPER, Color("f7d35a") if sel else PAPER_EDGE, 18, 6.0 if sel else 3.0), r)
+	var head := Rect2(r.position + Vector2(6, 6), Vector2(r.size.x - 12, 50 * u))
 	var hb := StyleBoxFlat.new()
 	hb.bg_color = col
-	hb.corner_radius_top_left = int(12 * u)
-	hb.corner_radius_top_right = int(12 * u)
+	hb.corner_radius_top_left = int(13 * u)
+	hb.corner_radius_top_right = int(13 * u)
 	c.draw_style_box(hb, head)
-	_text(c, head.position + Vector2(12 * u, 24 * u), "第 %d 座島" % (int(e.slot) + 1), 15 * u, Color(INK, 0.75))
-	var title := String(ch.title) if not ch.is_empty() else "？？？島"
-	_text(c, head.position + Vector2(12 * u, 50 * u), title, 26 * u, INK, head.size.x - 20 * u)
-	var body_y := head.end.y
-	if not playable:
-		# 還沒做好：斜斜一條施工膠帶＋大鎖＋「建造中」
-		var tape_y := r.end.y - 40 * u
-		var tp := PackedVector2Array([Vector2(r.position.x + 6, tape_y + 10 * u), Vector2(r.end.x - 6, tape_y - 14 * u), Vector2(r.end.x - 6, tape_y + 4 * u), Vector2(r.position.x + 6, tape_y + 28 * u)])
-		c.draw_colored_polygon(tp, Color("f2c230"))
-		var stripes := int((r.size.x - 12) / (22 * u))
-		for i in stripes:
-			if i % 2 == 0:
-				continue
-			var x0 := r.position.x + 6 + i * 22 * u
-			var x1 := x0 + 22 * u
-			var f0 := (x0 - r.position.x - 6) / (r.size.x - 12)
-			var f1 := (x1 - r.position.x - 6) / (r.size.x - 12)
-			var y0a := lerpf(tape_y + 10 * u, tape_y - 14 * u, f0)
-			var y1a := lerpf(tape_y + 10 * u, tape_y - 14 * u, f1)
-			c.draw_colored_polygon(PackedVector2Array([Vector2(x0, y0a), Vector2(x1, y1a), Vector2(x1 - 10 * u, y1a + 18 * u), Vector2(x0 - 10 * u, y0a + 18 * u)]), Color(0.15, 0.13, 0.12, 0.85))
-		_lock_icon(c, Vector2(r.get_center().x, body_y + 28 * u), 40 * u, Color("8a857a"))
-		_text(c, Vector2(r.position.x, body_y + 100 * u), "建造中", 26 * u, Color("6f6a60"), r.size.x, HORIZONTAL_ALIGNMENT_CENTER)
-		var who := ("%s 製作中" % ch.author) if not ch.is_empty() and String(ch.author) != "" else "組員製作中，敬請期待"
-		_text(c, Vector2(r.position.x, body_y + 124 * u), who, 14 * u, Color("6f6a60"), r.size.x, HORIZONTAL_ALIGNMENT_CENTER)
-		return
-	# 左邊：圓形徽章（島名第一個字）
-	var badge := r.position + Vector2(52 * u, body_y - r.position.y + 54 * u)
-	c.draw_circle(badge, 38 * u, col.darkened(0.25))
-	c.draw_circle(badge, 34 * u, col.lightened(0.35))
-	var glyph := String(ch.title).replace("範例：", "").substr(0, 1)
-	_text(c, badge + Vector2(-40 * u, 14 * u), glyph, 38 * u, INK, 80 * u, HORIZONTAL_ALIGNMENT_CENTER)
-	# 右邊：說明（最多三行）
-	var desc := String(ch.desc)
-	c.draw_multiline_string(_font(), r.position + Vector2(100 * u, body_y - r.position.y + 28 * u), desc, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 112 * u, int(15 * u), 3, Color(INK, 0.85))
-	# 下面：星星進度（過了幾小關）＋進度條
-	var total: int = ch.stages.size()
-	var done: int = ch.stages.filter(func(s): return Progress.is_cleared(s.id)).size()
-	var py := r.end.y - 36 * u
-	_star(c, Vector2(r.position.x + 24 * u, py), 13 * u, GOLD)
-	_text(c, Vector2(r.position.x + 42 * u, py + 7 * u), "%d / %d" % [done, total], 18 * u, INK)
-	var bar := Rect2(Vector2(r.position.x + 110 * u, py - 6 * u), Vector2(r.size.x - 128 * u, 12 * u))
-	c.draw_style_box(_box(Color(0, 0, 0, 0.12), Color(0, 0, 0, 0), 6, 0.0, false), bar)
-	if total > 0 and done > 0:
-		c.draw_style_box(_box(GREEN, Color(0, 0, 0, 0), 6, 0.0, false), Rect2(bar.position, Vector2(bar.size.x * done / total, bar.size.y)))
-	if Progress.chapter_cleared(ch):
-		_check_icon(c, Vector2(r.end.x - 26 * u, r.position.y + 26 * u), 22 * u, GREEN)
+	var title := String(ch.title)
+	var fs := _fit(title, 28 * u, head.size.x - 16 * u)
+	_text(c, Vector2(head.position.x, head.position.y + head.size.y * 0.5 + fs * 0.36), title, fs, INK, head.size.x, HORIZONTAL_ALIGNMENT_CENTER)
+	_island_badge(c, ch, Vector2(r.get_center().x, head.end.y + 50 * u), 38 * u, col)
+	# 總星數「★ 7/9」；沒有三星制度的大關顯示過了幾關
+	var have := 0
+	var maxn := 0
+	var starred := _star_table(ch) != null
+	for st in ch.stages:
+		if starred:
+			have += maxi(_stars(ch, st), 0)
+			maxn += STAR_MAX
+		else:
+			have += 1 if Progress.is_cleared(st.id) else 0
+			maxn += 1
+	var py := r.end.y - 22 * u
+	var label := "%d/%d" % [have, maxn]
+	var tw := _font().get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(22 * u)).x
+	var x0 := r.get_center().x - (tw + 34 * u) * 0.5
+	if starred:
+		_star(c, Vector2(x0 + 12 * u, py - 1 * u), 13 * u, GOLD, Color("8a6410"))
+	else:
+		c.draw_circle(Vector2(x0 + 12 * u, py - 1 * u), 12 * u, GREEN)
+		_check_icon(c, Vector2(x0 + 12 * u, py - 1 * u), 13 * u, Color(1, 1, 1))
+	_text(c, Vector2(x0 + 34 * u, py + 7 * u), label, 22 * u, INK)
 
-## 小關之間的小路（虛線）
+## 小關之間的路：一條連續的粗線，走過的那一段比較亮
 func _paint_path(c: Control) -> void:
 	var pts: Array = c.data.get("pts", [])
-	var ch := _cur()
-	if pts.is_empty():
-		var msg := "這座島還在建造中，先玩別的島吧！"
-		var tw := _font().get_string_size(msg, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
-		c.draw_style_box(_box(Color(0.08, 0.11, 0.18, 0.8), Color(1, 1, 1, 0.3), 14, 2.0, false), Rect2(Vector2((c.size.x - tw) * 0.5 - 24, c.size.y * 0.5 - 34), Vector2(tw + 48, 52)))
-		_text(c, Vector2(0, c.size.y * 0.5), msg, 26, Color(1, 0.97, 0.9), c.size.x, HORIZONTAL_ALIGNMENT_CENTER)
+	if pts.size() < 2:
 		return
+	var u: float = c.data.get("u", 1.0)
+	var ch := _cur()
+	var a0: Vector2 = pts[0] - c.position
+	var b0: Vector2 = pts[pts.size() - 1] - c.position
+	c.draw_line(a0 + Vector2(0, 4 * u), b0 + Vector2(0, 4 * u), Color(0, 0, 0, 0.22), 14 * u, true)
+	c.draw_line(a0, b0, Color(1, 1, 1, 0.6), 12 * u, true)
 	for k in range(1, pts.size()):
-		var a: Vector2 = pts[k - 1] - c.position
-		var b: Vector2 = pts[k] - c.position
-		var n := int(a.distance_to(b) / 16.0)
-		var done := Progress.is_cleared(ch.stages[k - 1].id)
-		for i in range(1, n):
-			var p := a.lerp(b, float(i) / n) + Vector2(0, sin(float(i) / n * PI) * -8.0)
-			c.draw_circle(p, 4.0, Color(1, 0.95, 0.75, 0.95) if done else Color(1, 1, 1, 0.55))
+		if Progress.is_cleared(ch.stages[k - 1].id):
+			c.draw_line(pts[k - 1] - c.position, pts[k] - c.position, Color("ffe9a8"), 12 * u, true)
 
-## 一個小關的圓點
+## 一個小關：編號圓點＋三顆小星＋名字
 func _paint_stage(c: Control) -> void:
 	var k: int = c.data.k
 	var r: float = c.data.r
+	var u: float = c.data.u
 	var ch := _cur()
 	if ch.is_empty() or k >= ch.stages.size():
 		return
@@ -628,82 +750,89 @@ func _paint_stage(c: Control) -> void:
 	var sel := k == stage_sel
 	var open := _stage_open(k)
 	var cleared := Progress.is_cleared(st.id)
-	var ctr := Vector2(c.size.x * 0.5, r * 1.3 + (sin(_t * 4.0) * 3.0 - 4.0 if sel else 0.0))
+	var ctr := Vector2(c.size.x * 0.5, r * 1.3)          # 圓心都在同一條基線上
 	var col: Color = GREEN if cleared else (_color_of(entries[selected]) if open else LOCKED)
-	var rr := r * (1.15 if sel else 1.0)
-	c.draw_circle(ctr + Vector2(0, 5), rr, Color(0, 0, 0, 0.25))
-	c.draw_circle(ctr, rr + 4, Color("f7d35a") if sel else Color(1, 1, 1, 0.95))
-	c.draw_circle(ctr, rr, col)
+	var rr := r * ((1.14 + sin(_t * 4.0) * 0.03) if sel else 1.0)
 	if open:
-		_text(c, ctr + Vector2(-rr, rr * 0.38), str(k + 1), rr * 1.05, INK, rr * 2.0, HORIZONTAL_ALIGNMENT_CENTER)
+		_num_badge(c, ctr, rr, k + 1, col, Color("f7d35a") if sel else Color(1, 1, 1, 0.95))
 	else:
-		_lock_icon(c, ctr + Vector2(0, -rr * 0.15), rr * 0.75, Color("8a857a"))
-	if cleared:
+		c.draw_circle(ctr + Vector2(0, rr * 0.14), rr * 1.1, Color(0, 0, 0, 0.22))
+		c.draw_circle(ctr, rr + maxf(rr * 0.12, 3.0), Color("f7d35a") if sel else Color(1, 1, 1, 0.95))
+		c.draw_circle(ctr, rr, col)
+		_lock_icon(c, ctr + Vector2(0, -rr * 0.15), rr * 0.72, Color("8a857a"))
+	# 三顆小星（拿到幾顆亮幾顆）；沒有三星制度的大關：過關就在右上角打勾
+	var stars := _stars(ch, st)
+	var y := ctr.y + r + 20 * u
+	if stars >= 0:
+		_star_row(c, Vector2(ctr.x, y), 8.0 * u, stars, true)
+	elif cleared:
 		c.draw_circle(ctr + Vector2(rr * 0.75, -rr * 0.75), rr * 0.36, Color(1, 1, 1))
 		_check_icon(c, ctr + Vector2(rr * 0.75, -rr * 0.75), rr * 0.4, GREEN)
-	# 名字：去掉【…】前綴，太長就截掉；底下墊一塊深色小牌子，在小島上也看得清楚
-	var name := _short_title(String(st.title))
-	var fs := 16.0
+	# 名字：墊一塊深色小牌（選到的是黃牌），太寬就縮字不截斷
+	var name := String(st.title)
+	var fs := _fit(name, 17 * u, c.size.x - 20 * u)
 	var tw := _font().get_string_size(name, HORIZONTAL_ALIGNMENT_LEFT, -1, int(fs)).x
-	var ty := ctr.y + rr + 12
-	var plate := Rect2(Vector2((c.size.x - tw) * 0.5 - 8, ty), Vector2(tw + 16, fs + 12))
-	c.draw_style_box(_box(Color(0.08, 0.11, 0.18, 0.82) if not sel else Color("f7d35a"), Color(0, 0, 0, 0), 8, 0.0, false), plate)
-	_text(c, Vector2(0, ty + fs + 2), name, fs, Color(1, 0.97, 0.9) if not sel else INK, c.size.x, HORIZONTAL_ALIGNMENT_CENTER)
+	var ty := y + 14 * u
+	var plate := Rect2(Vector2((c.size.x - tw) * 0.5 - 9 * u, ty), Vector2(tw + 18 * u, fs + 12 * u))
+	c.draw_style_box(_box(Color("f7d35a") if sel else Color(0.08, 0.11, 0.18, 0.82), Color(0, 0, 0, 0), 9, 0.0, false), plate)
+	_text(c, Vector2(0, ty + fs + 3 * u), name, fs, INK if sel else Color(1, 0.97, 0.9), c.size.x, HORIZONTAL_ALIGNMENT_CENTER)
 
-## 小關名字縮短：去掉「【實驗C】」這種前綴，最多 7 個字
-func _short_title(t: String) -> String:
-	var i := t.find("】")
-	if t.begins_with("【") and i > 0 and i < t.length() - 1:
-		t = t.substr(i + 1).strip_edges()
-	if t.length() > 7:
-		t = t.substr(0, 6) + "…"
-	return t
-
-## 下方筆記紙：這一關的名字、說明、開始按鈕
+## 下方面板：編號徽章＋關名＋三顆星＋開始按鈕（Enter 鍵帽畫在按鈕裡）
 func _paint_detail(c: Control) -> void:
-	var r := Rect2(Vector2.ZERO, c.size)
-	var u := c.size.y / 220.0
-	c.draw_style_box(_box(PAPER, PAPER_EDGE, 8, 3.0), r)
-	# 紙張的橫線、紅邊線
-	var y := 58.0 * u
-	while y < r.size.y - 10:
-		c.draw_line(Vector2(10, y), Vector2(r.size.x - 10, y), Color(0.45, 0.62, 0.85, 0.22), 2.0)
-		y += 40.0 * u
-	c.draw_line(Vector2(32 * u, 6), Vector2(32 * u, r.size.y - 6), Color(0.88, 0.36, 0.36, 0.5), 2.0)
-	var ch := _cur()
-	var e: Dictionary = entries[selected] if selected < entries.size() else {}
 	_start_rect = Rect2()
-	if ch.is_empty() or not _playable(ch):
-		_text(c, Vector2(52 * u, 60 * u), "這座島還在建造中", 32 * u, INK)
-		_text(c, Vector2(52 * u, 104 * u), "組員正在做這一座島的關卡。做好之後會自動出現在這裡，第 1 小關就能玩。", 19 * u, Color(INK, 0.75), r.size.x - 80 * u)
+	var ch := _cur()
+	if not _playable(ch) or stage_sel >= ch.stages.size():
 		return
+	var r := Rect2(Vector2.ZERO, c.size)
+	var u := c.size.y / 150.0
+	c.draw_style_box(_box(PAPER, PAPER_EDGE, 16, 3.0), r)
+	# 一小段紙膠帶（跟遊戲裡的筆記紙同一套語言）
+	c.draw_set_transform(Vector2(34 * u, -9 * u), -0.05, Vector2.ONE)
+	c.draw_rect(Rect2(Vector2.ZERO, Vector2(84 * u, 20 * u)), Color(0.95, 0.88, 0.6, 0.8))
+	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 	var st: Dictionary = ch.stages[stage_sel]
-	var who := ("　by %s" % ch.author) if String(ch.author) != "" else ""
-	_text(c, Vector2(52 * u, 40 * u), "%s%s" % [ch.title, who], 18 * u, Color(INK, 0.6))
-	_text(c, Vector2(52 * u, 84 * u), "第 %d 小關　%s" % [stage_sel + 1, st.title], 34 * u, INK, r.size.x - 340 * u)
-	var desc := String(st.desc) if String(st.desc) != "" else String(ch.desc)
-	c.draw_multiline_string(_font(), Vector2(52 * u, 128 * u), desc, HORIZONTAL_ALIGNMENT_LEFT, r.size.x - 360 * u, int(20 * u), 3, Color(INK, 0.8))
-	# 狀態列：這一關過了沒、這座島過了幾關
 	var open := _stage_open(stage_sel)
-	var done_n: int = ch.stages.filter(func(s2): return Progress.is_cleared(s2.id)).size()
-	var status := "✔ 已經過關" if Progress.is_cleared(st.id) else ("還沒過關" if open else "還沒解鎖")
-	_star(c, Vector2(62 * u, r.size.y - 30 * u), 11 * u, GOLD)
-	_text(c, Vector2(80 * u, r.size.y - 23 * u), "%s　｜　這座島已過 %d / %d 關" % [status, done_n, ch.stages.size()], 17 * u, Color(INK, 0.7))
-	# 開始按鈕（右邊）／上鎖說明
-	var br := Rect2(Vector2(r.size.x - 290 * u, 60 * u), Vector2(250 * u, 96 * u))
 	var cleared := Progress.is_cleared(st.id)
+	var stars := _stars(ch, st)
+	var col: Color = GREEN if cleared else (_color_of(entries[selected]) if open else LOCKED)
+	var bc := Vector2(70 * u, 75 * u)
 	if open:
-		var pulse := 1.0 + sin(_t * 4.0) * 0.03
+		_num_badge(c, bc, 34 * u, stage_sel + 1, col, col.darkened(0.3))
+	else:
+		c.draw_circle(bc, 38 * u, LOCKED_EDGE)
+		c.draw_circle(bc, 34 * u, LOCKED)
+		_lock_icon(c, bc + Vector2(0, -6 * u), 26 * u, Color("8a857a"))
+	var tx := 124 * u
+	var tw_max := r.size.x - tx - 280 * u
+	var title := String(st.title)
+	var fs := _fit(title, 36 * u, tw_max, 18.0)
+	var has_row := stars >= 0 or cleared
+	_text(c, Vector2(tx, (70 * u if has_row else 88 * u)), title, fs, INK)
+	if stars >= 0:
+		_star_row(c, Vector2(tx + 44 * u, 106 * u), 14 * u, stars)
+	elif cleared:
+		c.draw_circle(Vector2(tx + 14 * u, 106 * u), 13 * u, GREEN)
+		_check_icon(c, Vector2(tx + 14 * u, 106 * u), 14 * u, Color(1, 1, 1))
+	# 右邊：開始按鈕／上鎖
+	var br := Rect2(Vector2(r.size.x - 262 * u, 30 * u), Vector2(232 * u, 90 * u))
+	if open:
+		var pulse := 1.0 + sin(_t * 4.0) * 0.025
 		var bb := Rect2(br.get_center() - br.size * 0.5 * pulse, br.size * pulse)
-		c.draw_style_box(_box(GREEN, Color("2f7a2f"), 22, 4.0), bb)
-		_text(c, Vector2(bb.position.x, bb.get_center().y + 14 * u), ("再玩一次 ▶" if cleared else "開始 ▶"), 38 * u, Color(1, 1, 1), bb.size.x, HORIZONTAL_ALIGNMENT_CENTER)
-		_text(c, Vector2(br.position.x, br.end.y + 32 * u), "Enter 也可以開始", 15 * u, Color(INK, 0.55), br.size.x, HORIZONTAL_ALIGNMENT_CENTER)
+		c.draw_style_box(_box(GREEN, Color("2f7a2f"), 24, 4.0), bb)
+		var cy := bb.get_center().y
+		_text(c, Vector2(bb.position.x + 22 * u, cy + 13 * u), "開始", 36 * u, Color(1, 1, 1))
+		var tri := Vector2(bb.position.x + 112 * u, cy)
+		c.draw_colored_polygon(PackedVector2Array([tri + Vector2(-8, -13) * u, tri + Vector2(12, 0) * u, tri + Vector2(-8, 13) * u]), Color(1, 1, 1))
+		# Enter 鍵帽
+		var key := Rect2(Vector2(bb.end.x - 86 * u, cy - 17 * u), Vector2(68 * u, 34 * u))
+		c.draw_style_box(_box(Color(1, 1, 1, 0.95), Color("2f7a2f"), 8, 2.0, false), key)
+		_text(c, Vector2(key.position.x, key.position.y + 23 * u), "Enter", 16 * u, Color("2f7a2f"), key.size.x, HORIZONTAL_ALIGNMENT_CENTER)
 		_start_rect = bb
 	else:
-		c.draw_style_box(_box(LOCKED, LOCKED_EDGE, 22, 3.0), br)
-		_lock_icon(c, br.position + Vector2(48 * u, br.size.y * 0.48), 34 * u, Color("8a857a"))
-		_text(c, br.position + Vector2(84 * u, br.size.y * 0.42), "還沒解鎖", 24 * u, Color("6f6a60"))
-		_text(c, br.position + Vector2(84 * u, br.size.y * 0.74), "先過第 %d 小關" % stage_sel, 17 * u, Color("6f6a60"))
+		c.draw_style_box(_box(LOCKED, LOCKED_EDGE, 24, 3.0), br)
+		_lock_icon(c, br.position + Vector2(46 * u, br.size.y * 0.42), 30 * u, Color("8a857a"))
+		_text(c, br.position + Vector2(84 * u, br.size.y * 0.5 + 10 * u), "先過", 26 * u, Color("6f6a60"))
+		_num_badge(c, br.position + Vector2(176 * u, br.size.y * 0.5), 20 * u, stage_sel, _color_of(entries[selected]), Color(1, 1, 1, 0.95))
 
 # ================================================================== 選取、開始
 
@@ -724,11 +853,31 @@ func select(i: int) -> void:
 	if entries.is_empty():
 		return
 	var was := selected
-	selected = clampi(i, 0, entries.size() - 1) if i >= 0 or was < 0 else 0
+	selected = clampi(i, 0, entries.size() - 1)
 	if selected != was or stage_sel >= maxi(_cur().get("stages", []).size(), 1):
 		stage_sel = _first_open_stage()
+	if not _playable(_cur()):
+		_shake(selected)            # 上鎖的島：鎖頭抖一下
 	_rebuild_stage_pads()
 	_redraw_all()
+
+## ← →：在看得到的格子之間移動（範例區收起來時跳過範例）
+func _move_entry(d: int) -> void:
+	var vis: Array = []
+	for k in entries.size():
+		if not entries[k].example or _ex_visible:
+			vis.append(k)
+	if vis.is_empty():
+		return
+	var at := vis.find(selected)
+	select(vis[clampi(at + d, 0, vis.size() - 1)] if at >= 0 else vis[0])
+
+## F1：顯示／收起範例關（開發測試用，玩家平常看不到）
+func _toggle_examples() -> void:
+	_ex_visible = not _ex_visible
+	if not _ex_visible and selected < entries.size() and entries[selected].example:
+		select(_first_selection())
+	_layout()
 
 ## 一進大關先選「第一個還沒過、可以玩的小關」
 func _first_open_stage() -> int:
@@ -756,19 +905,21 @@ func _redraw_all() -> void:
 		_path_pad.queue_redraw()
 	if _detail:
 		_detail.queue_redraw()
+	if _ex_box:
+		_ex_box.queue_redraw()
 
 func start_selected() -> bool:
 	if _starting or entries.is_empty():
 		return false
 	var ch := _cur()
 	if ch.is_empty() or ch.stages.is_empty() or String(ch.stages[stage_sel].scene) == "":
-		_show_toast("這座島還在建造中，先玩別的島吧")
+		_shake(selected)            # 還沒做好的島：不跳字，鎖頭抖一下就好
 		return false
 	if not _unlocked_ch(ch, stage_sel + 1):
 		if OS.is_debug_build() and not "--autotest" in OS.get_cmdline_user_args():
 			_show_toast("（開發模式：還沒解鎖也讓你進去）")
 		else:
-			_show_toast("先過第 %d 小關才能玩這一關" % stage_sel)
+			_show_toast("先過第 %d 關" % stage_sel)
 			return false
 	_starting = true
 	Engine.set_meta("next_scene", ch.stages[stage_sel].scene)
@@ -785,9 +936,9 @@ func _unhandled_input(e: InputEvent) -> void:
 	if e is InputEventKey and e.pressed and not e.echo:
 		match e.keycode:
 			KEY_LEFT, KEY_A:
-				select(selected - 1)
+				_move_entry(-1)
 			KEY_RIGHT, KEY_D:
-				select(selected + 1)
+				_move_entry(1)
 			KEY_UP, KEY_W:
 				select_stage(stage_sel - 1)
 			KEY_DOWN, KEY_S:
@@ -796,6 +947,8 @@ func _unhandled_input(e: InputEvent) -> void:
 				select_stage(e.keycode - KEY_1)
 			KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
 				start_selected()
+			KEY_F1:
+				_toggle_examples()
 			KEY_ESCAPE:
 				if not _starting and ResourceLoader.exists(INTRO_SCENE):
 					get_tree().change_scene_to_file(INTRO_SCENE)
@@ -804,13 +957,17 @@ func _process(dt: float) -> void:
 	_t += dt
 	# 背景小島慢慢晃
 	_cam.position = _cam_base + Vector3(sin(_t * 0.12) * 6.0, 0, cos(_t * 0.09) * 1.5)
-	# 選到的卡片、圓點、開始按鈕會輕輕動（要重畫）
+	# 選到的卡片、圓點、開始按鈕會輕輕動；鎖頭抖動中的卡片也要重畫
 	if selected < _cards.size():
 		(_cards[selected] as _Pad).queue_redraw()
 	if stage_sel < _stage_pads.size():
 		(_stage_pads[stage_sel] as _Pad).queue_redraw()
-	if _detail:
+	if _detail and _detail.visible:
 		_detail.queue_redraw()
+	if _shake_t > 0.0:
+		_shake_t = maxf(_shake_t - dt, 0.0)
+		if _shake_i >= 0 and _shake_i < _cards.size():
+			(_cards[_shake_i] as _Pad).queue_redraw()
 	if _toast_t > 0.0:
 		_toast_t -= dt
 		if _toast_t <= 0.0:
@@ -837,12 +994,13 @@ func _autotest() -> void:
 		all_first = all_first and (LEVELS[k].stages.is_empty() or unlocked(k, 1))
 	var listed := entries.filter(func(e): return not e.ch.is_empty()).size()
 	var islands := entries.filter(func(e): return not e.example).size()
-	var locked_ok := entries.all(func(e): return e.example or _playable(e.ch) or true)
+	var ex_hidden := not _ex_visible and entries.all(func(e): return not e.example or not (_cards[entries.find(e)] as Control).visible)
 	var checks := [
 		["選關畫面自動找到所有大關（%d 個）" % LEVELS.size(), listed == LEVELS.size() and LEVELS.size() >= 1],
 		["農場範例在範例區", farm >= 0 and entries[farm].example],
+		["範例區預設收起來（F1 才顯示）", ex_hidden],
 		["每個大關的第 1 小關都可以玩", all_first],
-		["正式的島至少 %d 格（沒做好的顯示建造中）" % ISLAND_SLOTS, islands >= ISLAND_SLOTS and locked_ok],
+		["正式的島至少 %d 格（沒做好的上鎖）" % ISLAND_SLOTS, islands >= ISLAND_SLOTS],
 	]
 	if DisplayServer.window_can_draw():
 		await RenderingServer.frame_post_draw
@@ -866,6 +1024,7 @@ func _autotest() -> void:
 	if DisplayServer.window_can_draw():
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(out_dir.path_join("00b_level_locked.png"))
+	# 範例關平常收起來，自動驗收直接用程式選到農場範例
 	select(farm if farm >= 0 else 0)
 	select_stage(0)
 	for c in checks:
