@@ -229,7 +229,7 @@ func _level_setup() -> void:
 	_goal_label.add_theme_font_size_override("font_size", 50)
 	UISkin.ribbon(_goal_label)
 	_goal_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	_goal_label.offset_top = 100
+	_goal_label.offset_top = 26   # 貼著畫面上緣：鏡頭收窄後籠子在畫面上方，標題再低就會蓋到「救我！」
 	_goal_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_goal_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_list_layer.add_child(_goal_label)

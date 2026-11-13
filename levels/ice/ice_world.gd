@@ -22,6 +22,8 @@ var snowmen: Array = []
 var snowman_nodes: Array = []
 ## 冰湖邊的松樹（裝飾，會擋路）：[Vector3, ...]
 var pines: Array = []
+## 要畫成小樹的松樹（pines 裡的序號）。擋路的範圍一樣大，只是矮一半，不會擋住站在後面的人
+var low_pines: Array = []
 ## 雪堆（不擋路）：滑出去停在雪堆旁的人會倒栽進去，只露出兩條腿。[Vector3, ...]
 var snow_piles: Array = []
 ## 工人的冰釣營地（純裝飾）：[{"pos": Vector3, "yaw": 弧度}]，通常放在工人出發點後面
@@ -40,6 +42,9 @@ var decor := true
 var zones: Array = []
 ## 這一關的時段：只換光線、天空、海的顏色。"morning" 早晨／"sunset" 黃昏／"dusk" 藍調傍晚
 var mood := "morning"
+## 玩家鏡頭的視角（度）。共用場景預設是 72（廣角，遠的東西會變很小）；
+## 救企鵝的關卡用 45 左右、鏡頭退遠一點，冰湖才會佔滿畫面中間，看起來像一個小模型。0 = 不改
+var camera_fov := 0.0
 ## 地圖的輪廓（不用設：預設照遊玩範圍算，再自動放大到包住湖、籠子、出發點）。
 ## 想調就給其中幾項：{"c": Vector2 中心, "rx": 橫向半徑, "rz": 縱向半徑, "seed": 亂數（邊緣的形狀）, "pow": 越大越方}
 var isle: Dictionary = {}
@@ -395,8 +400,8 @@ func _build_extra() -> void:
 		thin.append(_make_thin(s.center, float(s.r), root))
 	for p in snowmen:
 		_snowman(root, p)
-	for p in pines:
-		_pine(root, p)
+	for i in pines.size():
+		_pine(root, pines[i], low_pines.has(i))
 	for p in snow_piles:
 		# 雪堆（工人會倒栽進去的那種）：兩坨疊在一起，比岸邊的雪大
 		_drift(root, Vector3(p.x, height_at(p.x, p.z) - 0.05, p.z), "b", p.x, Vector3(1.75, 1.7, 1.75))
@@ -422,6 +427,12 @@ func _place_player() -> void:
 		var n := find_child(nm, true, false) as Node3D
 		if n:
 			n.visible = false
+	# 鏡頭視角：只在這一關的場景裡改（共用的場景檔不動）
+	if camera_fov > 0.0:
+		var pl := get_node_or_null(player_path)
+		var cam := (pl.get_node_or_null("Head/Camera3D") if pl else null) as Camera3D
+		if cam:
+			cam.fov = camera_fov
 
 func _make_materials() -> void:
 	var md := _mood()
@@ -598,8 +609,8 @@ func _snowman(parent: Node3D, p: Vector3) -> void:
 	obstacles.append([Vector2(p.x, p.z), 0.6])
 
 ## 會擋路的雪松（Kenney Holiday Kit）
-func _pine(parent: Node3D, p: Vector3) -> void:
-	_prop(parent, KH + "tree-snow-a.glb", Vector3(p.x, height_at(p.x, p.z), p.z), p.x, 2.8)
+func _pine(parent: Node3D, p: Vector3, low := false) -> void:
+	_prop(parent, KH + "tree-snow-a.glb", Vector3(p.x, height_at(p.x, p.z), p.z), p.x, 1.45 if low else 2.8)
 	obstacles.append([Vector2(p.x, p.z), 0.7])
 
 ## 企鵝（Poly Pizza / sugamo，CC-BY）：高度 1，臉朝 +Z
@@ -976,6 +987,10 @@ func _snowfall(root: Node3D) -> void:
 	m.billboard_keep_scale = true
 	m.albedo_color = Color(1, 1, 1, 0.85)
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	# 飄到鏡頭前面的雪花會變成一大團白光（特寫鏡頭尤其明顯）：靠近鏡頭 2.5 公尺內就淡出
+	m.distance_fade_mode = BaseMaterial3D.DISTANCE_FADE_PIXEL_ALPHA
+	m.distance_fade_min_distance = 2.5
+	m.distance_fade_max_distance = 6.0
 	var grad := Gradient.new()
 	grad.set_color(0, Color(1, 1, 1, 1))
 	grad.set_color(1, Color(1, 1, 1, 0))

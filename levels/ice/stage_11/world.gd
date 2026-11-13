@@ -7,9 +7,10 @@ func _ice_configure() -> void:
 	play_min = Vector2(-20.0, -23.0)
 	play_max = Vector2(20.0, 18.0)
 	hero_start = Vector3(0.0, 0.0, 7.0)
-	# 鏡頭：家豪在畫面下方約 3/4 高、冰湖在中間、遠處看得到島緣和天空（camera_look 的 y 只用來調俯角）
-	camera_start = Vector3(-1.0, 8.3, 14.0)
-	camera_look = Vector3(-1.5, -3.2, -4.5)
+	# 鏡頭：視角收窄到 45 度、退遠一點（像看一個小模型）。家豪在畫面最下面、籠子在最上面、冰湖佔中間一半以上
+	camera_start = Vector3(-1.0, 11.0, 18.0)
+	camera_look = Vector3(-1.5, -1.4, -3.6)
+	camera_fov = 45.0
 	mood = "dusk"
 	cage = Vector3(0.0, 0.0, -11.8)
 	bird_path = [Vector3(0.0, 0, 4.0), Vector3(0.0, 0, -9.4)]
@@ -18,6 +19,8 @@ func _ice_configure() -> void:
 	ponds = [{"center": Vector2(7.6, -6.5), "r": 1.4}]
 	snowmen = [Vector3(4.8, 0, -7.7)]
 	pines = [Vector3(-6.0, 0, -12.5), Vector3(6.0, 0, -13.0), Vector3(11.5, 0, -1.0)]
+	# 東北那棵就在阿水出發點前面：畫成小樹，從鏡頭看過去才不會把他整個擋住（擋路的範圍不變，玩法一樣）
+	low_pines = [1]
 	# ---- 以下都是外觀（不影響玩法）
 	isle = {"seed": 7.9, "c": Vector2(0.0, -4.0), "rz": 19.5}   # 地圖的輪廓：南邊（鏡頭這一側）收短一點，其他照遊玩範圍
 	# 裝飾要讓開的路線（兩個工人的紅線、滑出去的方向）

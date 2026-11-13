@@ -6,9 +6,10 @@ func _ice_configure() -> void:
 	play_min = Vector2(-20.0, -23.0)
 	play_max = Vector2(20.0, 18.0)
 	hero_start = Vector3(-6.0, 0.0, 9.5)
-	# 鏡頭：家豪在畫面下方約 3/4 高、冰湖在中間、遠處看得到島緣和天空（camera_look 的 y 只用來調俯角）
-	camera_start = Vector3(-1.5, 8.3, 16.5)
-	camera_look = Vector3(-1.0, -3.2, -2.0)
+	# 鏡頭：視角收窄到 45 度、退遠一點（像看一個小模型）。家豪在畫面最下面、籠子在最上面、冰湖佔中間一半以上
+	camera_start = Vector3(-1.5, 11.0, 20.3)
+	camera_look = Vector3(-1.0, -1.4, -1.6)
+	camera_fov = 45.0
 	mood = "sunset"
 	cage = Vector3(4.0, 0.0, -11.8)
 	bird_path = [Vector3(-6.0, 0, 1.0), Vector3(1.0, 0, -5.0), Vector3(4.0, 0, -9.0)]
