@@ -19,34 +19,33 @@ func _ice_configure() -> void:
 	snowmen = []
 	pines = [Vector3(-5.5, 0, -12.5), Vector3(10.5, 0, -11.5), Vector3(11.5, 0, 2.0)]
 	# ==================================================================
-	# 【外觀】（環境代理負責）：mood、isle、zones、camps、clear_paths、鏡頭 camera_*。
-	#   目前是從 stage_10 複製來、能跑的暫時值；不影響玩法。
+	# 【外觀】（環境代理負責）：mood、isle、zones、camps、clear_paths、鏡頭 camera_*。不影響玩法。
 	# ==================================================================
-	camera_start = Vector3(-1.5, 11.0, 20.3)
-	camera_look = Vector3(-1.0, -2.7, -1.6)      # y 只用來調俯角：家豪的圓環完整入鏡、腳下留一點空間
+	# 鏡頭：家豪從湖上出發（不在南岸），所以鏡頭比別關靠前、靠東一點，家豪腳下的薄冰在畫面下方三分之一
+	camera_start = Vector3(1.5, 10.5, 14.5)
+	camera_look = Vector3(1.5, -2.6, -5.5)
 	camera_fov = 45.0
-	mood = "sunset"
-	# ---- 以下都是外觀（不影響玩法）
-	# 地圖的輪廓：南邊（鏡頭這一側）收短一點；coves 是岸邊凹進來的小海灣（看得到對面的冰崖）
-	isle = {"seed": 4.6, "c": Vector2(0.0, -4.0), "rz": 19.5,
-		"coves": [[0.15, 5.0, 0.13], [-1.30, 4.5, 0.12], [-1.90, 4.5, 0.12], [3.25, 4.5, 0.12]]}
-	# 裝飾要讓開的路線（工人的紅線、滑出去的方向）
-	clear_paths = [[Vector3(4.9, 0, 2.4), Vector3(3.3, 0, 2.4)], [Vector3(0.8, 0, -11.3), Vector3(2.8, 0, -2.0), Vector3(3.0, 0, 2.4)]]
-	# 工人的冰釣營地（裝飾）：在他們出發點後面
-	camps = [{"pos": Vector3(-15.0, 0, -12.5), "yaw": 1.0}, {"pos": Vector3(13.5, 0, -16.5), "yaw": -0.6}]
-	# 冰湖周圍的擺設（純裝飾）。高的東西都離冰洞 9 公尺以上：過關特寫的鏡頭會繞著冰洞拍
+	mood = "overcast"                            # 陰天細雪：灰白的柔光、雪下得密
+	isle = {"seed": 3.1, "c": Vector2(0.0, -4.0), "rz": 19.5,
+		"coves": [[0.10, 5.0, 0.13], [-1.20, 4.5, 0.12], [-1.92, 4.5, 0.12], [3.45, 4.5, 0.12]]}
+	# 裝飾要讓開的路線（工人的紅線、滑出去的方向、守衛撲的方向）
+	clear_paths = [[Vector3(4.9, 0, 2.4), Vector3(3.3, 0, 2.4)], [Vector3(0.8, 0, -11.3), Vector3(2.8, 0, -2.0), Vector3(3.0, 0, 2.4)], [Vector3(4.5, 0, -6.5), Vector3(5.7, 0, -3.8)]]
+	camps = [{"pos": Vector3(13.5, 0, -16.5), "yaw": -0.6}]
+	# 冰湖周圍的擺設（純裝飾）。高的東西都離薄冰 9 公尺以上（薄冰破了就是冰洞，過關特寫的鏡頭會繞著拍）
 	front_props = false
 	zones = [
-		# 這一關的地標：湖西南岸的冰雕廣場——大冰企鵝、冰魚圍著一簇冰晶，兩盞燈
-		{"type": "statue", "kind": "penguin", "pos": Vector3(-11.4, 0, 1.6), "yaw": 0.5, "scale": 1.8},
-		{"type": "statue", "kind": "fish", "pos": Vector3(-13.2, 0, -1.4), "yaw": 0.9, "scale": 2.4},
-		{"type": "statue", "kind": "penguin", "pos": Vector3(-9.4, 0, 4.0), "yaw": 0.2, "scale": 1.0},
-		{"type": "statue", "kind": "fish", "pos": Vector3(-13.0, 0, 4.4), "yaw": 0.6, "scale": 1.8},
-		{"type": "lantern", "pos": Vector3(-9.4, 0, 1.4)},
-		{"type": "lantern", "pos": Vector3(-11.6, 0, 4.6)},
-		# 廣場延伸到家豪出發點附近：兩座小冰雕（避開左下的道具格、右下的開始鈕、黃線）
-		{"type": "statue", "kind": "penguin", "pos": Vector3(-9.8, 0, 9.0), "yaw": 0.4, "scale": 0.8},
-		{"type": "statue", "kind": "fish", "pos": Vector3(-1.4, 0, 10.6), "yaw": -0.3, "scale": 1.5},
-		{"type": "pier", "pos": Vector3(9.0, 0, 3.6), "yaw": 1.57},
-		{"type": "crystals", "pos": Vector3(16.5, 0, -11.0)},
+		# 這一關的地標：冰晶溪谷——兩條結冰的小溪從西邊流進湖裡，兩岸長滿大大小小的冰晶
+		{"type": "creek", "from": Vector3(-17.5, 0, -14.5), "to": Vector3(-9.3, 0, -5.6)},
+		{"type": "creek", "from": Vector3(-17.5, 0, 9.5), "to": Vector3(-9.6, 0, 0.2)},
+		{"type": "crystals", "pos": Vector3(-15.0, 0, -9.0), "scale": 1.5},
+		{"type": "crystals", "pos": Vector3(-11.0, 0, -10.2), "scale": 1.1},
+		{"type": "crystals", "pos": Vector3(-13.6, 0, -4.4), "scale": 0.9},
+		{"type": "crystals", "pos": Vector3(-12.6, 0, 0.6), "scale": 1.3},
+		{"type": "crystals", "pos": Vector3(-15.2, 0, 3.6), "scale": 1.0},
+		{"type": "crystals", "pos": Vector3(-10.4, 0, 6.2), "scale": 1.2},
+		{"type": "lantern", "pos": Vector3(-10.6, 0, -2.6)},
+		# 溪谷延伸到南岸（鏡頭前面）：幾簇小冰晶
+		{"type": "crystals", "pos": Vector3(-5.6, 0, 8.4), "scale": 0.8},
+		{"type": "crystals", "pos": Vector3(10.6, 0, 8.6), "scale": 0.7},
+		{"type": "crystals", "pos": Vector3(15.0, 0, -8.0), "scale": 1.0},
 	]
