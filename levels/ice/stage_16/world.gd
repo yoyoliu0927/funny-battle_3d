@@ -22,40 +22,34 @@ func _ice_configure() -> void:
 	pines = [Vector3(-6.0, 0, -12.5), Vector3(6.0, 0, -13.0), Vector3(11.5, 0, -1.0)]
 	low_pines = [1]
 	# ==================================================================
-	# 【外觀】（環境代理負責）：mood、isle、zones、camps、clear_paths、鏡頭 camera_*。
-	#   目前是從 stage_11 複製來、能跑的暫時值；不影響玩法。
+	# 【外觀】（環境代理負責）：mood、isle、zones、camps、clear_paths、鏡頭 camera_*。不影響玩法。
 	# ==================================================================
-	camera_start = Vector3(-1.0, 11.0, 18.0)
-	camera_look = Vector3(-1.5, -3.0, -3.6)      # y 只用來調俯角：家豪的圓環完整入鏡、腳下留一點空間
+	camera_start = Vector3(-1.0, 11.5, 21.0)     # 湖比較大：鏡頭退一點，整座湖和家豪都在畫面裡
+	camera_look = Vector3(-1.0, -2.7, -1.6)
 	camera_fov = 45.0
-	mood = "dusk"
-	# ---- 以下都是外觀（不影響玩法）
-	# 地圖的輪廓：南邊（鏡頭這一側）收短一點；coves 是岸邊凹進來的小海灣（看得到對面的冰崖）
+	mood = "dusk"                                # 極光夜（全章收尾會把這一關的極光放大）
 	isle = {"seed": 7.9, "c": Vector2(0.0, -4.0), "rz": 19.5,
 		"coves": [[-0.10, 4.5, 0.12], [-1.25, 4.5, 0.12], [-1.95, 4.5, 0.12], [3.20, 4.0, 0.12]]}
-	# 裝飾要讓開的路線（兩個工人的紅線、滑出去的方向）
-	clear_paths = [[Vector3(-12.0, 0, -6.5), Vector3(-1.0, 0, -6.5), Vector3(7.6, 0, -6.5)], [Vector3(7.2, 0, -13.6), Vector3(0.6, 0, -5.0)], [Vector3(-6.5, 0, 1.2), Vector3(-1.2, 0, 1.2), Vector3(6.0, 0, 1.2)]]
-	# 這一關的重點是兩條紅線在冰湖上的交叉點：周圍的冰面保持乾淨，不放任何小東西
+	# 裝飾要讓開的路線（工人的紅線、滑出去的方向）
+	clear_paths = [[Vector3(-12.0, 0, -6.5), Vector3(-1.0, 0, -6.5), Vector3(7.6, 0, -6.5)], [Vector3(7.2, 0, -13.6), Vector3(0.6, 0, -5.0), Vector3(-9.0, 0, 2.0)], [Vector3(-6.5, 0, 1.2), Vector3(-1.2, 0, 1.2), Vector3(6.0, 0, 1.2)]]
+	# 兩條紅線在冰湖上的交叉點：周圍的冰面保持乾淨
 	clear_spots = [Vector3(1.75, 0, -6.5)]
-	# 工人的冰釣營地（裝飾）：在他們出發點後面
 	camps = [{"pos": Vector3(-15.5, 0, -13.5), "yaw": 0.6}, {"pos": Vector3(13.0, 0, -18.0), "yaw": -0.8}]
-	# 冰湖周圍的擺設（純裝飾）。高的東西都離冰洞 9 公尺以上：過關特寫的鏡頭會繞著冰洞拍
+	# 冰湖周圍的擺設（純裝飾）。高的東西都離冰洞、薄冰 9 公尺以上：過關特寫的鏡頭會繞著拍
 	front_props = false
 	zones = [
 		# 這一關的地標：湖西南岸的燈籠夜市——條紋攤位、一串串圓燈籠，暖黃的光照到雪地和冰湖邊緣（跟天上極光的冷光對比）
-		{"type": "stall", "pos": Vector3(-11.4, 0, 4.6), "yaw": 1.0},
-		{"type": "stall", "pos": Vector3(-8.6, 0, 6.6), "yaw": 0.5},
-		{"type": "string", "pos": Vector3(-8.4, 0, 3.3), "yaw": 0.15},
-		{"type": "crates", "pos": Vector3(-12.6, 0, 7.0), "yaw": 0.4},
+		{"type": "stall", "pos": Vector3(-12.2, 0, 5.4), "yaw": 1.0},
+		{"type": "stall", "pos": Vector3(-9.2, 0, 8.0), "yaw": 0.5},
+		{"type": "string", "pos": Vector3(-8.2, 0, 5.6), "yaw": 0.15},
+		{"type": "crates", "pos": Vector3(-13.0, 0, 8.2), "yaw": 0.4},
 		# 夜市延伸到家豪出發點附近：一盞立燈、一串燈籠（避開左下的道具格、右下的開始鈕、黃線）
-		{"type": "lantern", "pos": Vector3(-4.4, 0, 8.6), "scale": 0.85},
-		{"type": "string", "pos": Vector3(4.0, 0, 9.6), "yaw": -0.2},
+		{"type": "lantern", "pos": Vector3(-4.6, 0, 9.4), "scale": 0.85},
+		{"type": "string", "pos": Vector3(5.2, 0, 11.0), "yaw": -0.2},
 		# 碼頭和湖邊的立燈：暖光碰到冰湖邊緣
-		{"type": "lantern", "pos": Vector3(-14.2, 0, -2.5)},
-		{"type": "lantern", "pos": Vector3(-3.4, 0, 3.0), "scale": 0.8},
-		{"type": "lantern", "pos": Vector3(3.0, 0, 2.7), "scale": 0.8},
-		{"type": "pier", "pos": Vector3(-12.5, 0, -1.0), "yaw": -1.57},
-		{"type": "crystals", "pos": Vector3(15.0, 0, 0.5)},
+		{"type": "lantern", "pos": Vector3(-15.6, 0, -3.4)},
+		{"type": "lantern", "pos": Vector3(-4.6, 0, 6.2), "scale": 0.8},
+		{"type": "crystals", "pos": Vector3(15.6, 0, -1.0)},
 		{"type": "crystals", "pos": Vector3(-8.0, 0, -15.0)},
-		{"type": "creek", "from": Vector3(17.0, 0, -15.0), "to": Vector3(10.2, 0, -6.0)},
+		{"type": "creek", "from": Vector3(17.0, 0, -15.0), "to": Vector3(10.6, 0, -7.0)},
 	]

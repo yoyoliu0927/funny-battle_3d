@@ -21,14 +21,12 @@ func _ice_configure() -> void:
 	# 西北那棵從 stage_10 的 (-5.5, -12.5) 移到 (-9.5, -11.5)，讓出阿水的路
 	pines = [Vector3(-9.5, 0, -11.5), Vector3(10.5, 0, -11.5), Vector3(11.5, 0, 2.0)]
 	# ==================================================================
-	# 【外觀】（環境代理負責）：mood、isle、zones、camps、clear_paths、鏡頭 camera_*。
-	#   目前是從 stage_10 複製來、能跑的暫時值；不影響玩法。
+	# 【外觀】（環境代理負責）：mood、isle、zones、camps、clear_paths、鏡頭 camera_*。不影響玩法。
 	# ==================================================================
 	camera_start = Vector3(-1.5, 11.0, 20.3)
 	camera_look = Vector3(-1.0, -2.7, -1.6)      # y 只用來調俯角：家豪的圓環完整入鏡、腳下留一點空間
 	camera_fov = 45.0
-	mood = "sunset"
-	# ---- 以下都是外觀（不影響玩法）
+	mood = "noon"                                # 正午：頭頂的白光、短影子、最藍的天和海
 	# 地圖的輪廓：南邊（鏡頭這一側）收短一點；coves 是岸邊凹進來的小海灣（看得到對面的冰崖）
 	isle = {"seed": 4.6, "c": Vector2(0.0, -4.0), "rz": 19.5,
 		"coves": [[0.15, 5.0, 0.13], [-1.30, 4.5, 0.12], [-1.90, 4.5, 0.12], [3.25, 4.5, 0.12]]}
@@ -39,7 +37,7 @@ func _ice_configure() -> void:
 	# 冰湖周圍的擺設（純裝飾）。高的東西都離冰洞 9 公尺以上：過關特寫的鏡頭會繞著冰洞拍
 	front_props = false
 	zones = [
-		# 這一關的地標：湖西南岸的冰雕廣場——大冰企鵝、冰魚圍著一簇冰晶，兩盞燈
+		# 這一關的地標：湖西南岸的冰雕廣場——大冰企鵝、冰魚，兩盞燈
 		{"type": "statue", "kind": "penguin", "pos": Vector3(-11.4, 0, 1.6), "yaw": 0.5, "scale": 1.8},
 		{"type": "statue", "kind": "fish", "pos": Vector3(-13.2, 0, -1.4), "yaw": 0.9, "scale": 2.4},
 		{"type": "statue", "kind": "penguin", "pos": Vector3(-9.4, 0, 4.0), "yaw": 0.2, "scale": 1.0},
@@ -49,6 +47,6 @@ func _ice_configure() -> void:
 		# 廣場延伸到家豪出發點附近：兩座小冰雕（避開左下的道具格、右下的開始鈕、黃線）
 		{"type": "statue", "kind": "penguin", "pos": Vector3(-9.8, 0, 9.0), "yaw": 0.4, "scale": 0.8},
 		{"type": "statue", "kind": "fish", "pos": Vector3(-1.4, 0, 10.6), "yaw": -0.3, "scale": 1.5},
-		{"type": "pier", "pos": Vector3(9.0, 0, 3.6), "yaw": 1.57},
 		{"type": "crystals", "pos": Vector3(16.5, 0, -11.0)},
+		{"type": "crystals", "pos": Vector3(14.0, 0, 5.5), "scale": 0.8},
 	]
