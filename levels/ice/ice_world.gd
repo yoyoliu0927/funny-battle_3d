@@ -346,22 +346,24 @@ func _break_fx(th: Dictionary) -> void:
 	(th.water as Node3D).get_parent().add_child(holder)
 	for k in 7:
 		var a := k * TAU / 7.0 + 0.4
-		var ch := _prop(holder, MB + "ice_chunk_" + ["e", "b", "a"][k % 3] + ".glb", c + Vector3(cos(a), 0, sin(a)) * r * 0.5, a, 0.5)
+		var ch := _prop(holder, MB + "ice_chunk_" + ["e", "b", "a"][k % 3] + ".glb", c + Vector3(cos(a), 0, sin(a)) * r * 0.6, a, 0.22)
 		if ch == null:
 			continue
+		# 碎冰要小、貼著冰面飛、很快縮掉：掉洞特寫的鏡頭就在洞邊，不能擋到泡在洞裡的人的臉
 		var out := c + Vector3(cos(a), 0, sin(a)) * (r + 0.5 + 0.5 * (k % 2))
 		var tw := ch.create_tween()
 		tw.set_parallel(true)
-		tw.tween_property(ch, "position:x", out.x, 0.45)
-		tw.tween_property(ch, "position:z", out.z, 0.45)
-		tw.tween_property(ch, "position:y", c.y + 0.9, 0.22).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
-		tw.tween_property(ch, "rotation:x", 3.0 + k, 0.45)
-		tw.chain().tween_property(ch, "position:y", c.y - 0.5, 0.25).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
+		tw.tween_property(ch, "position:x", out.x, 0.35)
+		tw.tween_property(ch, "position:z", out.z, 0.35)
+		tw.tween_property(ch, "position:y", c.y + 0.28, 0.16).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+		tw.tween_property(ch, "rotation:x", 3.0 + k, 0.35)
+		tw.tween_property(ch, "scale", Vector3.ONE * 0.02, 0.2).set_delay(0.2)
+		tw.chain().tween_property(ch, "position:y", c.y - 0.3, 0.1).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
 	var ps := GPUParticles3D.new()
 	ps.one_shot = true
 	ps.explosiveness = 0.95
-	ps.amount = 28
-	ps.lifetime = 0.7
+	ps.amount = 22
+	ps.lifetime = 0.45
 	var pm := ParticleProcessMaterial.new()
 	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_RING
 	pm.emission_ring_axis = Vector3.UP
@@ -370,15 +372,15 @@ func _break_fx(th: Dictionary) -> void:
 	pm.emission_ring_height = 0.1
 	pm.direction = Vector3.UP
 	pm.spread = 35.0
-	pm.initial_velocity_min = 2.5
-	pm.initial_velocity_max = 4.5
+	pm.initial_velocity_min = 1.4
+	pm.initial_velocity_max = 2.4
 	pm.gravity = Vector3(0, -9.0, 0)
 	ps.process_material = pm
-	ps.draw_pass_1 = _spark_quad(Color(0.9, 0.98, 1.0), 0.3, false)
+	ps.draw_pass_1 = _spark_quad(Color(0.9, 0.98, 1.0), 0.18, false)
 	ps.position = c + Vector3(0, 0.1, 0)
 	holder.add_child(ps)
 	ps.emitting = true
-	get_tree().create_timer(1.2).timeout.connect(holder.queue_free)
+	get_tree().create_timer(0.7).timeout.connect(holder.queue_free)
 
 ## 多一塊薄冰（鹽撒下去會用到）；parent 放 bt.fx_root，重試時會一起刪掉
 func add_thin(center: Vector2, r: float, parent: Node3D) -> int:
