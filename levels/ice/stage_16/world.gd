@@ -41,10 +41,11 @@ func _ice_configure() -> void:
 		# 這一關的地標：湖西南岸的燈籠夜市——條紋攤位、一串串圓燈籠，暖黃的光照到雪地和冰湖邊緣（跟天上極光的冷光對比）
 		{"type": "stall", "pos": Vector3(-12.2, 0, 5.4), "yaw": 1.0},
 		{"type": "stall", "pos": Vector3(-9.2, 0, 8.0), "yaw": 0.5},
-		{"type": "string", "pos": Vector3(-8.2, 0, 5.6), "yaw": 0.15},
+		# （西南岸 (-8, 5) 附近留空：阿水踩到香蕉皮會一路滑到這裡才爬起來）
+		{"type": "string", "pos": Vector3(-6.0, 0, 9.0), "yaw": 0.15},
 		{"type": "crates", "pos": Vector3(-13.0, 0, 8.2), "yaw": 0.4},
 		# 夜市延伸到家豪出發點附近：一盞立燈、一串燈籠（避開左下的道具格、右下的開始鈕、黃線）
-		{"type": "lantern", "pos": Vector3(-4.6, 0, 9.4), "scale": 0.85},
+		{"type": "lantern", "pos": Vector3(-2.8, 0, 10.6), "scale": 0.85},
 		{"type": "string", "pos": Vector3(5.2, 0, 11.0), "yaw": -0.2},
 		# 碼頭和湖邊的立燈：暖光碰到冰湖邊緣
 		{"type": "lantern", "pos": Vector3(-15.6, 0, -3.4)},

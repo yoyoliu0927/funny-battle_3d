@@ -109,6 +109,7 @@ var _finale_t := 0.0
 var _finale_root: Node3D           # 收尾時才有的東西（煙火、肚滑的企鵝）
 var _finale_next := 0.0            # 下一發煙火的時間
 var _sliders: Array = []           # 收尾時在冰湖上肚滑的企鵝 {node, k}
+var _bumpers: Array = []           # 收尾時滑去撞人的企鵝 {node, from, dir, len, extra, start, speed}
 var _finale_rng := RandomNumberGenerator.new()
 
 ## 每個時段的顏色
@@ -1500,6 +1501,7 @@ func finale_show(on: bool) -> void:
 			_finale_root.queue_free()
 			_finale_root = null
 		_sliders.clear()
+		_bumpers.clear()
 		for g in _glow_mats:
 			(g.mat as ShaderMaterial).set_shader_parameter("emission_c", g.base)
 		return
@@ -1511,33 +1513,91 @@ func finale_show(on: bool) -> void:
 	if lakes.is_empty():
 		return
 	for k in 4:
-		var node := make_penguin(_finale_root, Vector3(lakes[0].center.x, 0, lakes[0].center.y), 0.0)
-		node.scale = Vector3.ONE * 1.5            # 收尾鏡頭很遠：放大一點才看得到
-		var trail := Decal.new()
-		trail.texture_albedo = load(TX + "shadow_blob.png")
-		trail.size = Vector3(0.9, 1.0, 3.4)
-		trail.albedo_mix = 0.5
-		trail.position = Vector3(0, -1.7, 0.0)       # 企鵝趴下之後，自己的 +Y 朝前（頭的方向）：雪痕拖在腳後面
-		trail.rotation.x = -PI * 0.5
-		node.add_child(trail)
-		var spray := GPUParticles3D.new()
-		spray.amount = 18
-		spray.lifetime = 0.6
-		spray.local_coords = false
-		var pm := ParticleProcessMaterial.new()
-		pm.direction = Vector3(0, 1, 0)
-		pm.spread = 55.0
-		pm.initial_velocity_min = 1.2
-		pm.initial_velocity_max = 2.6
-		pm.gravity = Vector3(0, -6.0, 0)
-		pm.scale_min = 0.5
-		pm.scale_max = 1.1
-		spray.process_material = pm
-		spray.draw_pass_1 = _spark_quad(Color(0.9, 0.98, 1.0), 0.34, false)
-		spray.position = Vector3(0, 0.3, 0)
-		node.add_child(spray)
+		var node := _make_slider(Vector3(lakes[0].center.x, 0, lakes[0].center.y))
 		_sliders.append({"node": node, "k": k})
 	_tick_finale(0.0)
+
+## 一隻肚滑的企鵝（收尾用）：放大一點、腳後面拖一道雪痕、濺起冰屑。位置和朝向由呼叫的人每格設定
+func _make_slider(pos: Vector3) -> Node3D:
+	var node := make_penguin(_finale_root, pos, 0.0)
+	node.scale = Vector3.ONE * 1.5            # 收尾鏡頭很遠：放大一點才看得到
+	var trail := Decal.new()
+	trail.texture_albedo = load(TX + "shadow_blob.png")
+	trail.size = Vector3(0.9, 1.0, 3.4)
+	trail.albedo_mix = 0.5
+	trail.position = Vector3(0, -1.7, 0.0)       # 企鵝趴下之後，自己的 +Y 朝前（頭的方向）：雪痕拖在腳後面
+	trail.rotation.x = -PI * 0.5
+	node.add_child(trail)
+	var spray := GPUParticles3D.new()
+	spray.amount = 18
+	spray.lifetime = 0.6
+	spray.local_coords = false
+	var pm := ParticleProcessMaterial.new()
+	pm.direction = Vector3(0, 1, 0)
+	pm.spread = 55.0
+	pm.initial_velocity_min = 1.2
+	pm.initial_velocity_max = 2.6
+	pm.gravity = Vector3(0, -6.0, 0)
+	pm.scale_min = 0.5
+	pm.scale_max = 1.1
+	spray.process_material = pm
+	spray.draw_pass_1 = _spark_quad(Color(0.9, 0.98, 1.0), 0.34, false)
+	spray.position = Vector3(0, 0.3, 0)
+	node.add_child(spray)
+	return node
+
+## 收尾時多一隻肚滑的企鵝去撞人（戰局在 finale_show(true) 之後呼叫，每個要被撞的人一次；純演出）：
+## 收尾開始後第 start 秒出現在 from，以 speed 公尺／秒直線滑到 to（那個人的腳邊），
+## 到了之後沿同方向再滑一小段（最多 3 公尺，前面是冰洞就在洞邊停住）然後縮小收掉。finale_show(false) 會一起清掉。
+func finale_bump(from: Vector3, to: Vector3, start: float, speed := 7.0) -> void:
+	if not _finale_on or _finale_root == null:
+		return
+	var d := to - from
+	d.y = 0.0
+	var length := d.length()
+	if length < 0.01:
+		return
+	var dir := d / length
+	# 撞到人之後還能往前滑多遠：碰到水（冰洞、破掉的薄冰）之前停下來
+	var extra := 0.0
+	while extra < 3.0:
+		var q := to + dir * (extra + 0.9)
+		if in_water(q.x, q.z):
+			break
+		extra += 0.2
+	# 來的路上有東西擋著（攤位、樹、籠子、地標…）就從擋住的地方之後才出現，晚一點出發，撞到人的時間不變
+	var run := 2.5
+	while run < length:
+		var q2 := to - dir * (run + 0.4)
+		if _bump_blocked(q2.x, q2.z):
+			break
+		run += 0.4
+	run = minf(run, length)
+	var spd := maxf(speed, 0.1)
+	var node := _make_slider(to - dir * run)
+	node.visible = false
+	_bumpers.append({"node": node, "from": to - dir * run, "dir": dir, "len": run, "extra": extra, "start": start + (length - run) / spd, "speed": spd})
+
+## 撞人的企鵝不能滑過去的地方：地圖外面、水裡、會擋路的東西、裝飾和地標
+func _bump_blocked(x: float, z: float) -> bool:
+	if not Isle.inside(isle, x, z, 0.6) or in_water(x, z):
+		return true
+	var p := Vector2(x, z)
+	for o in obstacles:
+		if p.distance_to(o[0]) < float(o[1]) + 0.9:
+			return true
+	if get("cage") != null and p.distance_to(Vector2(get("cage").x, get("cage").z)) < 2.6:
+		return true
+	for c in camps:
+		if p.distance_to(Vector2(c.pos.x, c.pos.z)) < 2.6:
+			return true
+	for zn in zones:
+		if not zn.has("pos"):
+			continue
+		var need: float = {"lighthouse": 2.6, "belltower": 2.4, "village": 3.6, "stall": 2.4, "string": 2.4, "pier": 2.6, "boat": 2.0, "net": 1.8, "rack": 1.6}.get(String(zn.type), 1.2) * float(zn.get("scale", 1.0))
+		if p.distance_to(Vector2(zn.pos.x, zn.pos.z)) < maxf(need, 1.0):
+			return true
+	return false
 
 func _tick_finale(dt: float) -> void:
 	_finale_t += dt
@@ -1573,6 +1633,26 @@ func _tick_finale(dt: float) -> void:
 			var n := sl.node as Node3D
 			n.position = Vector3(x, height_at(x, z) + 0.6, z)
 			n.basis = Basis(Vector3.UP, PI * 0.5 * fwd) * Basis(Vector3.RIGHT, 1.35)      # 臉朝前、整隻趴下
+	for b in _bumpers:
+		var n := b.node as Node3D
+		var run := (t - float(b.start)) * float(b.speed)
+		var total: float = float(b.len) + float(b.extra)
+		# 撞到人之後慢下來滑完剩下那一段，最後 0.3 秒縮小不見
+		var after := (run - float(b.len)) / float(b.speed)
+		var dist := run
+		var k := 1.0
+		if after > 0.0:
+			var u := clampf(after / 0.6, 0.0, 1.0)
+			dist = float(b.len) + float(b.extra) * (1.0 - (1.0 - u) * (1.0 - u))
+			k = clampf((0.9 - after) / 0.3, 0.0, 1.0)
+		n.visible = run >= 0.0 and k > 0.0
+		if not n.visible:
+			continue
+		dist = minf(dist, total)
+		var p: Vector3 = (b.from as Vector3) + (b.dir as Vector3) * dist
+		n.position = Vector3(p.x, height_at(p.x, p.z) + 0.6, p.z)
+		n.basis = Basis(Vector3.UP, atan2(b.dir.x, b.dir.z)) * Basis(Vector3.RIGHT, 1.35)
+		n.scale = Vector3.ONE * 1.5 * k
 	if t >= _finale_next and _finale_root:
 		_firework()
 		_finale_next = t + _finale_rng.randf_range(0.65, 1.05)
