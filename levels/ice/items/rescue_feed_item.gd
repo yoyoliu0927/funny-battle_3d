@@ -4,6 +4,7 @@ extends "res://scripts/items/item.gd"
 ## 跟共用的飼料不一樣：家豪不會「聞到就跑過去、吃完張望」，只是路線多一個轉折點。規則寫在 rescue_battle.gd（place_feed、feed_error）。
 
 const SharedFeed := preload("res://scripts/items/feed_item.gd")
+const MODEL := "res://levels/ice/assets/blender/rescue/feed_sack.glb"
 
 func _init() -> void:
 	id = "bait"
@@ -19,10 +20,20 @@ func placement_error(bt, p: Vector3) -> String:
 	return super(bt, p)
 
 func cast(bt, p: Vector3) -> void:
-	# 外觀沿用共用飼料的那一小堆穀粒（放大一點）；不放進 bt.feeds，家豪的「聞飼料」行為就不會啟動
-	var shared = SharedFeed.new()
-	shared.cast(bt, p)
-	var e: Dictionary = bt.feeds.pop_back()
-	(e.node as Node3D).scale = Vector3.ONE * 1.7
+	# 外觀：一小袋穀子（Blender 做的模型）。不放進 bt.feeds，家豪的「聞飼料」行為就不會啟動
+	var node := Node3D.new()
+	var ps := load(MODEL) as PackedScene
+	if ps:
+		var m := ps.instantiate() as Node3D
+		m.scale = Vector3.ONE * 1.5
+		node.add_child(m)
+	else:
+		# 模型還沒匯入：退回共用飼料的那一小堆穀粒
+		var shared = SharedFeed.new()
+		shared.cast(bt, p)
+		node = (bt.feeds.pop_back() as Dictionary).node
+	if node.get_parent() == null:
+		bt.fx_root.add_child(node)
+	node.position = p
 	if bt.has_method("place_feed"):
-		bt.place_feed(p, e.node)
+		bt.place_feed(p, node)

@@ -7,6 +7,7 @@
 #   mitten.glb             工人的連指手套（1×1×1 的大小，遊戲裡依手臂粗細縮放）
 #   scarf.glb              工人的圍巾（繞脖子一圈＋前面垂一截）
 #   dinner_table.glb       失敗晚餐的木桌（木板桌面、四支腳、桌巾）
+#   feed_sack.glb / feed_icon.png   飼料（一小袋穀子）和它的道具格圖示
 #   banana_peel_icon.png   道具格的圖示：直接拿 banana_peel.glb 這個模型算一張透明底的圖（只讀取，不改它）
 # 用法：Blender --background --factory-startup --python build_rescue_props.py -- <輸出資料夾> <banana_peel.glb 的路徑> [只做哪幾個…]
 #   後面不寫就全部重做；寫名字（例如 rooster_tail mitten）就只做那幾個，其他檔案不動
@@ -301,7 +302,69 @@ def dinner_table():
     obj_from_bm(bm, "Table", mats)
     export("dinner_table")
 
-jobs = {"aim_ring": aim_ring, "fx_ring": fx_ring, "rooster_parts": rooster_parts, "rooster_tail": rooster_tail,
+# ---------------------------------------------------------------- 飼料：一小袋穀子（袋口捲下來、穀子堆尖、旁邊撒幾粒）
+def feed_sack():
+    clear()
+    mats = [mat("Sack", (0.42, 0.24, 0.10), 0.95), mat("Grain", (1.0, 0.55, 0.03), 0.8), mat("SackRim", (0.60, 0.38, 0.17), 0.95)]
+    bm = bmesh.new()
+    n = 8
+    prof = [(0.0, 0.0, 0), (0.24, 0.0, 0), (0.30, 0.10, 0), (0.29, 0.24, 0), (0.25, 0.30, 2), (0.27, 0.34, 2), (0.22, 0.36, 2), (0.20, 0.33, 1), (0.10, 0.42, 1), (0.0, 0.46, 1)]
+    rings = []
+    for r, z, mi in prof:
+        rings.append(([bm.verts.new((math.cos(i * math.tau / n + 0.2) * r, math.sin(i * math.tau / n + 0.2) * r, z)) for i in range(n)], mi))
+    for k in range(len(rings) - 1):
+        a_, b_ = rings[k][0], rings[k + 1][0]
+        for i in range(n):
+            try:
+                f = bm.faces.new((a_[i], a_[(i + 1) % n], b_[(i + 1) % n], b_[i]))
+                f.material_index = rings[k + 1][1]
+            except ValueError:
+                pass
+    for gx, gy, gs in [(0.40, 0.10, 0.05), (0.36, -0.22, 0.045), (-0.38, 0.18, 0.05), (-0.30, -0.30, 0.04), (0.08, 0.42, 0.045), (0.46, -0.05, 0.035)]:
+        r = bmesh.ops.create_icosphere(bm, subdivisions=1, radius=gs)
+        for v in r["verts"]:
+            v.co = Vector((v.co.x + gx, v.co.y + gy, v.co.z * 0.7 + gs * 0.6))
+            for f in v.link_faces:
+                f.material_index = 1
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=0.0005)
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
+    obj_from_bm(bm, "FeedSack", mats)
+    export("feed_sack")
+    render_icon("feed_icon.png", (0, 0.0, 0.2), 1.15)
+
+def render_icon(name, target, scale):
+    for m in bpy.data.materials:
+        if m.use_nodes and "Principled BSDF" in m.node_tree.nodes:
+            c = m.node_tree.nodes["Principled BSDF"].inputs["Base Color"].default_value
+            m.diffuse_color = (c[0], c[1], c[2], 1.0)
+    sc = bpy.context.scene
+    cam_d = bpy.data.cameras.new("cam")
+    cam_d.type = 'ORTHO'
+    cam_d.ortho_scale = scale
+    cam = bpy.data.objects.new("cam", cam_d)
+    sc.collection.objects.link(cam)
+    cam.location = (0.0, -1.6, 1.9)
+    d = (Vector(target) - cam.location).normalized()
+    cam.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
+    sc.camera = cam
+    sc.render.engine = 'BLENDER_WORKBENCH'
+    sc.display.shading.light = 'FLAT'
+    sc.display.shading.color_type = 'MATERIAL'
+    sc.display.shading.show_object_outline = True
+    sc.display.shading.object_outline_color = (0.23, 0.16, 0.12)
+    sc.display.shading.show_shadows = False
+    sc.display.shading.show_cavity = True
+    sc.view_settings.view_transform = 'Standard'
+    sc.render.film_transparent = True
+    sc.render.resolution_x = 256
+    sc.render.resolution_y = 256
+    sc.render.image_settings.file_format = 'PNG'
+    sc.render.image_settings.color_mode = 'RGBA'
+    sc.render.filepath = outdir + "/" + name
+    bpy.ops.render.render(write_still=True)
+    print("RENDERED", sc.render.filepath)
+
+jobs = {"feed_sack": feed_sack, "aim_ring": aim_ring, "fx_ring": fx_ring, "rooster_parts": rooster_parts, "rooster_tail": rooster_tail,
         "mitten": mitten, "scarf": scarf, "dinner_table": dinner_table, "banana_icon": banana_icon}
 for name, fn in jobs.items():
     if not only or name in only:

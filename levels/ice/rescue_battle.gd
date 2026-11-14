@@ -4162,6 +4162,7 @@ func _style_peels() -> void:
 		if not is_instance_valid(n) or (n as Node).has_meta("styled"):
 			continue
 		(n as Node).set_meta("styled", true)
+		_guard_notice(pl.pos)
 		for c in (n as Node).get_children():
 			(c as Node3D).visible = false
 		var mi := MeshInstance3D.new()
@@ -4242,6 +4243,12 @@ func _update_aim_marker(cut: bool) -> void:
 		_aim_peel.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		_aim_peel.transparency = 0.4            # 半透明：還沒放下去
 		_aim_mark.add_child(_aim_peel)
+		_aim_feed = MeshInstance3D.new()
+		_aim_feed.mesh = prop_mesh("rescue/feed_sack")
+		_aim_feed.scale = Vector3.ONE * 1.5
+		_aim_feed.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_aim_feed.transparency = 0.4
+		_aim_mark.add_child(_aim_feed)
 	# 手上還有香蕉皮才有準星；用完就整個收掉
 	var is_feed: bool = not items.is_empty() and items[selected].id == "bait"
 	var has: bool = not items.is_empty() and items[selected].id in ["banana", "bait"] and charges[selected] != 0
@@ -4258,6 +4265,8 @@ func _update_aim_marker(cut: bool) -> void:
 	var snap: bool = ok and (_aim_on_route or is_feed)      # 飼料：放得下就是綠圈（黃線已經當場彎給你看）
 	_aim_ring.visible = snap
 	_aim_peel.visible = snap and not is_feed
+	_aim_feed.visible = snap and is_feed
+	_aim_feed.position.y = 0.2 + sin(_clock * 4.0) * 0.06
 	_aim_dot.visible = not snap
 	(_aim_dot.material_override as StandardMaterial3D).albedo_color = Color(1, 1, 1) if ok else Color("9aa3ad")
 	_aim_mark.global_position = (aim_point as Vector3) + Vector3(0, 0.07, 0)
@@ -4270,6 +4279,7 @@ func _update_aim_marker(cut: bool) -> void:
 	_aim_peel.rotation.y = _clock * 1.2
 
 var _aim_dot: MeshInstance3D
+var _aim_feed: MeshInstance3D
 
 # ---------------------------------------------------------------- 半透明的分身（第 3 關：示範、看時機）
 
@@ -4875,6 +4885,10 @@ func _turn_heads() -> void:
 		var to_cam: Vector3 = (f as Fighter).node.global_basis.orthonormalized().inverse() * (vcam.global_position - head_pos(f))
 		var look := clampf(atan2(to_cam.x, to_cam.z), -0.75, 0.75) * 0.8
 		var q := cur * Quaternion(Vector3.UP, look)
+		var since: float = _clock - float((f as Fighter).data.get("peek_t", -9.0))
+		if since >= 0.0 and since < 1.4:
+			# 低頭看腳邊的香蕉皮
+			q = cur * Quaternion(Vector3.RIGHT, 0.6 * sin(clampf(since / 1.4, 0.0, 1.0) * PI))
 		sk.set_bone_pose_rotation(hb, q)
 		rig.head_set = q
 
@@ -4951,6 +4965,10 @@ func _mark_thin_stops() -> void:
 			seen[ti] = true
 			var th: Dictionary = world.thin[ti]
 			var c := ground(Vector3(th.center.x, 0, th.center.y))
+			var dup := false           # 滑行預告的終點已經在這塊冰上寫了「薄冰」：這裡只亮外圈，不再放第二個標籤
+			for r in _aim_results:
+				if String(r.text) == "薄冰" and flat_dist(r.end, c) < float(th.r) + 0.5:
+					dup = true
 			var ring: Array = []
 			for k in 41:
 				var a := k * TAU / 40.0
@@ -4958,6 +4976,8 @@ func _mark_thin_stops() -> void:
 			var kpx := _px(c) * 1.35
 			var glow := 0.65 + 0.35 * sin(_clock * 6.0)
 			_flow(ring, Color(1, 1, 1, glow), maxf(0.07, 2.4 * kpx), 0.1, 0.5, 0.3, _clock * 0.6)
+			if dup:
+				continue
 			if used >= _thin_tags.size():
 				var l := Label3D.new()
 				l.text = "薄冰"
@@ -4972,7 +4992,7 @@ func _mark_thin_stops() -> void:
 				_thin_tags.append(l)
 			var tl: Label3D = _thin_tags[used]
 			tl.visible = true
-			tl.position = c + Vector3(0, 1.5, 0)
+			tl.position = c + Vector3(0, 0.9, -(float(th.r) + 0.5))     # 放在那塊冰的遠側邊上：不蓋住站在冰上的人
 			used += 1
 	for i in range(used, _thin_tags.size()):
 		(_thin_tags[i] as Label3D).visible = false
@@ -5210,3 +5230,12 @@ func _seat_group(group: Array, to_cam: Vector3) -> void:
 			group[k].pos = ctr - to_cam * 0.72 + side * (float(k - 2) * 1.3)
 	for e in group:
 		e.data.pair = true
+
+## 香蕉皮放在站著的守衛腳邊 1 公尺內：他低頭看一眼、頭上冒「？」（香蕉皮對站著的人沒用）
+func _guard_notice(p: Vector3) -> void:
+	if phase != Phase.PREPARE:
+		return
+	for f in enemies:
+		if f.alive() and f.get_meta("guard", false) and f.state in ["guard", "idle", "patrol"] and flat_dist(f.pos, p) < 1.0:
+			f.data.peek_t = _clock
+			pop_label("？", f.pos + Vector3(0, 3.0, 0), Color(1, 1, 1), 1400, f)

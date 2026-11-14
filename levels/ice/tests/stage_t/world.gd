@@ -2,7 +2,7 @@ extends "res://levels/ice/rescue_world.gd"
 ## 測試用的臨時場地：設定從 Engine 的 meta "ice_test" 讀（mechanics.gd 每個檢查項目各給一份）。不列進 chapter.gd。
 
 ## 沒給設定時的樣子（拍分鏡用）：照規格第 3 關「薄冰」的座標排
-const DEMO := {"hero": Vector3(3.0, 0, 2.4), "path": [Vector3(3.0, 0, -9.4)], "cage": Vector3(3.0, 0, -11.8),
+const DEMO := {"cam": Vector3(3.5, 8.5, 8.5), "look": Vector3(3.5, -2.0, -3.5), "hero": Vector3(3.0, 0, 2.4), "path": [Vector3(3.0, 0, -9.4)], "cage": Vector3(3.0, 0, -11.8),
 	"lakes": [{"center": Vector2(0.0, -2.5), "rx": 10.5, "rz": 7.0}],
 	"thin": [{"center": Vector2(3.0, 2.4), "r": 1.6}, {"center": Vector2(5.1, -5.15), "r": 1.1}],
 	"pines": [Vector3(-5.5, 0, -12.5), Vector3(10.5, 0, -11.5), Vector3(11.5, 0, 2.0)],
@@ -16,8 +16,8 @@ func _ice_configure() -> void:
 	play_min = Vector2(-20.0, -23.0)
 	play_max = Vector2(20.0, 18.0)
 	hero_start = c.get("hero", Vector3(0, 0, 8))
-	camera_start = Vector3(-1.5, 11.0, 20.3)
-	camera_look = Vector3(-1.0, -2.7, -1.6)
+	camera_start = c.get("cam", Vector3(-1.5, 11.0, 20.3))
+	camera_look = c.get("look", Vector3(-1.0, -2.7, -1.6))
 	camera_fov = 45.0
 	mood = "morning"
 	cage = c.get("cage", Vector3(0, 0, -11.8))

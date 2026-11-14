@@ -322,3 +322,19 @@ func t_three_in_hole() -> void:
 	d.sort()
 	ok(d[1] - d[0] > 0.5 and absf(d[2] - d[1]) < 0.5, "前二後一（沿面對方向的位置：%.1f、%.1f、%.1f）" % [d[0], d[1], d[2]])
 	ok(fs.all(func(e): return Vector3(sin(e.yaw), 0, cos(e.yaw)).dot(face) > 0.9), "三張臉朝同一邊（鏡頭那邊）")
+
+# ================================================================ 守衛看香蕉皮
+
+func t_guard_peek() -> void:
+	await load_stage({"items": [["banana", 2]], "enemies": [["guard", "守衛", Vector3(1.5, 0, -1.0)]]})
+	bt.silent = false
+	bt.cast(0, g(2.1, -1.3))
+	bt._style_peels()
+	ok(who("守衛").data.has("peek_t"), "香蕉皮放在站著的守衛腳邊 1 公尺內：他低頭、冒「？」")
+	who("守衛").data.erase("peek_t")
+	bt.cast(0, g(4.5, -1.0))
+	bt._style_peels()
+	ok(not who("守衛").data.has("peek_t"), "放在 3 公尺外：沒反應")
+	bt.silent = true
+	run()
+	ok(bt.outcome == "lose", "腳邊的香蕉皮對站著的守衛沒用：家豪照樣被撲倒")
