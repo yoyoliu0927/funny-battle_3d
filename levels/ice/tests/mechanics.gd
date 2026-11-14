@@ -338,3 +338,26 @@ func t_guard_peek() -> void:
 	bt.silent = true
 	run()
 	ok(bt.outcome == "lose", "腳邊的香蕉皮對站著的守衛沒用：家豪照樣被撲倒")
+
+# ================================================================ 收尾：企鵝撞人（純演出）
+
+func t_finale_bump() -> void:
+	await load_stage({"ponds": [{"center": Vector2(5.0, -2.0), "r": 1.4}], "items": [["banana", 1]], "stars": ["all_sunk"],
+		"enemies": [["rusher", "阿土", Vector3(-9.0, 0, -2.0), [Vector3(-1.5, 0, -2.0)]], ["guard", "守衛", Vector3(8.0, 0, 3.0)]]})
+	bt.cast(0, g(-5.0, -2.0))
+	run()
+	var gd = who("守衛")
+	var pos0: Vector3 = gd.pos
+	var done0: Dictionary = bt._done.duplicate()
+	ok(bt.outcome == "win" and not gd.data.get("sunk", false), "過關時守衛還站著")
+	bt._start_finale()
+	ok(bt.world.bumps.size() == 1 and bt.flat_dist(bt.world.bumps[0].to, pos0) < 0.05, "收尾：向場地要一隻企鵝滑到守衛腳邊")
+	for i in int(5.0 / DT):
+		bt._step(DT)
+	bt._apply_visuals()
+	ok(bt.flat_dist(gd.node.global_position, Vector3(5.0, 0, -2.0)) < 1.4, "守衛的模型被撞進洞裡（離洞心 %.1f 公尺）" % bt.flat_dist(gd.node.global_position, Vector3(5.0, 0, -2.0)))
+	ok(gd.pos == pos0 and gd.state == "guard" and not gd.data.get("sunk", false), "戰局裡的位置、狀態沒變（沒有呼叫 fall_in）")
+	ok(bt._done == done0 and not bt._done.has("all_sunk") and bt.falls == 1, "不補星星、落水人數不變")
+	bt.reset()
+	bt._apply_visuals()
+	ok(not gd.data.has("fin") and bt.flat_dist(gd.node.global_position, pos0) < 0.1, "重來後回到原位")

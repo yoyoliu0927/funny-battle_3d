@@ -31,3 +31,8 @@ func _ice_configure() -> void:
 	front_props = false
 	camps = []
 	zones = []
+
+## 測試用：記下戰局要求的「企鵝撞人」（正式的在 ice_world.gd，由環境美術做）
+var bumps: Array = []
+func finale_bump(from: Vector3, to: Vector3, start: float, speed := 7.0) -> void:
+	bumps.append({"from": from, "to": to, "start": start, "speed": speed})

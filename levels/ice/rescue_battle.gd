@@ -1135,6 +1135,7 @@ func _start_finale() -> void:
 	toast("", 0.0)
 	if world.has_method("finale_show"):
 		world.finale_show(true)
+	_plan_bumps()
 	# 三個鏡頭：洞裡的人 → 整張地圖 → 家豪在前景
 	var look: Vector3 = world.get("camera_look") if world.get("camera_look") != null else Vector3.ZERO
 	var south: Vector3 = (camera.global_position - look) if camera else Vector3(0, 0, 1)
@@ -1185,6 +1186,8 @@ func _finale_stop() -> void:
 	if _finale_t < 0.0 and _finale_card == null:
 		return
 	_finale_t = -1.0
+	for f in enemies:
+		f.data.erase("fin")
 	if _finale_card and is_instance_valid(_finale_card):
 		_finale_card.queue_free()
 	_finale_card = null
@@ -3881,6 +3884,8 @@ func _level_visuals() -> void:
 		var st := _mini_state(f)
 		var kind: String = st[0]
 		var u: float = rig.unit
+		if _finale_t >= 0.0 and f.data.has("fin") and _bump_visual(f, rig, vcam):
+			continue
 		_set_face(rig, st[1])
 		var hat = f.data.get("snow_hat")
 		var has_snow: bool = hat != null and is_instance_valid(hat)
@@ -5239,3 +5244,79 @@ func _guard_notice(p: Vector3) -> void:
 		if f.alive() and f.get_meta("guard", false) and f.state in ["guard", "idle", "patrol"] and flat_dist(f.pos, p) < 1.0:
 			f.data.peek_t = _clock
 			pop_label("？", f.pos + Vector3(0, 3.0, 0), Color(1, 1, 1), 1400, f)
+
+# ---------------------------------------------------------------- 收尾：肚滑的企鵝把還站著、坐著的人撞進洞（純演出）
+#
+# 只挪模型：不呼叫 fall_in()、不改 f.pos／f.state、不補星星。
+# 企鵝由場地那邊生（world.finale_bump，環境美術的檔案）；場地還沒有這個函式的話，整段不演（人留在原地）。
+
+const BUMP_RUN := 8.0          # 企鵝從幾公尺外滑過來
+const BUMP_SPEED := 7.0
+
+func _plan_bumps() -> void:
+	if not world.has_method("finale_bump"):
+		return
+	var k := 0
+	for f in enemies:
+		if not f.alive() or f.data.get("sunk", false) or f.data.get("pile") != null:
+			continue
+		# 最近的、開著的洞
+		var hole = null
+		var best := 12.0
+		for pd in world.get("ponds"):
+			var c := Vector3(pd.center.x, 0, pd.center.y)
+			if flat_dist(c, f.pos) < best:
+				best = flat_dist(c, f.pos)
+				hole = c
+		for th in world.thin:
+			var c2 := Vector3(th.center.x, 0, th.center.y)
+			if th.state == "broken" and flat_dist(c2, f.pos) < best:
+				best = flat_dist(c2, f.pos)
+				hole = c2
+		if hole == null or best < 0.5:
+			continue
+		var dir: Vector3 = ((hole as Vector3) - f.pos)
+		dir.y = 0.0
+		dir = dir.normalized()
+		var start := FINALE_A + 0.1 + 0.35 * k
+		world.finale_bump(ground(f.pos - dir * BUMP_RUN), ground(f.pos), start, BUMP_SPEED)
+		var wy: float = world.water_surface_y(hole.x, hole.z) if world.has_method("water_surface_y") else ground(hole).y
+		f.data.fin = {"hit": start + BUMP_RUN / BUMP_SPEED, "from": f.pos, "to": Vector3(hole.x, wy, hole.z) - dir * 0.45, "dir": dir, "len": maxf(best - 0.45, 0.1)}
+		k += 1
+
+## 被企鵝撞到之後的樣子：往洞滑過去、掉進去發抖。回傳 false＝還沒被撞到（照平常的樣子）
+func _bump_visual(f: Fighter, rig: Dictionary, vcam: Camera3D) -> bool:
+	var fin: Dictionary = f.data.fin
+	var t := _finale_t - float(fin.hit)
+	if t < 0.0:
+		return false
+	var u: float = rig.unit
+	var slide_t: float = float(fin.len) / SLIDE_SPEED
+	if f.anim and f.anim.is_playing():
+		f.anim.pause()
+	var dir: Vector3 = fin.dir
+	var pose := {}
+	if t < slide_t:
+		var p: Vector3 = (fin.from as Vector3).lerp(fin.to, t / slide_t)
+		f.node.global_position = Vector3(p.x, (fin.from as Vector3).y - 0.07 * u, p.z)
+		f.node.rotation = Vector3(-0.4, atan2(dir.x, dir.z), sin(_clock * 16.0) * 0.12)
+		pose = mini_pose("slide", _clock, enemies.find(f) % 3)
+		_set_face(rig, "shock")
+	else:
+		var k := clampf((t - slide_t) / 0.5, 0.0, 1.0)
+		var to: Vector3 = fin.to
+		var yaw := atan2(dir.x, dir.z)
+		if vcam:
+			yaw = atan2(vcam.global_position.x - to.x, vcam.global_position.z - to.z)
+		f.node.global_position = Vector3(to.x + sin(_clock * 63.0) * 0.03, to.y - SINK_SHOW * u * k, to.z)
+		f.node.rotation = Vector3(0, yaw, 0)
+		pose = mini_pose("sunk", _clock, enemies.find(f) % 3)
+		_set_face(rig, "frozen")
+		if not fin.get("wet", false):
+			fin.wet = true
+			spawn_splash(to)
+			for m in rig.mats:
+				(m as ShaderMaterial).set_shader_parameter("frost", 0.6)
+	pose_mini(rig, pose)
+	_update_stars(f, false)
+	return true
