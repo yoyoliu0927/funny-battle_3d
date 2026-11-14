@@ -18,3 +18,6 @@ if len(sys.argv)>1:
     print('== 保底三片＋飼料格點'); gridmap(16,G,[(0,FP),(0,AP),(0,BP)],1,'grid3')
     print('== 阿火＋阿土對時機 (-4,-6.5)＋飼料格點'); gridmap(16,G,[(0,FP),(0,AT)],1,'grid2')
     print('== 只放飼料'); gridmap(16,G,[],1,'grid0')
+if len(sys.argv)>1:
+    print('== 阿火＋阿土 (-9)＋飼料格點，沒處理阿水（應該必輸）'); gridmap(16,G,[(0,FP),(0,AP)],1,'gridFA')
+    print('== 同上，黃線兩側 2 公尺內每 0.25'); gridmap(16,grid('E',-2.0,2.0,-9.0,5.0,0.25),[(0,FP),(0,AP)],1,'gridFA2')

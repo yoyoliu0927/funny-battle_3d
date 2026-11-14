@@ -81,8 +81,8 @@
    z= -7.5 AABBBBBBBCCCDDDDDDDAA
    z= -7.0 AABBBBBBBCCCDDDDDDDAA
    z= -6.5 AABBBBBBBCCCDDDDDDDAA
-   z= -6.0 AABBBBBBBCCCDEEEDDDAA
-   z= -5.5 AABBBBBBCCCCDEEEEDDAA
+   z= -6.0 AABBBBBBBCCCDDDDDDDAA
+   z= -5.5 AABBBBBBCCCCDDDDDDDAA
    z= -5.0 AABBBBBBCCCCDDDDDDDAA
    z= -4.5 AABBBBBBCCCCDDDDDDAAA
    z= -4.0 AABBBBBCCCCCDDDDDDAAA
@@ -108,7 +108,6 @@
    B = win[thin_intact] 洞:阿土,阿水
    C = lose(守衛抓) 洞:阿土,阿水
    D = win[guard_thin] 洞:阿土,阿水,守衛
-   E = 卡住60秒 洞:阿土,阿水,守衛
 == 只放飼料
   [重跑一致]
         x: -5.0 -4.0 -3.0 -2.0 -1.0  0.0  1.0  2.0  3.0  4.0  5.0

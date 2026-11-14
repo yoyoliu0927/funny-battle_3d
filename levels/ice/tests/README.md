@@ -81,11 +81,11 @@ func _make_items() -> Array:
 - `_defeat_tip_for(誰抓到的名字) -> String`：照抓到家豪的人給不同提示；回傳空字串就用 `_defeat_tip()`。
 - `win_line`、`caught_line`（字串變數）：過關、被抓時家豪的台詞；空白就用預設的。
 
-### `levels/tables/` 是修正前的版本
+### `levels/tables/` 是修正後重掃的版本
 
-`levels/tables/stage_12..16.txt` 是關卡設計當時掃出來的原表，早於「飼料轉折點掉進洞裡不再卡住」的修正。
-重掃之後第 12 關完全一樣；第 13、14、15 關原本標「卡住60秒」的格子現在會分出輸贏（類別字母因此往前遞補）。
-要更新就在 `levels/` 底下跑對應的 `sNN.py`，用 `ICE_SWEEP_OUT=<資料夾>` 指定中間檔放哪裡。
+`levels/tables/stage_12..16.txt` 已經用「飼料轉折點掉進洞裡不再卡住」之後的程式重掃過，沒有任何一格卡住。
+`feed_on_thin.txt`（`s_thin.py`）是飼料放在每塊薄冰上和周圍每 0.25 公尺的細掃，用來看有沒有因此跳過某一步的捷徑。
+要更新就在 `levels/` 底下跑對應的 `sNN.py`（第 16 關要加參數 `grid`），用 `ICE_SWEEP_OUT=<資料夾>` 指定中間檔放哪裡。
 
 ### 臉（手繪表情有沒有長在臉上）
 

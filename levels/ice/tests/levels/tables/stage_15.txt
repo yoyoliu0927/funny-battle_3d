@@ -1,7 +1,10 @@
   [重跑一致]
   [重跑一致]
 == 阿土線：stage_11 單片 vs stage_15（飼料 (-2.7,0.7)＋阿火一片＋阿土一片）
-   阿土、阿水的事件逐字相同 41/44
+   阿土、阿水的事件逐字相同 40/44
+   不同： A(-1.75,-6.50) 
+     11: ['4.63 阿土踩到香蕉皮，在冰上一路滑出去', '5.18 阿土從阿水身邊滑過去，差一點（阿土晚了 0.9 秒）'] 
+     15: ['4.63 阿土踩到香蕉皮，在冰上一路滑出去', '5.18 阿土從阿水身邊滑過去，差一點（阿土晚了 0.9 秒）', '6.10 阿土掉進冰洞，凍成冰棒了']
    不同： A(-1.50,-6.50) 
      11: ['4.75 阿土踩到香蕉皮，在冰上一路滑出去'] 
      15: ['4.75 阿土踩到香蕉皮，在冰上一路滑出去', '5.25 阿土從阿水身邊滑過去，差一點（阿土晚了 1.0 秒）']
@@ -19,114 +22,208 @@
    A(-1.75,-6.50)                     ~ A(-1.00,-6.50)                     x4   lose(阿水抓)
    stage_15：
    E(-2.70,0.70)+F(5.00,-3.40)+A(-11.75,-6.50) ~ E(-2.70,0.70)+F(5.00,-3.40)+A(-10.50,-6.50) x6   lose(阿水抓) 洞:阿土,阿火,守衛
-   E(-2.70,0.70)+F(5.00,-3.40)+A(-10.25,-6.50) ~ E(-2.70,0.70)+F(5.00,-3.40)+A(-9.50,-6.50) x4   lose(阿水抓) 洞:阿火,阿土,守衛
-   E(-2.70,0.70)+F(5.00,-3.40)+A(-9.25,-6.50) ~ E(-2.70,0.70)+F(5.00,-3.40)+A(-7.00,-6.50) x10  lose(阿水抓) 洞:阿火,守衛,阿土
+   E(-2.70,0.70)+F(5.00,-3.40)+A(-10.25,-6.50) ~ E(-2.70,0.70)+F(5.00,-3.40)+A(-7.50,-6.50) x12  lose(阿水抓) 洞:阿火,阿土,守衛
+   E(-2.70,0.70)+F(5.00,-3.40)+A(-7.25,-6.50) ~ E(-2.70,0.70)+F(5.00,-3.40)+A(-7.00,-6.50) x2   lose(阿水抓) 洞:阿火,守衛,阿土
    E(-2.70,0.70)+F(5.00,-3.40)+A(-6.75,-6.50) ~ E(-2.70,0.70)+F(5.00,-3.40)+A(-6.50,-6.50) x2   win[snow_hole] 洞:阿火,守衛,阿土,阿水
    E(-2.70,0.70)+F(5.00,-3.40)+A(-6.25,-6.50) ~ E(-2.70,0.70)+F(5.00,-3.40)+A(-5.00,-6.50) x6   win[snow_hole] 洞:阿火,守衛,阿水,阿土
    E(-2.70,0.70)+F(5.00,-3.40)+A(-4.75,-6.50) ~ E(-2.70,0.70)+F(5.00,-3.40)+A(-2.00,-6.50) x12  win[clean_fall2] 洞:阿火,守衛,阿水,阿土
-   E(-2.70,0.70)+F(5.00,-3.40)+A(-1.75,-6.50) ~ E(-2.70,0.70)+F(5.00,-3.40)+A(-1.00,-6.50) x4   lose(阿水抓) 洞:阿火,守衛
+   E(-2.70,0.70)+F(5.00,-3.40)+A(-1.75,-6.50) ~ E(-2.70,0.70)+F(5.00,-3.40)+A(-1.75,-6.50) x1   lose(阿水抓) 洞:阿火,守衛,阿土
+   E(-2.70,0.70)+F(5.00,-3.40)+A(-1.50,-6.50) ~ E(-2.70,0.70)+F(5.00,-3.40)+A(-1.00,-6.50) x3   lose(阿水抓) 洞:阿火,守衛
 == 不放飼料：不放、阿火線單片、阿土線＋阿火一片
   [重跑一致]
    none                               ~ none                               x1   lose(守衛抓)
-   F(9.00,-3.40)                      ~ F(5.00,-3.40)                      x17  lose(守衛抓) 洞:阿火
-   F(4.75,-3.40)                      ~ F(1.25,-3.40)                      x15  lose(守衛抓)
+   F(9.00,-3.40)                      ~ F(3.00,-3.40)                      x25  lose(守衛抓) 洞:阿火
+   F(2.75,-3.40)                      ~ F(1.25,-3.40)                      x7   lose(守衛抓)
    F(5.00,-3.40)+A(-11.75,-6.50)      ~ F(5.00,-3.40)+A(-10.50,-6.50)      x6   lose(守衛抓) 洞:阿土,阿火
-   F(5.00,-3.40)+A(-10.25,-6.50)      ~ F(5.00,-3.40)+A(-1.00,-6.50)       x38  lose(守衛抓) 洞:阿火
+   F(5.00,-3.40)+A(-10.25,-6.50)      ~ F(5.00,-3.40)+A(-8.50,-6.50)       x8   lose(守衛抓) 洞:阿火,阿土
+   F(5.00,-3.40)+A(-8.25,-6.50)       ~ F(5.00,-3.40)+A(-1.00,-6.50)       x30  lose(守衛抓) 洞:阿火
 == 飼料 (-2.7,0.7)＋阿土 (-4,-6.5)＋阿火線
   [重跑一致]
-   E(-2.70,0.70)+A(-4.00,-6.50)+F(9.00,-3.40) ~ E(-2.70,0.70)+A(-4.00,-6.50)+F(4.00,-3.40) x21  win[clean_fall2] 洞:阿火,守衛,阿水,阿土
-   E(-2.70,0.70)+A(-4.00,-6.50)+F(3.75,-3.40) ~ E(-2.70,0.70)+A(-4.00,-6.50)+F(1.25,-3.40) x11  win[clean_fall2] 洞:守衛,阿火,阿水,阿土
+   E(-2.70,0.70)+A(-4.00,-6.50)+F(9.00,-3.40) ~ E(-2.70,0.70)+A(-4.00,-6.50)+F(2.00,-3.40) x29  win[clean_fall2] 洞:阿火,守衛,阿水,阿土
+   E(-2.70,0.70)+A(-4.00,-6.50)+F(1.75,-3.40) ~ E(-2.70,0.70)+A(-4.00,-6.50)+F(1.25,-3.40) x3   win[clean_fall2] 洞:守衛,阿火,阿水,阿土
 == 飼料 (-2.7,0.7)＋阿火一片＋阿水線
   [重跑一致]
    E(-2.70,0.70)+F(5.00,-3.40)+B(7.20,-13.60) ~ E(-2.70,0.70)+F(5.00,-3.40)+B(3.85,-9.24) x23  lose(阿土抓) 洞:阿火,守衛
-   E(-2.70,0.70)+F(5.00,-3.40)+B(3.70,-9.04) ~ E(-2.70,0.70)+F(5.00,-3.40)+B(1.26,-5.87) x17  lose(阿土抓) 洞:阿火,守衛,阿水
-   E(-2.70,0.70)+F(5.00,-3.40)+B(1.11,-5.67) ~ E(-2.70,0.70)+F(5.00,-3.40)+B(0.66,-5.07) x4   lose(阿土抓) 洞:阿火,守衛
+   E(-2.70,0.70)+F(5.00,-3.40)+B(3.70,-9.04) ~ E(-2.70,0.70)+F(5.00,-3.40)+B(0.66,-5.07) x21  lose(阿土抓) 洞:阿火,守衛,阿水
 == 飼料 (-2.7,0.7)＋單片（阿土線、阿火線）
   [重跑一致]
-   E(-2.70,0.70)+A(-11.75,-6.50)      ~ E(-2.70,0.70)+A(-9.50,-6.50)       x10  lose(阿火抓) 洞:阿土,守衛
-   E(-2.70,0.70)+A(-9.25,-6.50)       ~ E(-2.70,0.70)+A(-7.00,-6.50)       x10  lose(阿火抓) 洞:守衛,阿土
+   E(-2.70,0.70)+A(-11.75,-6.50)      ~ E(-2.70,0.70)+A(-7.50,-6.50)       x18  lose(阿火抓) 洞:阿土,守衛
+   E(-2.70,0.70)+A(-7.25,-6.50)       ~ E(-2.70,0.70)+A(-7.00,-6.50)       x2   lose(阿火抓) 洞:守衛,阿土
    E(-2.70,0.70)+A(-6.75,-6.50)       ~ E(-2.70,0.70)+A(-6.50,-6.50)       x2   lose(阿火抓) 洞:守衛,阿土,阿水
-   E(-2.70,0.70)+A(-6.25,-6.50)       ~ E(-2.70,0.70)+A(-5.50,-6.50)       x4   lose(阿火抓) 洞:守衛,阿水,阿土
-   E(-2.70,0.70)+A(-5.25,-6.50)       ~ E(-2.70,0.70)+A(-5.00,-6.50)       x2   lose(阿火抓) 洞:守衛,阿水
-   E(-2.70,0.70)+A(-4.75,-6.50)       ~ E(-2.70,0.70)+A(-1.00,-6.50)       x16  lose(阿火抓) 洞:守衛
-   E(-2.70,0.70)+F(9.00,-3.40)        ~ E(-2.70,0.70)+F(4.00,-3.40)        x21  lose(阿土抓) 洞:阿火,守衛
-   E(-2.70,0.70)+F(3.75,-3.40)        ~ E(-2.70,0.70)+F(1.25,-3.40)        x11  lose(阿土抓) 洞:守衛,阿火
+   E(-2.70,0.70)+A(-6.25,-6.50)       ~ E(-2.70,0.70)+A(-4.50,-6.50)       x8   lose(阿火抓) 洞:守衛,阿水,阿土
+   E(-2.70,0.70)+A(-4.25,-6.50)       ~ E(-2.70,0.70)+A(-4.00,-6.50)       x2   lose(阿火抓) 洞:守衛,阿水
+   E(-2.70,0.70)+A(-3.75,-6.50)       ~ E(-2.70,0.70)+A(-1.00,-6.50)       x12  lose(阿火抓) 洞:守衛
+   E(-2.70,0.70)+F(9.00,-3.40)        ~ E(-2.70,0.70)+F(2.00,-3.40)        x29  lose(阿土抓) 洞:阿火,守衛
+   E(-2.70,0.70)+F(1.75,-3.40)        ~ E(-2.70,0.70)+F(1.25,-3.40)        x3   lose(阿土抓) 洞:守衛,阿火
 == 阿土 (-4,-6.5)＋阿火 (5,-3.4)＋飼料格點
   [重跑一致]
         x: -5.0 -4.0 -3.0 -2.0 -1.0  0.0  1.0  2.0  3.0  4.0  5.0
-   z= -9.0 AABCCCCIIIFFFJJJJJJAA
-   z= -8.5 AACCCCCIIIFFFJJJJJJAA
-   z= -8.0 AACCCCCIIIFFFJJJJJAAA
-   z= -7.5 AACBCCCIIIFFFJJJJJAAA
-   z= -7.0 AACCCCCIIIFFFJJJJJJAA
-   z= -6.5 AACCCCCIIIFFJJJJJJJAA
-   z= -6.0 AACCBCCCIIFFFJJJJJJAA
-   z= -5.5 AACCCCCCIIFFJJJJJJJAA
-   z= -5.0 AACCCCCCIIFFJJJJJJJAA
-   z= -4.5 AACCBCCCIIFFJJJJJJJAA
-   z= -4.0 AACCCCCCIIFFJJJJJJJAA
-   z= -3.5 AACCCCCCIIFFJJJJJJJAA
-   z= -3.0 AACCCBCCCIFFJJJJJJJAA
-   z= -2.5 AACCCCBCCIFFJJJJJJJAA
-   z= -2.0 AACCCCCCCIFFJJJJJJJAA
-   z= -1.5 AACCCGHGCIFFJJJJJJJAA
-   z= -1.0 AACCGGGHCIFFJJJJJJJAA
-   z= -0.5 AACCCCCCCIFFJJJJJJJAA
-   z=  0.0 AACCCCCBCIFFJJJJJJJAA
-   z=  0.5 AACCCCCCCCFFJJJJJJJAA
-   z=  1.0 AACCCCCCCIFFFJJJJJJAA
-   z=  1.5 AACCCCCCCIFFFJJJJJJAA
-   z=  2.0 AACCCCCCCIFFFJJJJJJAA
-   z=  2.5 AACCCCCCCIFFFFJJJJJAA
-   z=  3.0 AACCCCCCCIFFFFJJJJJAA
-   z=  3.5 AACCCCCCCIFFFFJJJJJAA
-   z=  4.0 AADEFFFFFFFFFFFFFDDAA
-   z=  4.5 AADFFFFFFFFFFFFFFEDAA
-   z=  5.0 AADFFFFFFFFFFFFFFEDAA
+   z= -9.0 AABBBBBGGGGGGHHHHHHAA
+   z= -8.5 AABBBBBGGGGGGHHHHHHAA
+   z= -8.0 AABBBBBGGGGGGHHHHHAAA
+   z= -7.5 AABBBBBGGGGGGHHHHHAAA
+   z= -7.0 AABBBBBGGGGGGHHHHHHAA
+   z= -6.5 AABBBBBBGGGGHHHHHHHAA
+   z= -6.0 AABBBBBBGGGGGHHHHHHAA
+   z= -5.5 AABBBBBBGGGGHHHHHHHAA
+   z= -5.0 AABBBBBBGGGGHHHHHHHAA
+   z= -4.5 AABBBBBBGGGGHHHHHHHAA
+   z= -4.0 AABBBBBBGGGGHHHHHHHAA
+   z= -3.5 AABBBBBBGGGGHHHHHHHAA
+   z= -3.0 AABBBBBBBGGGHHHHHHHAA
+   z= -2.5 AABBBBBBBGGGHHHHHHHAA
+   z= -2.0 AABBBBBBBGGGHHHHHHHAA
+   z= -1.5 AABBBBBBBGGGHHHHHHHAA
+   z= -1.0 AABBBBBBBGGGHHHHHHHAA
+   z= -0.5 AABBBBBBBGGGHHHHHHHAA
+   z=  0.0 AABBBBBBBGGGHHHHHHHAA
+   z=  0.5 AABBBBBBBBGGHHHHHHHAA
+   z=  1.0 AABBBBBBBGGGGHHHHHHAA
+   z=  1.5 AABBBBBBBGGGGHHHHHHAA
+   z=  2.0 AABBBBBBBGGGGHHHHHHAA
+   z=  2.5 AACBBBBBBGGGGGHHHHHAA
+   z=  3.0 AACBBBBBBGGGGGHHHHHAA
+   z=  3.5 AADBBBBBBGGGGGHHHHHAA
+   z=  4.0 AAEEEGGGGGGGGGGFEEEAA
+   z=  4.5 AAEEFGGGGGGGGGGGEEEAA
+   z=  5.0 AAEEGGGGGGGGGGGGFEEAA
    A = lose(守衛抓) 洞:阿火 放不了
-   B = win[clean_fall2] 洞:守衛,阿火,阿水,阿土
-   C = win[clean_fall2] 洞:阿火,守衛,阿水,阿土
-   D = lose(守衛抓) 洞:阿火,阿水,阿土
-   E = lose(守衛抓) 洞:阿火,阿水
-   F = lose(守衛抓) 洞:阿火
-   G = 卡住60秒 洞:阿火,守衛,阿水,阿土
-   H = 卡住60秒 洞:守衛,阿火,阿水,阿土
-   I = lose(守衛抓)
-   J = win[clean_fall2] 洞:阿火,阿水,阿土
+   B = win[clean_fall2] 洞:阿火,守衛,阿水,阿土
+   C = win[clean_fall2] 洞:阿火,阿水,守衛,阿土
+   D = win[clean_fall2] 洞:阿火,阿水,阿土,守衛
+   E = lose(守衛抓) 洞:阿火,阿水,阿土
+   F = lose(守衛抓) 洞:阿火,阿水
+   G = lose(守衛抓) 洞:阿火
+   H = win[clean_fall2] 洞:阿火,阿水,阿土
 == 只放飼料
   [重跑一致]
         x: -5.0 -4.0 -3.0 -2.0 -1.0  0.0  1.0  2.0  3.0  4.0  5.0
-   z= -9.0 AABBCCCEEEEEEDDDDDDAA
-   z= -8.5 AABBCCCEEEEEEDDDDDDAA
-   z= -8.0 AABBCCCEEEEEEDDDDDAAA
-   z= -7.5 AABBCCCEEEEEEDDDDDAAA
-   z= -7.0 AABBBCCEEEEEEDDDDDDAA
-   z= -6.5 AABBBCCEEEEEDDDDDDDAA
-   z= -6.0 AABCCCCCEEEEEDDDDDDAA
-   z= -5.5 AACBCCCCEEEEDDDDDDDAA
-   z= -5.0 AABCCCCCEEEEDDDDDDDAA
-   z= -4.5 AACCCCCCEEEEDDDDDDDAA
-   z= -4.0 AACCCCCCEEEEDDDDDDDAA
-   z= -3.5 AACCCCCCEEEEDDDDDDDAA
-   z= -3.0 AACCCCCCCEEEDDDDDDDAA
-   z= -2.5 AACCCCCCCEEEDDDDDDDAA
-   z= -2.0 AACCCCCCCEEEDDDDDDDAA
-   z= -1.5 AACCCCCCCEEEDDDDDDDAA
-   z= -1.0 AACCCCCCCEEEDDDDDDDAA
-   z= -0.5 AACCCCCCCEEEDDDDDDDAA
-   z=  0.0 AACCCCCCCEEEDDDDDDDAA
-   z=  0.5 AACCCCCCCCEEDDDDDDDAA
-   z=  1.0 AACCCCCCCEEEEDDDDDDAA
-   z=  1.5 AACCCCCCCEEEEDDDDDDAA
-   z=  2.0 AACCCCCCCEEEEDDDDDDAA
-   z=  2.5 AACCCCCCCEEEEDDDDDDAA
-   z=  3.0 AACCCCCCCEEEEDDDDDDAA
-   z=  3.5 AACCCCCCCEEEEDDDDDDAA
-   z=  4.0 AADDDEEEEEEEEEEDDDDAA
-   z=  4.5 AADDDEEEEEEEEEEDDDDAA
-   z=  5.0 AADDDEEEEEEEEEEDDDDAA
+   z= -9.0 AABBBBBEEEEEDDDDDDDAA
+   z= -8.5 AABBBBBEEEEEDDDDDDDAA
+   z= -8.0 AABBBBBEEEEEDDDDDDAAA
+   z= -7.5 AABBBBBEEEEEDDDDDDAAA
+   z= -7.0 AABBBBBEEEEEDDDDDDDAA
+   z= -6.5 AABBBBBBEEEEDDDDDDDAA
+   z= -6.0 AABBBBBBEEEEDDDDDDDAA
+   z= -5.5 AABBBBBBEEEEDDDDDDDAA
+   z= -5.0 AABBBBBBEEEEDDDDDDDAA
+   z= -4.5 AABBBBBBEEEEDDDDDDDAA
+   z= -4.0 AABBBBBBEEEEDDDDDDDAA
+   z= -3.5 AABBBBBBEEEEDDDDDDDAA
+   z= -3.0 AABBBBBBBEEEDDDDDDDAA
+   z= -2.5 AABBBBBBBEEEDDDDDDDAA
+   z= -2.0 AABBBBBBBEEDDDDDDDDAA
+   z= -1.5 AABBBBBBBEEDDDDDDDDAA
+   z= -1.0 AABBBBBBBEEDDDDDDDDAA
+   z= -0.5 AABBBBBBBEEDDDDDDDDAA
+   z=  0.0 AABBBBBBBEEEDDDDDDDAA
+   z=  0.5 AABBBBBBBBEEDDDDDDDAA
+   z=  1.0 AABBBBBBBEEEDDDDDDDAA
+   z=  1.5 AABBBBBBBEEEDDDDDDDAA
+   z=  2.0 AABBBBBBBEEEDDDDDDDAA
+   z=  2.5 AABBBBBBBEEEDDDDDDDAA
+   z=  3.0 AABBBBBBBEEEDDDDDDDAA
+   z=  3.5 AACBBBBBBEEEDDDDDDDAA
+   z=  4.0 AADDDDDEEEEEEDDDDDDAA
+   z=  4.5 AADDDDEEEEEEEDDDDDDAA
+   z=  5.0 AADDDDEEEEEEEEDDDDDAA
    A = lose(守衛抓) 放不了
-   B = lose(阿土抓) 洞:守衛
-   C = lose(阿火抓) 洞:守衛
+   B = lose(阿火抓) 洞:守衛
+   C = lose(阿土抓) 洞:阿火,守衛
    D = lose(阿火抓)
    E = lose(守衛抓)
+== 阿火 (5,-3.4)＋阿土 (-9,-6.5) 沒對時機＋飼料格點（應該必輸）
+  [重跑一致]
+        x: -5.0 -4.0 -3.0 -2.0 -1.0  0.0  1.0  2.0  3.0  4.0  5.0
+   z= -9.0 AABBBBBCCCCCCDDDDDDAA
+   z= -8.5 AABBBBBCCCCCCDDDDDDAA
+   z= -8.0 AABBBBBCCCCCCDDDDDAAA
+   z= -7.5 AABBBBBCCCCCCDDDDDAAA
+   z= -7.0 AABBBBBCCCCCCDDDDDDAA
+   z= -6.5 AABBBBBBCCCCDDDDDDDAA
+   z= -6.0 AABBBBBBCCCCCDDDDDDAA
+   z= -5.5 AABBBBBBCCCCDDDDDDDAA
+   z= -5.0 AABBBBBBCCCCDDDDDDDAA
+   z= -4.5 AABBBBBBCCCCDDDDDDDAA
+   z= -4.0 AABBBBBBCCCCDDDDDDDAA
+   z= -3.5 AABBBBBBCCCCDDDDDDDAA
+   z= -3.0 AABBBBBBBCCCDDDDDDDAA
+   z= -2.5 AABBBBBBBCCCDDDDDDDAA
+   z= -2.0 AABBBBBBBCCCDDDDDDDAA
+   z= -1.5 AABBBBBBBCCCDDDDDDDAA
+   z= -1.0 AABBBBBBBCCCDDDDDDDAA
+   z= -0.5 AABBBBBBBCCCDDDDDDDAA
+   z=  0.0 AABBBBBBBCCCDDDDDDDAA
+   z=  0.5 AABBBBBBBBCCDDDDDDDAA
+   z=  1.0 AABBBBBBBCCCCDDDDDDAA
+   z=  1.5 AABBBBBBBCCCCDDDDDDAA
+   z=  2.0 AABBBBBBBCCCCDDDDDDAA
+   z=  2.5 AABBBBBBBCCCCCDDDDDAA
+   z=  3.0 AABBBBBBBCCCCCDDDDDAA
+   z=  3.5 AABBBBBBBCCCCCDDDDDAA
+   z=  4.0 AACCCCCCCCCCCCCCCCCAA
+   z=  4.5 AACCCCCCCCCCCCCCCCCAA
+   z=  5.0 AACCCCCCCCCCCCCCCCCAA
+   A = lose(守衛抓) 洞:阿火,阿土 放不了
+   B = lose(阿水抓) 洞:阿火,阿土,守衛
+   C = lose(守衛抓) 洞:阿火,阿土
+   D = lose(阿水抓) 洞:阿火,阿土
+== 同上，黃線兩側 2 公尺內每 0.25
+  [重跑一致]
+        x: -2.0 -1.5 -1.0 -0.5  0.0  0.5  1.0  1.5  2.0
+   z= -9.0 ABBBBBBBBBBBBBCCC
+   z= -8.8 ABBBBBBBBBBBBBCCC
+   z= -8.5 ABBBBBBBBBBBBBCCC
+   z= -8.2 AABBBBBBBBBBBBCCC
+   z= -8.0 AABBBBBBBBBBBCCCC
+   z= -7.8 AABBBBBBBBBBBCCCC
+   z= -7.5 AABBBBBBBBBBBCCCC
+   z= -7.2 AABBBBBBBBBBBCCCC
+   z= -7.0 AABBBBBBBBBBBCCCC
+   z= -6.8 AABBBBBBBBBBCCCCC
+   z= -6.5 AAABBBBBBBBBCCCCC
+   z= -6.2 AAABBBBBBBBBBCCCC
+   z= -6.0 AAABBBBBBBBBBCCCC
+   z= -5.8 AAABBBBBBBBBCCCCC
+   z= -5.5 AAABBBBBBBBBCCCCC
+   z= -5.2 AAABBBBBBBBBCCCCC
+   z= -5.0 AAAABBBBBBBBCCCCC
+   z= -4.8 AAAABBBBBBBBCCCCC
+   z= -4.5 AAAABBBBBBBBCCCCC
+   z= -4.2 AAAABBBBBBBBCCCCC
+   z= -4.0 AAAABBBBBBBBCCCCC
+   z= -3.8 AAAABBBBBBBCCCCCC
+   z= -3.5 AAAABBBBBBBCCCCCC
+   z= -3.2 AAAAABBBBBBBCCCCC
+   z= -3.0 AAAAABBBBBBCCCCCC
+   z= -2.8 AAAAABBBBBBCCCCCC
+   z= -2.5 AAAAABBBBBBCCCCCC
+   z= -2.2 AAAAABBBBBBCCCCCC
+   z= -2.0 AAAAABBBBBBCCCCCC
+   z= -1.8 AAAAABBBBBBCCCCCC
+   z= -1.5 AAAAABBBBBBBCCCCC
+   z= -1.2 AAAAAABBBBBCCCCCC
+   z= -1.0 AAAAAABBBBBCCCCCC
+   z= -0.8 AAAAAABBBBBBCCCCC
+   z= -0.5 AAAAAABBBBBBCCCCC
+   z= -0.2 AAAAAABBBBBBCCCCC
+   z=  0.0 AAAAAABBBBBBCCCCC
+   z=  0.2 AAAAAABBBBBBCCCCC
+   z=  0.5 AAAAAAABBBBBCCCCC
+   z=  0.8 AAAAAAABBBBBBCCCC
+   z=  1.0 AAAAAABBBBBBBBCCC
+   z=  1.2 AAAAAABBBBBBBBCCC
+   z=  1.5 AAAAAABBBBBBBBCCC
+   z=  1.8 AAAAAABBBBBBBBCCC
+   z=  2.0 AAAAAABBBBBBBBCCC
+   z=  2.2 AAAAAABBBBBBBBBCC
+   z=  2.5 AAAAAABBBBBBBBBCC
+   z=  2.8 AAAAAABBBBBBBBBCC
+   z=  3.0 AAAAAABBBBBBBBBBC
+   z=  3.2 AAAAAABBBBBBBBBBC
+   z=  3.5 AAAAAABBBBBBBBBBC
+   z=  3.8 AAAAAABBBBBBBBBBB
+   z=  4.0 BBBBBBBBBBBBBBBBB
+   A = lose(阿水抓) 洞:阿火,阿土,守衛
+   B = lose(守衛抓) 洞:阿火,阿土
+   C = lose(阿水抓) 洞:阿火,阿土

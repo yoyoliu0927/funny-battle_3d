@@ -1,5 +1,6 @@
     0.00s 開始
-    3.03s 守衛撲過來了
-    3.40s 守衛抓住了家豪
-    4.28s 落敗
-RESULT stage=15 strategy=none outcome=lose time=4.3 bird_hp=0.0 left=4 casts=0
+    3.65s 阿火改追攔截點 (0.00, -2.34)，從 (1.44, -3.40)
+    3.68s 守衛撲過來了
+    4.05s 守衛抓住了家豪
+    4.93s 落敗
+RESULT stage=15 strategy=none outcome=lose time=4.9 bird_hp=0.0 left=4 casts=0
