@@ -64,7 +64,19 @@ var _recap_t := 0.0            # 過關前「今日最佳」受害者特寫還�
 var _told_giveup := false
 var _miss_text := ""            # 時機差一點時：晚了／早了幾秒（寫進失敗提示）
 ## 第 3 關（時機）：紅線上每 1 秒標一個點；瞄準時標出「他踩到的那一刻，別人在哪」
-var show_timing := false
+var show_timing := false      # 舊的總開關（stage_11）：下面的輔助全開＋開場示範
+## 時機輔助，各自開關（關卡在 _level_setup() 設）
+var aid_cross_mark := false       # 交叉點的地上標記
+var aid_ghost := false            # 瞄準「滑的人」的紅線時：穿越的人的剪影、滑行道、圓盤
+var aid_last_try := 0             # 重來後留幾個「上次的記號」
+var aid_tab_seconds := false      # Tab 俯視：紅線上的秒數刻度
+var aid_demo := false             # 開場示範
+var aid_after_first_star := false # true＝交叉點標記和剪影要拿過第一顆星之後才出現
+var timing_slider := ""           # 滑的人的名字（空白＝第一個工人）
+var timing_crosser := ""          # 穿越的人的名字（空白＝第二個工人）
+## 台詞（空白＝預設）
+var win_line := ""
+var caught_line := ""
 var _time_labels: Array = []
 var _ghost_label: Label3D
 var _reroute_label: Label3D
@@ -649,6 +661,20 @@ func _check_end() -> String:
 			mark("first_try")
 		if falls >= 2 and not enemies.any(func(e): return e.data.get("snow_hat") != null):
 			mark("clean_fall2")
+		# 薄冰、飼料的星星
+		if not world.thin.is_empty() and world.thin.all(func(th): return th.state == "solid"):
+			mark("thin_intact")
+		if not casts.any(func(c): return c.id == "bait"):
+			mark("no_feed")
+		if not enemies.is_empty() and enemies.all(func(e): return e.data.get("sunk", false)):
+			mark("all_sunk")
+		var per_hole := {}
+		for e in enemies:
+			if e.data.get("sunk", false):
+				var h := _hole_id(e.pos)
+				per_hole[h] = int(per_hole.get(h, 0)) + 1
+				if h >= 0 and int(per_hole[h]) >= 2:
+					mark("pair_hole")
 		return "win"
 	if not bird.alive():
 		return "lose"
@@ -911,7 +937,7 @@ func _start_win_show() -> void:
 	elif _done.has("guard_carom") or _done.has("carom") or _done.has("clean_fall2"):
 		line = "……一次兩個"
 	# 企鵝先說「謝謝家豪！」，家豪 0.8 秒後才吐槽（一來一往）
-	_pending_line = "唉" + line
+	_pending_line = win_line if win_line != "" else "唉" + line
 
 func _level_step_ended(dt: float) -> void:
 	super(dt)
@@ -976,6 +1002,10 @@ func _defeat_title() -> String:
 func _defeat_tip() -> String:
 	return "把香蕉皮丟在紅線上"
 
+## 照抓到家豪的人給不同的提示（關卡覆寫；回傳空字串就用 _defeat_tip()）
+func _defeat_tip_for(_who: String) -> String:
+	return ""
+
 ## 輸了的晚餐畫面：不要寫「還剩幾個敵人」，改成誰抓到的
 func _show_defeat() -> void:
 	super()
@@ -988,6 +1018,8 @@ func _show_defeat() -> void:
 		_defeat_card.queue_free()
 	_recast_dinner()
 	var tip := _defeat_tip()
+	if _caught_by != "" and _defeat_tip_for(_caught_by) != "":
+		tip = _defeat_tip_for(_caught_by)
 	if _miss_text != "":
 		# 時機差一點：直接說香蕉皮該往哪邊挪
 		var late := _miss_text.contains("晚")
@@ -1435,7 +1467,7 @@ func _level_step(dt: float) -> void:
 					_labels.remove_at(li)
 			# 泡泡放在家豪外側上方：不蓋住工人的臉
 			_pop_keep = hold_miss
-			bubble("……完了", bird, 2.15, 4000, sd * 0.7)
+			bubble(caught_line if caught_line != "" else "……完了", bird, 2.15, 4000, sd * 0.7)
 			_pop_keep = false
 			if hold_miss:
 				_catch_cut = [f]         # 等「差一點！」的特寫演完再切到被抓的鏡頭
@@ -1629,8 +1661,10 @@ func _tick_slide(f: Fighter, dt: float) -> void:
 		if f.state == "kslide" and not f.data.get("missed", false) and not f.data.get("hit_any", false):
 			var sdir: Vector3 = f.data.sdir
 			for o in enemies:
-				if o == f or not o.alive() or o.state in ["kslide", "stunned", "giveup"]:
+				if o == f or not o.alive() or o.state in ["kslide", "stunned", "giveup", "crack"]:
 					continue
+				if o.data.get("guard", false) and o.state == "guard":
+					continue      # 站著的守衛不算「差一點」
 				var rel: Vector3 = o.pos - f.pos
 				rel.y = 0.0
 				if flat_dist(o.pos, f.pos) < 3.0 and rel.dot(sdir) < 0.0:
@@ -1841,7 +1875,7 @@ func _process(dt: float) -> void:
 		var t_in := _clock - _prep_t0
 		var first_time: bool = attempts.is_empty()     # 說明、大標題、示範都只在第一次進這一關時出現
 		# 示範播放時先不貼說明（畫面上只留示範的一行字）；示範播完再貼幾秒
-		var show_how: bool = (first_time and not _demo_playing and t_in < (15.0 if show_timing else 5.0)) or Input.is_physical_key_pressed(KEY_H)
+		var show_how: bool = (first_time and not _demo_playing and t_in < (15.0 if _aid("demo") else 5.0)) or Input.is_physical_key_pressed(KEY_H)
 		_how_panel.visible = show_how and not (_top_cam != null and _top_cam.current)
 		if _goal_label:
 			# 紅色大標題只在第一關、第一次進來時出現一下
@@ -2088,7 +2122,7 @@ func _dashes(im: ImmediateMesh, pts: Array, c: Color, w: float, y := 0.1, pad :=
 func _update_intents() -> void:
 	# 名牌：只有第 3 關（清單、提示都用名字）才有，準備階段常駐、開打後收掉。其他關靠帽子顏色分辨。
 	var cut := _cut_cam != null and _cut_cam.current
-	var show_names: bool = show_timing and phase == Phase.PREPARE and not cut
+	var show_names: bool = (show_timing or show_names_always) and phase == Phase.PREPARE and not cut
 	for f in enemies:
 		var l: Label3D = _intents[f]
 		l.visible = show_names and f.alive()
@@ -2281,7 +2315,7 @@ func _draw_slides(im: ImmediateMesh, results: Array, col: Color, w: float, edge 
 				var grow := hw - w
 				for v in [e + last_dir * (w * 5.5 + grow * 1.6), e - last_dir * grow + sd0 * (w * 3.0 + grow), e - last_dir * grow - sd0 * (w * 3.0 + grow)]:
 					_v(c, v)
-			if r.get("ticks", false) and show_timing and top_on:      # 每半秒一道橫線：只有看時機的關卡、俯視時才畫
+			if r.get("ticks", false) and _aid("tab") and top_on:      # 每半秒一道橫線：只有看時機的關卡、俯視時才畫
 				var d := 0.0
 				var next := SLIDE_SPEED * 0.5
 				for i in range(1, pts.size()):
@@ -2749,7 +2783,7 @@ func _along(pts: Array, d: float) -> Vector3:
 ## 第 3 關：紅線上每 1 秒一個點＋秒數
 func _draw_time_dots() -> void:
 	var used := 0
-	if show_timing and phase == Phase.PREPARE:
+	if _aid("tab") and phase == Phase.PREPARE:
 		var top_on: bool = _top_cam != null and _top_cam.current
 		for f in enemies:
 			if not f.alive() or f.data.get("guard", false):
@@ -2796,15 +2830,16 @@ func _draw_timing_ghosts(_im: ImmediateMesh) -> void:
 	_cross_q = null
 	if _cross_label:
 		_cross_label.visible = false
-	if not show_timing or phase != Phase.PREPARE:
+	if not (_aid("cross") or _aid("ghost")) or phase != Phase.PREPARE:
 		return
-	var aiming: bool = aim_point != null and aim_error == "" \
+	var pair := _timing_pair()
+	var aiming: bool = _aid("ghost") and aim_point != null and aim_error == "" \
 		and not items.is_empty() and items[selected].id == "banana" and charges[selected] != 0
 	if aiming and not _demo_playing:
 		var p: Vector3 = aim_point
 		for f in enemies:
-			if f.data.get("guard", false) or _cross_q != null:
-				continue
+			if f.data.get("guard", false) or _cross_q != null or (pair.size() == 2 and f != pair[0]):
+				continue          # 只有瞄「滑的人」的紅線才畫
 			var route := planned_route(f)
 			var walked := 0.0
 			for i in range(1, route.size()):
@@ -2823,8 +2858,8 @@ func _draw_timing_ghosts(_im: ImmediateMesh) -> void:
 					for r in _aim_results:
 						_lane(r.pts)
 					for o in enemies:
-						if o == f or o.data.get("guard", false):
-							continue
+						if o == f or o.data.get("guard", false) or (pair.size() == 2 and o != pair[1]):
+							continue      # 只畫「會穿過這條滑行線的那個人」
 						var cr := _crossing(f, o, p, dir, t_hit)
 						if cr.is_empty():
 							continue
@@ -2844,6 +2879,8 @@ func _draw_timing_ghosts(_im: ImmediateMesh) -> void:
 				walked += l
 	# 交叉點的記號（示範播完也留著：「就是這裡」）
 	var mark = _cross_q
+	if not _aid("cross"):
+		return
 	if mark == null:
 		var rc := _route_cross()
 		if not rc.is_empty():
@@ -2896,8 +2933,11 @@ func _cross_mark(c: Vector3) -> void:
 func _route_cross() -> Dictionary:
 	if enemies.size() < 2:
 		return {}
-	var ra := planned_route(enemies[0])
-	var rb := planned_route(enemies[1])
+	var pr := _timing_pair()
+	if pr.size() < 2:
+		return {}
+	var ra := planned_route(pr[0])
+	var rb := planned_route(pr[1])
 	if ra.size() < 2 or rb.size() < 2:
 		return {}
 	var dir: Vector3 = (ra[1] as Vector3) - (ra[0] as Vector3)
@@ -3043,13 +3083,13 @@ func _draw_demo(_im: ImmediateMesh) -> void:
 	_demo_playing = false
 	if _demo_peel:
 		_demo_peel.visible = false
-	if not show_timing or phase != Phase.PREPARE or not attempts.is_empty():
+	if not _aid("demo") or phase != Phase.PREPARE or not attempts.is_empty():
 		return
 	var rc := _route_cross()
 	if rc.is_empty():
 		return
-	var a_f: Fighter = enemies[0]
-	var b_f: Fighter = enemies[1]
+	var a_f: Fighter = _timing_pair()[0]
+	var b_f: Fighter = _timing_pair()[1]
 	var ra: Array = rc.ra
 	var rb: Array = rc.rb
 	var dir: Vector3 = rc.dir
@@ -3310,6 +3350,12 @@ const LOOKS := {
 	"工人": {"hat": Color("ffcf33"), "hat2": Color("ffe27a"), "suit": Color("f07f2b"), "skin": Color("f6c7a0"), "hair": Color("5b3a29")},
 	"阿土": {"hat": Color("ff8a1f"), "hat2": Color("ffb45e"), "suit": Color("7a9a3a"), "skin": Color("e8a878"), "hair": Color("6a4630")},
 	"阿水": {"hat": Color("ff5fa2"), "hat2": Color("ff9cc6"), "suit": Color("8a5bd1"), "skin": Color("f8d2b0"), "hair": Color("7a4a2a")},
+	"阿火": {"hat": Color("e2362b"), "hat2": Color("ff7a5c"), "suit": Color("2f8f83"), "skin": Color("f1bf98"), "hair": Color("4a2f22")},
+	"阿木": {"hat": Color("43b047"), "hat2": Color("8ad98c"), "suit": Color("a0673a"), "skin": Color("e9b386"), "hair": Color("3f2a1e")},
+	"守衛甲": {"hat": Color("27406b"), "visor": Color("16223d"), "badge": Color("ffd23f"), "suit": Color("d63b3b"), "dark": Color("2c3350"),
+		"glove": Color("2c3350"), "scarf": Color("ffd23f"), "skin": Color("f2bb93"), "hair": Color("4a3024")},
+	"守衛乙": {"hat": Color("27406b"), "visor": Color("16223d"), "badge": Color("ffd23f"), "suit": Color("d63b3b"), "dark": Color("2c3350"),
+		"glove": Color("2c3350"), "scarf": Color("35c9dc"), "skin": Color("e6ad84"), "hair": Color("2e2019")},
 	"守衛": {"hat": Color("27406b"), "visor": Color("16223d"), "badge": Color("ffd23f"), "suit": Color("d63b3b"), "dark": Color("2c3350"),
 		"glove": Color("2c3350"), "scarf": Color("ffd23f"),
 		"skin": Color("f2bb93"), "hair": Color("4a3024")},
@@ -4726,7 +4772,7 @@ var _try_nodes: Array = []
 
 ## 一局結束時記下這次香蕉皮放在哪、結果是什麼（只記已經發生的事；分類跟失敗提示用同一個來源）
 func _record_try(result: String) -> void:
-	if not show_timing or silent:
+	if _try_keep() <= 0:
 		return
 	var text := ""
 	if result == "win":
@@ -4745,12 +4791,12 @@ func _record_try(result: String) -> void:
 	for c in casts:
 		if String(c.id) == "banana":
 			_tries.append({"pos": c.pos, "text": text})
-	while _tries.size() > 3:
+	while _tries.size() > _try_keep():
 		_tries.pop_front()
 
 ## 準備階段：在以前放過的位置留一個淡淡的香蕉皮＋小標籤（那一次的結果）
 func _update_tries(cut: bool) -> void:
-	var on: bool = show_timing and phase == Phase.PREPARE and not cut and not _demo_playing
+	var on: bool = _try_keep() > 0 and phase == Phase.PREPARE and not cut and not _demo_playing
 	for i in maxi(_tries.size(), _try_nodes.size()):
 		if i >= _try_nodes.size():
 			var mi := MeshInstance3D.new()
@@ -5030,3 +5076,58 @@ func _crosses_hole(a: Vector3, b: Vector3) -> bool:
 		if world.in_water(q.x, q.z):
 			return true
 	return false
+
+# ---------------------------------------------------------------- 時機輔助的開關、誰滑誰穿越
+
+## 名牌常駐（準備階段）：清單或提示用到名字的關卡打開
+var show_names_always := false
+
+func _aid(what: String) -> bool:
+	if show_timing:
+		return true
+	var unlocked: bool = not aid_after_first_star or _best().has("rescue")
+	match what:
+		"cross":
+			return aid_cross_mark and unlocked
+		"ghost":
+			return aid_ghost and unlocked
+		"tab":
+			return aid_tab_seconds
+		"demo":
+			return aid_demo
+	return false
+
+func _try_keep() -> int:
+	if silent:
+		return 0
+	return 3 if show_timing else aid_last_try
+
+## [滑的人, 穿越的人]：照 timing_slider／timing_crosser 的名字找；沒寫就是前兩個工人
+func _timing_pair() -> Array:
+	var workers: Array = enemies.filter(func(e): return not e.get_meta("guard", false))
+	var a = null
+	var b = null
+	for e in workers:
+		if timing_slider != "" and e.name == timing_slider:
+			a = e
+		if timing_crosser != "" and e.name == timing_crosser:
+			b = e
+	if a == null and timing_slider == "" and workers.size() > 0:
+		a = workers[0]
+	if b == null and timing_crosser == "":
+		for e in workers:
+			if e != a:
+				b = e
+				break
+	return [a, b] if a != null and b != null else []
+
+## 這個位置在哪個洞裡：冰洞是 0、1、2…，破掉的薄冰是 100、101…；不在洞裡是 -1
+func _hole_id(p: Vector3) -> int:
+	var ponds: Array = world.get("ponds")
+	for i in ponds.size():
+		if Vector2(p.x, p.z).distance_to(ponds[i].center) < float(ponds[i].r) + 0.6:
+			return i
+	for i in world.thin.size():
+		if world.thin[i].state == "broken" and Vector2(p.x, p.z).distance_to(world.thin[i].center) < float(world.thin[i].r) + 0.6:
+			return 100 + i
+	return -1

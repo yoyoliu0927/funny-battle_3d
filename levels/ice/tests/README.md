@@ -23,7 +23,7 @@ $GODOT --headless --path . --script res://levels/ice/tests/sweep.gd -- 13 0 0.8,
 
 ## 給關卡設定（stage_N/battle.gd、world.gd）的介面
 
-打「（未完成）」的還沒接上，名稱已經定了，可以先寫進關卡。
+下面列的都已經接上（A0–A4、A8、A9）。三人同洞的站位、守衛看香蕉皮冒「？」、企鵝撞人收尾還在做，不需要關卡設定。
 
 ### world.gd
 - 薄冰：`thin_spots = [{"center": Vector2(x, z), "r": 1.1}]`（現有欄位）。
@@ -54,6 +54,7 @@ func _make_items() -> Array:
 | `aid_tab_seconds` | false | Tab 俯視時紅線上的秒數刻度 |
 | `aid_demo` | false | 開場示範（只有 stage_11 用） |
 | `aid_after_first_star` | false | true＝`aid_cross_mark`、`aid_ghost` 要拿過第一顆星（rescue）之後再進來才出現 |
+| `show_names_always` | false | 準備階段常駐小名牌（清單或提示用到名字的關卡打開） |
 | `timing_slider` | "" | 滑的人的名字（例如 "阿土"）；空白＝第一個工人 |
 | `timing_crosser` | "" | 穿越的人的名字（例如 "阿水"）；空白＝第二個工人 |
 

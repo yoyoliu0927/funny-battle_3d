@@ -233,3 +233,46 @@ func t_chase_holes() -> void:
 	await load_stage(c)
 	run()
 	ok(ev("阿土追不上了") > 0.0 and ev("阿土掉進冰洞") < 0.0 and bt.outcome == "win", "沒有不穿過洞的攔截點：坐下「追不上了」")
+
+# ================================================================ 星星條件、時機輔助的旗標
+
+func t_stars() -> void:
+	# 兩個工人排隊滑進同一個洞、守衛沒事：pair_hole、no_feed、thin_intact 拿得到；all_sunk 拿不到
+	var c := {"ponds": [{"center": Vector2(5.0, -2.0), "r": 1.4}], "thin": [{"center": Vector2(-6.0, 4.0), "r": 1.1}],
+		"items": [["banana", 2], ["feed", 1]], "stars": ["pair_hole", "no_feed", "thin_intact", "all_sunk"],
+		"enemies": [["rusher", "阿土", Vector3(-9.0, 0, -2.0), [Vector3(-1.5, 0, -2.0)]], ["rusher", "阿水", Vector3(-11.5, 0, -2.0), [Vector3(-1.5, 0, -2.0)]], FAR_GUARD]}
+	await load_stage(c)
+	bt.cast(0, g(-5.0, -2.0))
+	bt.cast(0, g(-6.5, -2.0))
+	run()
+	ok(bt.outcome == "win" and bt._done.has("pair_hole"), "兩個人泡同一個洞：pair_hole")
+	ok(bt._done.has("no_feed") and bt._done.has("thin_intact"), "沒用飼料、薄冰沒破：no_feed、thin_intact")
+	ok(not bt._done.has("all_sunk"), "守衛還站著：拿不到 all_sunk")
+	c.enemies = [c.enemies[0], c.enemies[1]]
+	await load_stage(c)
+	bt.cast(0, g(-5.0, -2.0))
+	bt.cast(0, g(-6.5, -2.0))
+	bt.cast(1, g(2.0, 0.0))
+	run()
+	ok(bt.outcome == "win" and bt._done.has("all_sunk") and not bt._done.has("no_feed"), "全員泡在洞裡：all_sunk；用了飼料沒有 no_feed")
+
+func t_aids() -> void:
+	var c := {"ponds": [{"center": Vector2(5.0, -2.0), "r": 1.4}], "items": [["banana", 1]],
+		"enemies": [["guard", "守衛", Vector3(15.0, 0, -16.0)], ["rusher", "阿水", Vector3(-11.5, 0, -6.0), [Vector3(-1.5, 0, 0.0)]], ["rusher", "阿土", Vector3(-9.0, 0, -2.0), [Vector3(-1.5, 0, -2.0)]]],
+		"flags": {"aid_cross_mark": true, "aid_ghost": true, "aid_after_first_star": true, "aid_last_try": 1, "timing_slider": "阿土", "timing_crosser": "阿水"}}
+	await load_stage(c)
+	bt.silent = false
+	bt.best_stars.erase(bt._stage_key())
+	var pair: Array = bt._timing_pair()
+	ok(pair.size() == 2 and pair[0].name == "阿土" and pair[1].name == "阿水", "誰滑誰穿越照名字指定")
+	ok(not bt._aid("cross") and not bt._aid("ghost") and not bt._aid("demo") and not bt._aid("tab"), "還沒拿過第一顆星：交叉點標記和剪影不出現；示範、秒數沒開")
+	bt.cast(0, g(-5.0, -2.0))
+	bt.silent = true
+	run()
+	bt.silent = false
+	bt._record_try(bt.outcome)
+	ok(bt._tries.size() <= 1, "上次的記號只留 1 個")
+	bt.best_stars[bt._stage_key()] = {"rescue": true}
+	bt.reset()
+	ok(bt._aid("cross") and bt._aid("ghost"), "拿過第一顆星再進來：交叉點標記和剪影出現")
+	bt.best_stars.erase(bt._stage_key())
