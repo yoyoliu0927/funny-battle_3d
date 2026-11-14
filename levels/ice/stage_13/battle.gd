@@ -13,7 +13,7 @@ func _make_items() -> Array:
 func _enemy_specs() -> Array:
 	return [
 		rusher("阿土", Vector3(4.9, 0, 2.4), [Vector3(3.3, 0, 2.4)]),
-		rusher("阿水", Vector3(0.8, 0, -11.3), [Vector3(2.8, 0, -2.0)]),
+		rusher("阿水", Vector3(-0.2, 0, -10.6), [Vector3(2.5, 0, -2.0)]),
 		guard("守衛", Vector3(4.5, 0, -6.5)),
 	]
 

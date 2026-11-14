@@ -31,10 +31,10 @@ func _how_to() -> String:
 	return "分兩批來：先南邊、再北邊"
 
 func _defeat_tip() -> String:
-	return "他的紅線上還沒放"
+	return "香蕉皮要放在冰上的紅線"
 
 func _defeat_tip_for(who: String) -> String:
-	return "先處理守衛" if who.begins_with("守衛") else "他的紅線上還沒放"
+	return "先處理守衛" if who.begins_with("守衛") else "香蕉皮要放在冰上的紅線"
 
 func _level_setup() -> void:
 	super()

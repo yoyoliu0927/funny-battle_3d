@@ -16,8 +16,7 @@ func _ice_configure() -> void:
 	lakes = [{"center": Vector2(3.5, -3.0), "rx": 9.0, "rz": 7.5}]
 	ponds = [{"center": Vector2(7.5, -2.0), "r": 1.4}]
 	thin_spots = [{"center": Vector2(2.1, -5.15), "r": 1.1}]
-	# 雪人往北偏 0.4：照樣擋住線上的第一個人；倒了以後中心 0.2 公尺內還會卡人，偏開才滑得過去
-	snowmen = [Vector3(4.0, 0, -2.4)]
+	snowmen = [Vector3(4.0, 0, -2.0)]
 	pines = [Vector3(-7.0, 0, -12.5), Vector3(7.0, 0, -12.5), Vector3(12.5, 0, 2.0)]
 	# ==================================================================
 	# 【外觀】（環境代理負責）：mood、isle、zones、camps、clear_paths、鏡頭 camera_*。不影響玩法。

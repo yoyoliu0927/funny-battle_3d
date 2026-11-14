@@ -10,10 +10,11 @@ func _make_items() -> Array:
 		RescueFeed.new().uses(1, 0).cooldown_sec(0.0),     # 飼料：只有準備階段一包
 	]
 
+## 兩人的起點掃過線：再往西 3 公尺，他們會晚到，追著彎掉的黃線踩進薄冰，變成只放飼料也能過
 func _enemy_specs() -> Array:
 	return [
-		rusher("阿土", Vector3(-9.5, 0, -2.0), [Vector3(-1.2, 0, -2.0)]),
-		rusher("阿水", Vector3(-10.8, 0, -2.0), [Vector3(-1.2, 0, -2.0)]),
+		rusher("阿土", Vector3(-6.5, 0, -2.0), [Vector3(-1.2, 0, -2.0)]),
+		rusher("阿水", Vector3(-7.8, 0, -2.0), [Vector3(-1.2, 0, -2.0)]),
 		guard("守衛", Vector3(1.5, 0, -6.5)),
 	]
 
