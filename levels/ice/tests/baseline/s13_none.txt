@@ -1,0 +1,8 @@
+    0.00s 開始
+    0.15s 阿土踩上薄冰，冰裂開了
+    0.43s 薄冰破了！
+    0.43s 阿土掉進冰洞，凍成冰棒了
+    3.27s 守衛撲過來了
+    3.63s 守衛抓住了家豪
+    4.52s 落敗
+RESULT stage=13 strategy=none outcome=lose time=4.5 bird_hp=0.0 left=2 casts=0

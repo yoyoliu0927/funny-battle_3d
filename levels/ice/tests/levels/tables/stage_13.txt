@@ -1,0 +1,73 @@
+== 不放、香蕉皮單片（阿水線）
+  [重跑一致]
+   none                               ~ B(0.25,-9.17)                      x8   lose(守衛抓) 洞:阿土
+   B(0.32,-8.93)                      ~ B(1.45,-5.35)                      x16  lose(守衛抓) 洞:阿土,阿水
+   B(1.52,-5.11)                      ~ B(2.42,-2.25)                      x13  lose(守衛抓) 洞:阿土
+   B(2.50,-2.01)                      ~ B(2.50,-2.01)                      x1   lose(阿水抓) 洞:阿土
+== 飼料固定 (5.7,-3.8)＋香蕉皮沿阿水線
+  [重跑一致]
+   E(5.70,-3.80)                      ~ E(5.70,-3.80)                      x1   win[guard_thin] 洞:阿土,守衛
+   E(5.70,-3.80)+B(-0.20,-10.60)      ~ E(5.70,-3.80)+B(0.25,-9.17)        x7   lose(阿水抓) 洞:阿土,守衛
+   E(5.70,-3.80)+B(0.32,-8.93)        ~ E(5.70,-3.80)+B(1.67,-4.64)        x19  win[guard_thin,pair_hole] 洞:阿土,阿水,守衛
+   E(5.70,-3.80)+B(1.75,-4.40)        ~ E(5.70,-3.80)+B(2.50,-2.01)        x11  win[guard_thin,pair_hole] 洞:阿土,守衛,阿水
+== 飼料格點＋香蕉皮固定 (1.15,-6.3)
+  [重跑一致]
+        x: -1.0  0.0  1.0  2.0  3.0  4.0  5.0  6.0  7.0  8.0
+   z= -9.0 AAAAAAABBBDDDDDDDFF
+   z= -8.5 AAAAAAABBBDDDDDDDFF
+   z= -8.0 AAAAAAABBBDDDDDDDFF
+   z= -7.5 AAAAAAABBBDDDDDDDFF
+   z= -7.0 AAAAAAABBBDDDDDDDFF
+   z= -6.5 AAAAAAABBBDDDDDDDFF
+   z= -6.0 AAAAAAABBBDEEEDDDFF
+   z= -5.5 AAAAAABBBBDEEEEDDFF
+   z= -5.0 AAAAAABBBBDDDDDDDFF
+   z= -4.5 AAAAAABBBBDDDDDDDFF
+   z= -4.0 AAAAABBBBBDDDDDDDFF
+   z= -3.5 AAAAABBBBBDDDDDDDFF
+   z= -3.0 AAAAABBBBBDDDDDDDFF
+   z= -2.5 AAAABBBBBBDDDDDDDFF
+   z= -2.0 AAAABBBBBBDDDDDDDFF
+   z= -1.5 AAAABBBBBBDDDDDDDFF
+   z= -1.0 AAABBBBBBBDDDDDDDFF
+   z= -0.5 AAABBBBBBBDDDDDDDFF
+   z=  0.0 AAABBBBBBBDDDDDDDFF
+   z=  0.5 AABBBBBBBBDDDDDDDFF
+   z=  1.0 AABBBBCCCCCDDDDDDFF
+   A = win[pair_hole] 洞:阿土,阿水
+   B = lose(守衛抓) 洞:阿土,阿水
+   C = 卡住60秒 洞:阿土,阿水
+   D = win[guard_thin,pair_hole] 洞:阿土,阿水,守衛
+   E = 卡住60秒 洞:阿土,阿水,守衛
+   F = lose(守衛抓) 洞:阿土,阿水 放不了
+== 只放飼料
+  [重跑一致]
+        x: -1.0  0.0  1.0  2.0  3.0  4.0  5.0  6.0  7.0  8.0
+   z= -9.0 AAACAAAADDEEEEEEEGG
+   z= -8.5 BAACAAAADDEEEEEEEGG
+   z= -8.0 BAACAAAADDEEEEEEEGG
+   z= -7.5 BAACAAAADDEEEEEEEGG
+   z= -7.0 BBAAAAAADDEEEEEEEGG
+   z= -6.5 BBAACAAADDEEEEEEEGG
+   z= -6.0 BBAACAAADDEFFFEEEGG
+   z= -5.5 BBBACAAADDEFFFFEEGG
+   z= -5.0 BBBAAAAADDEEEEEEEGG
+   z= -4.5 BBBBACAADDEEEEEEEGG
+   z= -4.0 BBBBACAADDEEEEEEEGG
+   z= -3.5 BBBAAAAADDEEEEEEEGG
+   z= -3.0 BBBAAAAADDEEEEEEEGG
+   z= -2.5 BBBAAAAADDEEEEEEEGG
+   z= -2.0 BBAAAAAADDEEEEEEEGG
+   z= -1.5 BBAAAAAADDEEEEEEEGG
+   z= -1.0 BBAAAAAADDEEEEEEEGG
+   z= -0.5 BBAAAAAADDEEEEEEEGG
+   z=  0.0 BBAAAAAADDEEEEEEEGG
+   z=  0.5 BBAAAAAAADEEEEEEEGG
+   z=  1.0 BBAAAAAAAAAEEEEEEGG
+   A = lose(阿水抓) 洞:阿土
+   B = win[] 洞:阿土
+   C = lose(阿水抓) 洞:阿土,守衛
+   D = lose(守衛抓) 洞:阿土
+   E = win[guard_thin] 洞:阿土,守衛
+   F = 卡住60秒 洞:阿土,守衛
+   G = lose(守衛抓) 洞:阿土 放不了

@@ -1351,7 +1351,7 @@ func _tick_bird(dt: float) -> void:
 			# （不跳過的話，家豪會在洞的兩邊來回飛，永遠到不了）
 			while path_i < path.size() and world.in_water((path[path_i] as Vector3).x, (path[path_i] as Vector3).z):
 				path_i += 1
-				log_event("家豪的轉折點掉進洞裡，直接往下一個點走")
+				log_event("家豪的轉折點變成洞了，直接往下一個點走")
 			if path_i < path.size():
 				var tgt: Vector3 = ground(path[path_i])
 				# 這一段是從哪裡出發的（用來判斷「已經越過轉折點」：飛過洞落地時常常越過 0.3 公尺的範圍）
@@ -2160,7 +2160,7 @@ func _update_intents() -> void:
 	var show_names: bool = (show_timing or show_names_always) and phase == Phase.PREPARE and not cut
 	for f in enemies:
 		var l: Label3D = _intents[f]
-		l.visible = show_names and f.alive()
+		l.visible = show_names and f.alive() and _clock - float(f.data.get("peek_t", -9.0)) >= 1.4      # 冒「？」的時候名牌先收起來
 		if l.visible:
 			l.text = f.name
 			l.position = top_pos(f) + Vector3(0, 0.75, 0)

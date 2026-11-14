@@ -4,7 +4,9 @@
 
 ```bash
 export GODOT=/Applications/Godot.app/Contents/MacOS/Godot
-bash levels/ice/tests/check_baseline.sh          # 舊三關 12 筆回歸，事件紀錄要和 baseline/ 逐字相同（加 sweep 連第 11 關掃線一起比）
+bash levels/ice/tests/check_baseline.sh          # 回歸：舊三關 12 筆＋新五關的代表走法 18 筆，事件紀錄要和 baseline/ 逐字相同（加 sweep 連第 11 關掃線一起比）
+bash levels/ice/tests/check_feed_thin.sh         # 第 3–6 關：飼料放在每塊薄冰上和周圍，沒有一局拖到時間上限
+python3 levels/ice/tests/levels/s13.py           # 新關卡的整關掃線（s12、s13、s14c、s15b、s16），結果表在 levels/tables/
 bash levels/ice/tests/check_mechanics.sh         # 薄冰、飼料、追人繞洞…每個機制的自動檢查（要看到 MECHANICS: ALL PASS）
 bash levels/ice/tests/smoke.sh                   # 冒煙測試
 bash levels/ice/tests/storyboards.sh <輸出資料夾>   # 拍分鏡（要開視窗）；新關卡："名稱|13|-1,0,x,z;-1,1,x,z"
@@ -19,7 +21,7 @@ $GODOT --headless --path . --script res://levels/ice/tests/sweep.gd -- 13 0 0.8,
 #   <關卡> <道具序號> <起點 x,z> <終點 x,z> <間隔> ["固定先放的 道具,x,z;…"]：沿線每隔一段放一個，各跑一局
 ```
 
-`save_baseline.sh` 會覆寫基準，只有確定要換基準時才跑。測試用的臨時關卡放在 `tests/stage_t*/`，不列進 chapter.gd。
+`save_baseline.sh` 不加參數只補還沒有基準檔的；`save_baseline.sh s13` 重存名稱以 s13 開頭的；`all` 全部重存（舊三關的基準不應該重存）。回歸的名單在 `lib.sh` 的 CASES。測試用的臨時關卡放在 `tests/stage_t*/`，不列進 chapter.gd。
 
 ## 給關卡設定（stage_N/battle.gd、world.gd）的介面
 
@@ -78,3 +80,9 @@ func _make_items() -> Array:
 - `_defeat_tip()`：失敗卡的一行提示（預設）。
 - `_defeat_tip_for(誰抓到的名字) -> String`：照抓到家豪的人給不同提示；回傳空字串就用 `_defeat_tip()`。
 - `win_line`、`caught_line`（字串變數）：過關、被抓時家豪的台詞；空白就用預設的。
+
+### `levels/tables/` 是修正前的版本
+
+`levels/tables/stage_12..16.txt` 是關卡設計當時掃出來的原表，早於「飼料轉折點掉進洞裡不再卡住」的修正。
+重掃之後第 12 關完全一樣；第 13、14、15 關原本標「卡住60秒」的格子現在會分出輸贏（類別字母因此往前遞補）。
+要更新就在 `levels/` 底下跑對應的 `sNN.py`，用 `ICE_SWEEP_OUT=<資料夾>` 指定中間檔放哪裡。
