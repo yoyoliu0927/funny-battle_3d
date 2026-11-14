@@ -727,7 +727,17 @@ func _end(result: String) -> void:
 			away = away.rotated(Vector3.UP, 0.32)    # 偏一點角度：頭後面不要剛好是一棵樹
 			if v.get("low", false):
 				# 泡在洞裡的人：鏡頭貼著水面從正前方拍，帽簷才不會擋住臉
-				_cut_smart(tgt + Vector3(0, -0.45, 0), away * 4.4 + Vector3(0, 0.15, 0), 99.0)
+				var grp: Array = _hole_group(v.f)
+				if grp.size() >= 3:
+					# 三個人：對準三個人的中間，鏡頭拉高（後面那個才看得到），照這個鏡頭重新排位置
+					var ctr := Vector3.ZERO
+					for e in grp:
+						ctr += e.pos
+					ctr /= float(grp.size())
+					_cut_smart(ctr + Vector3(0, 1.0, 0), away * 5.6 + Vector3(0, TRIO_CAM_H, 0), 99.0)
+					_seat_group(grp, _cut_cam.global_position - ctr)
+				else:
+					_cut_smart(tgt + Vector3(0, -0.45, 0), away * 4.4 + Vector3(0, 0.15, 0), 99.0)
 				for e in enemies:
 					if e.data.get("sunk", false) and flat_dist(e.pos, tgt) < 3.0:
 						e.data.sunk_yaw = atan2(_cut_cam.global_position.x - e.pos.x, _cut_cam.global_position.z - e.pos.z)
@@ -788,6 +798,9 @@ func _best_victim() -> Dictionary:
 			r = 4
 			text = "今日最佳：雪堆裡的兩條腿"
 			tgt = (f.data.pile as Vector3) + Vector3(0, 1.1, 0)
+		elif f.data.get("sunk", false) and _hole_group(f).size() >= 3:
+			r = 3
+			text = "今日最佳：一個洞泡三個"
 		elif f.data.get("sunk", false) and f.data.get("pair", false):
 			r = 3
 			text = "今日最佳：一個洞泡兩個"
@@ -1633,8 +1646,12 @@ func _chase_line(f: Fighter) -> Array:
 	return [f.pos, ip] if ip != null else [f.pos]
 
 ## 滑行時撞到別人：兩個人一起往前滑（一片香蕉皮可以帶走兩個人）
+## 定在裂開的薄冰上的人：滑過來的人不會再把他撞走（他馬上就要掉下去了），自己滑進那塊冰也一起定住
+func _slide_skip(_f: Fighter) -> Array:
+	return enemies.filter(func(e): return e.state == "crack")
+
 func _tick_slide(f: Fighter, dt: float) -> void:
-	var r := slide_step(f, f.pos, f.data.sdir, f.data.snow, dt)
+	var r := slide_step(f, f.pos, f.data.sdir, f.data.snow, dt, _slide_skip(f))
 	if r.kind == "wall":
 		# 撞到雪人：雪人的頭掉下來扣在他頭上
 		for sn in world.get("snowman_nodes"):
@@ -1678,6 +1695,10 @@ func _tick_slide(f: Fighter, dt: float) -> void:
 					continue      # 站著的守衛不算「差一點」
 				if not (f.data.get("ahead", []) as Array).has(o):
 					continue      # 起滑的時候就在後面的人（排隊走同一條線的下一個）不算
+				if show_timing or timing_slider != "" or timing_crosser != "":
+					var tp := _timing_pair()
+					if tp.size() == 2 and (f != tp[0] or o != tp[1]):
+						continue  # 這一關指定了誰滑誰穿越：只有那一組才有「時機差一點」
 				var rel: Vector3 = o.pos - f.pos
 				rel.y = 0.0
 				if flat_dist(o.pos, f.pos) < 3.0 and rel.dot(sdir) < 0.0:
@@ -1901,7 +1922,8 @@ func _process(dt: float) -> void:
 		(_list_label.get_parent() as Control).visible = not cut and not defeat_shown
 	var cl = world.get("_cage_label")
 	if cl:
-		(cl as Label3D).visible = world.get("_freed") or (phase == Phase.PREPARE and not cut)   # 特寫時籠子的「救我！」不要蓋到人臉
+		var peeking: bool = enemies.any(func(e): return _clock - float(e.data.get("peek_t", -9.0)) < 1.4)
+		(cl as Label3D).visible = world.get("_freed") or (phase == Phase.PREPARE and not cut and not peeking)   # 特寫時籠子的「救我！」不要蓋到人臉
 	_path_line.visible = not cut
 	_route_line.visible = not cut
 	_peel_line.visible = not cut
@@ -3508,6 +3530,7 @@ static func style_mini(wrapper: Node3D, look: Dictionary, look_id: String) -> Di
 		var built: Dictionary = _mini_cache[key]
 		mi.mesh = built.main
 		mi.material_override = mat
+		rig.skin = mi.skin
 		if built.hat != null:
 			# 帽子是獨立的零件（不跟骨架綁死）：撞到的時候可以彈起來、被雪人頭撞飛
 			var hat := MeshInstance3D.new()
@@ -3559,12 +3582,23 @@ static func style_mini(wrapper: Node3D, look: Dictionary, look_id: String) -> Di
 		sm.scale = Vector3(0.8, 0.62, 0.8)
 		_tint_surfaces(rig, sm, look.get("scarf", look.get("hat", Color(0.8, 0.3, 0.2))), cream)
 		at2.add_child(sm)
-	# 手繪表情（嚇到、暈、凍僵）：一張貼片掛在頭骨上（背面看不到），平常是只有眼睛的那一張
+	# 手繪表情：一張貼片，跟頭、模型的嘴一樣綁在頭骨上（同一套蒙皮，轉頭、抬頭時不會跟臉錯開）
 	var face := MeshInstance3D.new()
-	var q := QuadMesh.new()
-	q.size = Vector2(FACE_SIZE, FACE_SIZE)
-	face.mesh = q
-	face.position = FACE_AT
+	var hb: int = rig.bones["head"]
+	var fc: Vector3 = sk.get_bone_global_rest(hb).origin + FACE_AT
+	var hs := FACE_SIZE * 0.5
+	var fa := []
+	fa.resize(Mesh.ARRAY_MAX)
+	fa[Mesh.ARRAY_VERTEX] = PackedVector3Array([fc + Vector3(-hs, hs, 0), fc + Vector3(hs, hs, 0), fc + Vector3(hs, -hs, 0), fc + Vector3(-hs, -hs, 0)])
+	fa[Mesh.ARRAY_NORMAL] = PackedVector3Array([Vector3.BACK, Vector3.BACK, Vector3.BACK, Vector3.BACK])
+	fa[Mesh.ARRAY_TEX_UV] = PackedVector2Array([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
+	fa[Mesh.ARRAY_BONES] = PackedInt32Array([hb, 0, 0, 0, hb, 0, 0, 0, hb, 0, 0, 0, hb, 0, 0, 0])
+	fa[Mesh.ARRAY_WEIGHTS] = PackedFloat32Array([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0])
+	fa[Mesh.ARRAY_INDEX] = PackedInt32Array([0, 1, 2, 0, 2, 3])
+	var fmesh := ArrayMesh.new()
+	fmesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, fa)
+	face.mesh = fmesh
+	face.skin = rig.get("skin")
 	face.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var fm := StandardMaterial3D.new()
 	fm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -3574,7 +3608,8 @@ static func style_mini(wrapper: Node3D, look: Dictionary, look_id: String) -> Di
 	fm.albedo_color = Color(0.97, 0.96, 0.94)
 	face.material_override = fm
 	face.visible = false
-	ba.add_child(face)
+	face.name = "FaceDecal"
+	sk.add_child(face)
 	rig.face = face
 	rig.face_mat = fm
 	rig.face_kind = ""
@@ -3626,6 +3661,8 @@ static func _restyle_mesh(src: Mesh, roles: Dictionary, look: Dictionary, is_hea
 				if p.z < 0.1595 or p.y > 0.52 or absf(p.x) > 0.11:
 					sticker = false
 			if sticker:
+				if low > 0.45:
+					continue          # 模型自己的眼睛：不要（眼睛一律用手繪的貼片）
 				for v in tri:
 					if done[v] == 0:
 						done[v] = 1
@@ -3963,7 +4000,7 @@ func _set_face(rig: Dictionary, kind: String) -> void:
 	var face: MeshInstance3D = rig.face
 	face.visible = kind != ""
 	if rig.face0:
-		(rig.face0 as Node3D).visible = kind in ["", "eyes"]      # 平常：模型自己的嘴露出來（小眼睛被大眼睛蓋住）
+		(rig.face0 as Node3D).visible = kind == "eyes"      # 模型自己的嘴：只配「只有眼睛」的那一張；其他表情自己有嘴
 	if kind == "" or rig.face_kind == kind:
 		return
 	rig.face_kind = kind
@@ -4072,6 +4109,8 @@ func _wear_snow_head(f: Fighter, hat: Node3D) -> void:
 const SNOW_HEAD_K := 1.9      # 雪人頭戴在大頭小人頭上要放大（不然像一顆小雪球）
 var _sep_clock := 0.0
 const PAIR_HALF := 0.74       # 同一個洞泡兩個人：各往左右讓開多少
+const TRIO_HALF := 1.0        # 三個人泡一個洞：前面兩個各往左右讓開多少
+const TRIO_CAM_H := 2.3       # 三個人的特寫：鏡頭比平常高多少
 const PAIR_GAP := 1.7         # 兩個人在畫面上至少隔這麼遠（不然兩個大頭會疊成一個）
 const PAIR_GAP_SLIDE := 3.0   # 兩個人一起往後躺著滑：隔更開
 
@@ -4355,7 +4394,7 @@ func _ghost(f: Fighter) -> Dictionary:
 		var mi := c as MeshInstance3D
 		mi.visible = true
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		if mi.mesh is QuadMesh:
+		if String(mi.name) == "FaceDecal":
 			mi.visible = false          # 手繪表情的貼片：分身不用
 		else:
 			var mat := ShaderMaterial.new()
@@ -4758,9 +4797,16 @@ func _face_cut(f: Fighter, sec: float) -> void:
 			found = true
 	_soft_cam = false
 	var cam_pos: Vector3 = f.pos + pick * 4.6 + Vector3(0, 0.8, 0)
-	_cut_to(tgt, cam_pos - tgt, sec)
 	var group: Array = _hole_group(f)
 	_seat_group(group, pick)
+	if group.size() >= 3:
+		var ctr := Vector3.ZERO
+		for e in group:
+			ctr += e.pos
+		ctr /= float(group.size())
+		tgt = ctr + Vector3(0, 1.0, 0)
+		cam_pos = ctr + pick * 5.6 + Vector3(0, 1.0 + TRIO_CAM_H, 0)
+	_cut_to(tgt, cam_pos - tgt, sec)
 	for e in group:
 		e.data.sunk_yaw = atan2(cam_pos.x - e.pos.x, cam_pos.z - e.pos.z)
 		e.yaw = e.data.sunk_yaw
@@ -5241,10 +5287,11 @@ func _seat_group(group: Array, to_cam: Vector3) -> void:
 		group[0].pos = ctr - side * PAIR_HALF
 		group[1].pos = ctr + side * PAIR_HALF
 	else:
-		group[0].pos = ctr - side * PAIR_HALF + to_cam * 0.42
-		group[1].pos = ctr + side * PAIR_HALF + to_cam * 0.42
+		# 前面兩個拉開一點，後面那個站在兩人中間的後方（鏡頭拉高，三張臉都看得到）
+		group[0].pos = ctr - side * TRIO_HALF + to_cam * 0.4
+		group[1].pos = ctr + side * TRIO_HALF + to_cam * 0.4
 		for k in range(2, group.size()):
-			group[k].pos = ctr - to_cam * 0.72 + side * (float(k - 2) * 1.3)
+			group[k].pos = ctr - to_cam * 0.85 + side * (float(k - 2) * 1.3)
 	for e in group:
 		e.data.pair = true
 

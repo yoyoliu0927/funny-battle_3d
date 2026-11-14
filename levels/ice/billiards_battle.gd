@@ -198,8 +198,12 @@ func _tick_enemy(f: Fighter, dt: float) -> void:
 			return
 	super(f, dt)
 
+## 滑行時不會撞到的人（關卡模式可以覆寫，例如定在裂開的薄冰上的人）
+func _slide_skip(_f: Fighter) -> Array:
+	return []
+
 func _tick_slide(f: Fighter, dt: float) -> void:
-	var r := slide_step(f, f.pos, f.data.sdir, f.data.snow, dt)
+	var r := slide_step(f, f.pos, f.data.sdir, f.data.snow, dt, _slide_skip(f))
 	f.data.snow = r.snow
 	match r.kind:
 		"move":
