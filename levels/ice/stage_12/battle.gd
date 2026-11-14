@@ -26,10 +26,23 @@ func _how_to() -> String:
 	return "守衛：家豪走進紅圈才會撲"
 
 func _defeat_tip() -> String:
-	if _catcher != null and _catcher.data.get("guard", false):
-		return "守衛會被什麼撞到？"
 	return "另一條紅線也能放"
+
+func _defeat_tip_for(who: String) -> String:
+	return "守衛會被什麼撞到？" if who == "守衛" else "另一條紅線也能放"
 
 func _level_setup() -> void:
 	super()
 	preview_full = false   # 第 2 關開始：瞄準只給方向，結果自己想
+	# 追人繞洞不開（第 1、2 關維持舊行為）
+	show_names_always = true
+	# 時機只在第三顆星露面：「差一點」的記號從頭就有；交叉點和剪影拿過第一顆星才開
+	aid_last_try = 1
+	aid_tab_seconds = true
+	aid_cross_mark = true
+	aid_ghost = true
+	aid_after_first_star = true
+	timing_slider = "阿土"
+	timing_crosser = "阿水"
+	win_line = "唉……一次兩個"
+	caught_line = "……他不是不會動嗎"
