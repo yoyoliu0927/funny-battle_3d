@@ -907,6 +907,116 @@ def build_market():
     export("lantern_string")
 
 
+
+# ================================================================== 第四、五關的地標：燈塔、鐘樓
+def frustum(r1, r2, depth, z0, m, name, verts=14):
+    """圓台（底在 z0）"""
+    bpy.ops.mesh.primitive_cone_add(vertices=verts, radius1=r1, radius2=r2, depth=depth, location=(0, 0, z0 + depth / 2.0))
+    o = bpy.context.object
+    o.name = name
+    setmat(o, m, True)
+    return o
+
+
+def build_lighthouse():
+    clear()
+    rnd = random.Random(140)
+    red = mat("boat_red", (0.86, 0.22, 0.18), 0.7)
+    white = mat("boat_white", (0.97, 0.95, 0.90), 0.7)
+    wood_dark = mat("wood_dark", (0.52, 0.33, 0.19), 0.9)
+    rock = mat("boulder", (0.34, 0.40, 0.56), 0.9)
+    snow = mat("snow", (0.95, 0.97, 1.0), 0.9)
+    glow = mat("lantern_glow_yellow", (1.0, 0.88, 0.45), 0.6, emit=(1.0, 0.82, 0.36))
+    # 石頭底座＋積雪
+    pts = []
+    for _ in range(26):
+        a = rnd.uniform(0, math.tau)
+        r = rnd.uniform(1.5, 2.1)
+        pts.append((math.cos(a) * r, math.sin(a) * r, rnd.uniform(-0.2, 0.75)))
+    base = hull(pts, "Base")
+    bevel(base, 0.12, 2)
+    setmat(base, rock, True)
+    local_blob([((0.9, -0.9, 0.72), (0.9, 0.7, 0.16)), ((-1.0, 0.6, 0.70), (0.8, 0.8, 0.15)), ((0.2, 1.3, 0.66), (0.7, 0.5, 0.14))], 0.06, 8, 41.0, 0.02, snow, "BaseSnow", ratio=0.3)
+    # 塔身：往上收的圓塔，紅白相間四段
+    z = 0.6
+    radii = [1.20, 1.08, 0.97, 0.87, 0.78]
+    for k in range(4):
+        frustum(radii[k], radii[k + 1], 1.15, z, red if k % 2 == 0 else white, "Band%d" % k)
+        z += 1.15
+    beam((0.5, 0.12, 0.95), (0, -1.16, 1.12), wood_dark, "Door", None, bev=0.03)
+    for wz in (2.6, 3.9):
+        beam((0.26, 0.10, 0.34), (0, -1.0 + (wz - 2.6) * 0.085, wz), glow, "Window", None, bev=0.02)
+    # 瞭望台：一圈木板和欄杆
+    frustum(1.18, 1.18, 0.14, z, wood_dark, "Deck", 16)
+    for k in range(10):
+        a = k * math.tau / 10
+        beam((0.07, 0.07, 0.5), (math.cos(a) * 1.08, math.sin(a) * 1.08, z + 0.38), wood_dark, "Rail", None, bev=0.015)
+    bpy.ops.mesh.primitive_torus_add(major_radius=1.08, minor_radius=0.04, location=(0, 0, z + 0.62), major_segments=20, minor_segments=6)
+    setmat(bpy.context.object, wood_dark, True)
+    # 燈室（會發光）＋紅色尖頂＋積雪
+    frustum(0.62, 0.62, 0.85, z + 0.14, glow, "Lamp", 12)
+    for k in range(6):
+        a = k * math.tau / 6
+        beam((0.06, 0.06, 0.85), (math.cos(a) * 0.62, math.sin(a) * 0.62, z + 0.56), wood_dark, "LampPost", None, bev=0.012)
+    frustum(0.92, 0.05, 0.80, z + 0.99, red, "Roof", 12)
+    local_blob([((0.0, 0.0, z + 1.42), (0.5, 0.5, 0.2)), ((0.3, -0.25, z + 1.2), (0.42, 0.36, 0.14))], 0.045, 8, 43.0, 0.015, snow, "RoofSnow", ratio=0.3)
+    export("lighthouse")
+
+
+def build_belltower():
+    clear()
+    rnd = random.Random(150)
+    wood = mat("wood", (0.74, 0.50, 0.29), 0.85)
+    wood_dark = mat("wood_dark", (0.52, 0.33, 0.19), 0.9)
+    stone = mat("boulder", (0.42, 0.47, 0.60), 0.9)
+    red = mat("boat_red", (0.80, 0.24, 0.22), 0.7)
+    white = mat("boat_white", (0.97, 0.95, 0.90), 0.7)
+    gold = mat("gold", (1.0, 0.76, 0.16), 0.4)
+    coal = mat("coal", (0.10, 0.10, 0.14), 0.6)
+    snow = mat("snow", (0.95, 0.97, 1.0), 0.9)
+    # 石頭基座（兩層石塊）
+    for k, (w, zc, hh) in enumerate(((2.5, 0.35, 0.9), (2.15, 1.0, 0.6))):
+        beam((w, w, hh), (0, 0, zc), stone, "Base%d" % k, None, bev=0.10, rnd=rnd, jit=0.03)
+    # 木頭塔身：四面直木板＋四根角柱
+    zt, hh = 1.3, 3.0
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            beam((0.24, 0.24, hh + 0.1), (sx * 0.85, sy * 0.85, zt + hh / 2), wood_dark, "Corner", None, bev=0.04, rnd=rnd)
+    for side in range(4):
+        a = side * math.pi / 2
+        for i in range(4):
+            off = -0.6 + i * 0.4
+            x = math.cos(a) * 0.86 - math.sin(a) * off
+            y = math.sin(a) * 0.86 + math.cos(a) * off
+            beam((0.10, 0.385, hh), (x, y, zt + hh / 2), wood if (i + side) % 2 else wood_dark, "Plank", None, rot=(0, 0, a), bev=0.02, rnd=rnd)
+    # 正面的鐘面：白色圓盤、兩根指針、一圈深色框
+    bpy.ops.mesh.primitive_cylinder_add(vertices=20, radius=0.58, depth=0.08, location=(0, -0.95, 3.25), rotation=(math.radians(90), 0, 0))
+    setmat(bpy.context.object, white, True)
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.58, minor_radius=0.06, location=(0, -0.97, 3.25), rotation=(math.radians(90), 0, 0), major_segments=20, minor_segments=6)
+    setmat(bpy.context.object, wood_dark, True)
+    beam((0.07, 0.05, 0.42), (0.0, -1.01, 3.42), coal, "HandL", None, bev=0.012)
+    beam((0.07, 0.05, 0.30), (0.12, -1.01, 3.20), coal, "HandS", None, rot=(0, 1.1, 0), bev=0.012)
+    beam((0.5, 0.12, 0.9), (0, -1.0, 1.72), wood_dark, "Door", None, bev=0.03)
+    # 鐘室：平台、四根柱子、一口金色的鐘
+    zb = zt + hh
+    beam((2.2, 2.2, 0.16), (0, 0, zb + 0.08), wood_dark, "Deck", None, bev=0.04)
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            beam((0.2, 0.2, 1.25), (sx * 0.85, sy * 0.85, zb + 0.78), wood_dark, "Post", None, bev=0.035)
+    beam((1.9, 0.12, 0.12), (0, 0, zb + 1.3), wood_dark, "Yoke", None, bev=0.03)
+    frustum(0.46, 0.22, 0.5, zb + 0.55, gold, "BellBody", 14)
+    frustum(0.22, 0.10, 0.18, zb + 1.05, gold, "BellTop", 14)
+    bpy.ops.mesh.primitive_torus_add(major_radius=0.46, minor_radius=0.05, location=(0, 0, zb + 0.56), major_segments=18, minor_segments=6)
+    setmat(bpy.context.object, gold, True)
+    ball(0.09, (0, 0, zb + 0.46), 1.0, coal, "Clapper", None, amp=0.0, sub=2)
+    # 尖屋頂（四角錐）＋積雪
+    bpy.ops.mesh.primitive_cone_add(vertices=4, radius1=1.75, radius2=0.05, depth=1.7, location=(0, 0, zb + 1.42 + 0.85), rotation=(0, 0, math.radians(45)))
+    setmat(bpy.context.object, red, False)
+    local_blob([((0, 0, zb + 2.95), (0.45, 0.45, 0.22)), ((0.0, -0.7, zb + 1.85), (0.9, 0.34, 0.14)), ((0.75, 0.2, zb + 1.9), (0.34, 0.8, 0.13)), ((-0.8, 0.1, zb + 1.86), (0.3, 0.7, 0.12))], 0.05, 8, 51.0, 0.02, snow, "RoofSnow", ratio=0.3)
+    local_blob([((1.0, -1.05, 0.82), (0.5, 0.4, 0.12)), ((-1.05, 0.9, 0.82), (0.5, 0.5, 0.12))], 0.05, 6, 53.0, 0.015, snow, "BaseSnow", ratio=0.3)
+    export("belltower")
+
+
 build_drifts()
 build_ice_chunks()
 build_icicles()
@@ -923,3 +1033,5 @@ build_boulders()
 build_boat()
 build_net()
 build_market()
+build_lighthouse()
+build_belltower()

@@ -43,6 +43,7 @@ var decor := true
 ##   "stall"     夜市攤位（有一盞暖光）。"scale"
 ##   "string"    一串圓燈籠（兩根柱子中間）
 ##   "lantern"   一盞立燈（有一圈暖光）
+##   "lighthouse" 燈塔（約 6.5 公尺高）　"belltower" 鐘樓（約 7.5 公尺高，yaw = 鐘面朝哪）　都可以給 "scale"
 ##   "lamps"     路兩旁的燈籠："from"、"to"
 ##   "creek"     結冰的小溪："from" 是源頭，"to" 通常接到湖邊；最多 3 條
 var zones: Array = []
@@ -1099,7 +1100,7 @@ func _zone_item(root: Node3D, z: Dictionary) -> void:
 	match String(z.type):
 		"village": _village(root, z.pos, yaw, z.get("huts", []))
 		"pier": _prop(root, MB + "pier.glb", g, yaw, 1.0)
-		"crystals": _crystals(root, z.pos)
+		"crystals": _crystals(root, z.pos, sc)
 		"sculptures": _sculptures(root, z.pos, yaw)
 		"lamps": _lamps(root, z.from, z.to)
 		"creek": _creek_banks(root, z.from, z.to)
@@ -1131,6 +1132,16 @@ func _zone_item(root: Node3D, z: Dictionary) -> void:
 		"lantern":
 			_prop(root, KH + "lantern.glb", g, yaw, 1.6 * sc)
 			_warm_light(root, g + Vector3(0, 1.7, 0), 1.3, 4.6)
+		"lighthouse":
+			# 【地標】紅白條紋的燈塔（Blender 模型）：站在石頭底座上，燈室會發光，照亮周圍的雪地
+			_prop(root, MB + "lighthouse.glb", g + Vector3(0, -0.1, 0), yaw, sc)
+			_blob_shadow(root, g, 3.0 * sc, 0.55)
+			_warm_light(root, g + Vector3(0, 6.2 * sc, 0), 2.2, 11.0)
+		"belltower":
+			# 【地標】木頭鐘樓（Blender 模型）：石頭基座、正面一個鐘面、頂上一口金色的鐘
+			_prop(root, MB + "belltower.glb", g + Vector3(0, -0.1, 0), yaw, sc)
+			_blob_shadow(root, g, 2.6 * sc, 0.55)
+			_warm_light(root, g + Vector3(sin(yaw), 0, cos(yaw)) * 1.8 + Vector3(0, 1.6, 0), 1.0, 4.5)
 
 ## 這個位置能不能放外圈的裝飾（在地圖上、不在湖上、冰洞旁、路線上、籠子和出發點旁、其他擺設旁）
 func _decor_ok(x: float, z: float, room := 3.4) -> bool:
@@ -1149,7 +1160,7 @@ func _decor_ok(x: float, z: float, room := 3.4) -> bool:
 			return false
 	for zn in zones:
 		if zn.has("pos"):
-			var need: float = {"village": 7.0, "boat": 3.4, "net": 2.8, "stall": 3.2, "string": 3.4, "statue": 2.4 * float(zn.get("scale", 1.0)) + 1.0,
+			var need: float = {"lighthouse": 4.5, "belltower": 4.0, "village": 7.0, "boat": 3.4, "net": 2.8, "stall": 3.2, "string": 3.4, "statue": 2.4 * float(zn.get("scale", 1.0)) + 1.0,
 				"crystals": 3.6, "sculptures": 3.6}.get(String(zn.type), 2.6)
 			if Vector2(x - zn.pos.x, z - zn.pos.z).length() < need:
 				return false
@@ -1298,11 +1309,11 @@ func _village(root: Node3D, p: Vector3, yaw: float, huts: Array = []) -> void:
 	_warm_light(root, at.call(2.0, 0.2) + Vector3(0, 1.4, 0))
 
 ## 冰晶簇（Blender 自製，半透明會發光）＋淡藍色的光
-func _crystals(root: Node3D, p: Vector3) -> void:
-	_prop(root, MB + "ice_crystals.glb", _g(p.x, p.z), p.x, 1.6)
-	_prop(root, MB + "ice_crystals.glb", _g(p.x + 1.1, p.z + 0.6), p.x + 1.0, 1.0)
-	_prop(root, MB + "ice_crystals.glb", _g(p.x - 0.8, p.z + 0.9), p.x + 2.0, 0.8)
-	_blob_shadow(root, _g(p.x, p.z), 1.6, 0.35)
+func _crystals(root: Node3D, p: Vector3, k := 1.0) -> void:
+	_prop(root, MB + "ice_crystals.glb", _g(p.x, p.z), p.x, 1.6 * k)
+	_prop(root, MB + "ice_crystals.glb", _g(p.x + 1.1 * k, p.z + 0.6 * k), p.x + 1.0, 1.0 * k)
+	_prop(root, MB + "ice_crystals.glb", _g(p.x - 0.8 * k, p.z + 0.9 * k), p.x + 2.0, 0.8 * k)
+	_blob_shadow(root, _g(p.x, p.z), 1.6 * k, 0.35)
 	var l := OmniLight3D.new()
 	l.light_color = Color(0.55, 0.85, 1.0)
 	l.light_energy = 1.2
@@ -1535,11 +1546,21 @@ func _tick_finale(dt: float) -> void:
 	if not lakes.is_empty():
 		var l: Dictionary = lakes[0]
 		var c: Vector2 = l.center
-		# 滑的那條線：湖的南半邊；剛好有冰洞擋著就換北半邊
-		var zline := c.y + float(l.rz) * 0.36
-		for p in ponds:
-			if absf(p.center.y - zline) < float(p.r) + 1.8:
-				zline = c.y - float(l.rz) * 0.36
+		# 滑的那條線：在湖裡挑一條離冰洞、薄冰、雪人最遠的東西向直線
+		var zline := c.y
+		var best := -1.0
+		for kk in [0.36, -0.36, 0.0, 0.55, -0.55, 0.18, -0.18]:
+			var zc: float = c.y + float(l.rz) * float(kk)
+			var room := 99.0
+			for p in ponds:
+				room = minf(room, absf(p.center.y - zc) - float(p.r))
+			for ts in thin_spots:
+				room = minf(room, absf(ts.center.y - zc) - float(ts.r))
+			for sm in snowmen:
+				room = minf(room, absf(sm.z - zc) - 0.6)
+			if room > best + 0.01:
+				best = room
+				zline = zc
 		var x0 := c.x - float(l.rx) * 0.74
 		var span := float(l.rx) * 1.42
 		for sl in _sliders:

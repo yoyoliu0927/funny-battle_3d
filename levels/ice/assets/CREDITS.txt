@@ -29,7 +29,7 @@ faces/            工人的表情貼圖（凍僵、暈、嚇到）：本組用 C
 
 blender/（地圖）  雪堆 snow_drift_a~d、碎冰塊 ice_chunk_a~e、冰洞口 ice_hole_rim_a~b（破冰邊緣＋冰的斷面＋水面）、薄冰片 thin_ice、
                   浮冰 ice_floe_a~c、冰柱 icicles_a~c、石頭 snow_rock_a~b、火焰 flame、雲朵 cloud_puff_a~c、釣竿 fishing_rod、冰台座 ice_pedestal、
-                  地標：小木船 rowboat、曬漁網的架子 fish_net（漁村）、夜市攤位 market_stall 和一串燈籠 lantern_string（燈籠夜市）：
+                  地標：小木船 rowboat、曬漁網的架子 fish_net（漁村）、夜市攤位 market_stall 和一串燈籠 lantern_string（燈籠夜市）、燈塔 lighthouse、鐘樓 belltower：
                   本組用 Blender 4.5 腳本建模（blender/src/build_isle_props.py），自製
                   （小屋 fishing_hut、棧道 pier、冰晶 ice_crystals 是之前做的，見 blender/src/build_zone_props.py）
 
