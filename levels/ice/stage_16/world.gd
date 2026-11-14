@@ -27,6 +27,9 @@ func _ice_configure() -> void:
 	camera_start = Vector3(-1.0, 11.5, 21.0)     # 湖比較大：鏡頭退一點，整座湖和家豪都在畫面裡
 	camera_look = Vector3(-1.0, -2.7, -1.6)
 	camera_fov = 45.0
+	# 全章收尾的鏡頭：比預設近一點、低一點，島佔畫面下半、極光和煙火在上半
+	finale_cam_pos = Vector3(1.5, 11.5, 27.5)
+	finale_cam_look = Vector3(0.0, 2.0, -32.5)
 	mood = "dusk"                                # 極光夜（全章收尾會把這一關的極光放大）
 	isle = {"seed": 7.9, "c": Vector2(0.0, -4.0), "rz": 19.5,
 		"coves": [[-0.10, 4.5, 0.12], [-1.25, 4.5, 0.12], [-1.95, 4.5, 0.12], [3.20, 4.0, 0.12]]}

@@ -28,20 +28,20 @@ func _ice_configure() -> void:
 	isle = {"seed": 5.7, "c": Vector2(0.0, -4.0), "rz": 19.5,
 		"coves": [[0.05, 5.0, 0.13], [-1.20, 4.5, 0.12], [-1.98, 4.5, 0.12], [3.50, 4.5, 0.12]]}
 	# 裝飾要讓開的路線（工人的紅線和滑出去的方向、守衛撲的方向）
-	clear_paths = [[Vector3(-10.8, 0, -2.0), Vector3(-1.2, 0, -2.0), Vector3(7.5, 0, -2.0)], [Vector3(1.5, 0, -6.5), Vector3(2.7, 0, -3.8)]]
+	clear_paths = [[Vector3(-7.8, 0, -2.0), Vector3(-1.2, 0, -2.0), Vector3(7.5, 0, -2.0)], [Vector3(1.5, 0, -6.5), Vector3(2.7, 0, -3.8)]]
 	camps = [{"pos": Vector3(-14.5, 0, -11.5), "yaw": 0.9}, {"pos": Vector3(13.5, 0, -16.0), "yaw": -0.7}]
 	# 冰湖周圍的擺設（純裝飾）。高的東西都離冰洞、薄冰 9 公尺以上：過關特寫的鏡頭會繞著拍
 	front_props = false
 	zones = [
 		# 這一關的地標：西南岸的燈塔——紅白條紋的塔站在石頭上，旁邊一間看守小屋、一艘船
-		{"type": "lighthouse", "pos": Vector3(-10.6, 0, 4.4), "yaw": 0.4},
-		{"type": "village", "pos": Vector3(-13.2, 0, 0.6), "yaw": 1.57, "huts": [[0.0, 0.0, 0.2, 0.95]]},
-		{"type": "boat", "pos": Vector3(-7.6, 0, 6.6), "yaw": 1.1, "tilt": 0.12},
-		{"type": "lantern", "pos": Vector3(-7.4, 0, 3.2)},
+		{"type": "lighthouse", "pos": Vector3(-9.8, 0, 5.8), "yaw": 0.4},
+		{"type": "village", "pos": Vector3(-13.8, 0, 2.0), "yaw": 1.57, "huts": [[0.0, 0.0, 0.2, 0.95]]},
+		{"type": "boat", "pos": Vector3(-7.0, 0, 8.2), "yaw": 1.1, "tilt": 0.12},
+		{"type": "lantern", "pos": Vector3(-7.0, 0, 4.6)},
 		# 延伸到家豪出發點附近：魚貨、曬魚架、一艘小船（避開左下的道具格、右下的開始鈕、黃線）
-		{"type": "crates", "pos": Vector3(-4.6, 0, 9.8), "yaw": 0.3},
+		{"type": "crates", "pos": Vector3(-3.6, 0, 10.4), "yaw": 0.3},
 		{"type": "rack", "pos": Vector3(4.4, 0, 9.6), "yaw": -0.4},
-		{"type": "boat", "pos": Vector3(6.0, 0, 11.0), "yaw": -0.9, "tilt": -0.12, "scale": 0.9},
+		{"type": "boat", "pos": Vector3(7.6, 0, 8.4), "yaw": -0.9, "tilt": -0.12, "scale": 0.9},
 		{"type": "crystals", "pos": Vector3(-13.5, 0, -6.5)},
 		{"type": "creek", "from": Vector3(16.5, 0, -17.0), "to": Vector3(10.4, 0, -8.2)},
 	]
