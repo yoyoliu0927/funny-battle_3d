@@ -128,3 +128,78 @@ func t_thin_join() -> void:
 	run(6.0)
 	ok(ev("也踩上裂開的薄冰") > 0.0, "第二個人在冰裂開的 0.3 秒內踩進來")
 	ok(ev("阿土掉進冰洞") > 0.0 and absf(ev("阿土掉進冰洞") - ev("阿水掉進冰洞")) < 0.02, "兩個人一起掉")
+
+# ================================================================ 飼料
+
+const FAR_GUARD := ["guard", "守衛", Vector3(15.0, 0, -16.0)]     # 站很遠的守衛：只是讓家豪維持走路的速度
+
+func _feed_cfg(extra := {}) -> Dictionary:
+	var c := {"items": [["banana", 1], ["feed", 1]], "hero": Vector3(0, 0, 8), "path": [Vector3(0, 0, 5), Vector3(0, 0, -9.4)],
+		"ponds": [{"center": Vector2(-4.0, 0.0), "r": 1.3}], "snowmen": [Vector3(4.0, 0, -4.0)], "enemies": [FAR_GUARD], "stars": ["no_feed"]}
+	c.merge(extra, true)
+	return c
+
+func t_feed_place() -> void:
+	await load_stage(_feed_cfg())
+	ok(bt.placement_error(1, g(2.5, -1.0)) == "", "黃線旁邊 2.5 公尺：可以放")
+	ok(bt.placement_error(1, g(4.6, 1.0)) != "", "離黃線 4.6 公尺：太遠，不能放（%s）" % bt.placement_error(1, g(4.6, 1.0)))
+	ok(bt.placement_error(1, g(-3.9, 2.4)) != "" or bt.placement_error(1, g(-3.9, -2.4)) != "", "新黃線會穿過冰洞：不能放")
+	ok(bt.placement_error(1, g(3.9, -1.5)) != "" or bt.placement_error(1, g(3.9, -6.5)) != "", "新黃線會穿過雪人：不能放")
+	var before: Array = bt.path.duplicate()
+	ok(bt.cast(1, g(2.5, -1.0)) and bt.path.size() == before.size() + 1, "放下去：黃線多一個轉折點")
+	ok(bt.flat_dist(bt.path[1], Vector3(2.5, 0, -1.0)) < 0.01, "轉折點插在最近那一段的兩個端點之間")
+	bt.reset()
+	ok(bt.path.size() == before.size() and bt.feed_pos == null, "重來後黃線還原")
+	bt.start()
+	ok(not bt.cast(1, g(2.5, -1.0)), "開打後不能放")
+
+func t_feed_walk() -> void:
+	# 家豪實際走的路貼著黃線；到每個轉折點的時間和照黃線算的一樣
+	await load_stage(_feed_cfg())
+	bt.cast(1, g(3.0, -1.5))
+	var line: Array = [bt.bird.start_pos]
+	for p in bt.path:
+		line.append(g(p.x, p.z))
+	line.append(bt.world.cage)
+	var want: Array = []
+	var acc := 0.0
+	for i in range(1, line.size() - 1):
+		acc += bt.flat_dist(line[i - 1], line[i])
+		if bt.flat_dist(line[i], bt.world.cage) > bt.CAGE_REACH + 0.3:      # 籠門前的最後一個點走不到（先到籠子了）
+			want.append(acc / bt.BIRD_WALK)
+	var got: Array = []
+	var worst := {"d": 0.0}
+	run(40.0, func():
+		var bp: Vector3 = bt.bird.pos
+		var best := 1e9
+		for i in range(1, line.size()):
+			var a: Vector3 = line[i - 1]
+			var b: Vector3 = line[i]
+			var ab := Vector2(b.x - a.x, b.z - a.z)
+			var t := clampf(Vector2(bp.x - a.x, bp.z - a.z).dot(ab) / ab.length_squared(), 0.0, 1.0)
+			best = minf(best, bt.flat_dist(a.lerp(b, t), bp))
+		worst.d = maxf(worst.d, best)
+		if got.size() < want.size() and bt.flat_dist(bp, line[got.size() + 1]) < 0.31:
+			got.append(bt.time))
+	ok(worst.d <= 0.305, "家豪離黃線最遠 %.2f 公尺（要在 0.3 以內）" % worst.d)
+	var tmax := 0.0
+	for i in mini(got.size(), want.size()):
+		tmax = maxf(tmax, absf(float(got[i]) - float(want[i]) + 0.3 / bt.BIRD_WALK))
+	ok(got.size() == want.size() and tmax < 0.2, "到每個轉折點的時間誤差最大 %.2f 秒（要小於 0.2）" % tmax)
+	ok(bt.outcome == "win" and ev("邊走邊啄") > 0.0 and not bt._done.has("no_feed"), "家豪路過飼料不停、照樣過關；用了飼料拿不到「不用飼料」")
+
+func t_feed_guard() -> void:
+	# 守衛的撲擊點跟著黃線變：預告的點和實際撲的點一樣；黃線繞出圈外他就不撲
+	await load_stage(_feed_cfg({"enemies": [["guard", "守衛", Vector3(1.5, 0, -1.0)]]}))
+	var gd = who("守衛")
+	var p0: Vector3 = bt.lunge_point(gd)
+	bt.cast(1, g(2.6, 1.5))
+	var p1: Vector3 = bt.lunge_point(gd)
+	ok(bt.flat_dist(p0, p1) > 0.5, "放了飼料，預告的撲擊點跟著變（移了 %.1f 公尺）" % bt.flat_dist(p0, p1))
+	run(12.0)
+	ok(ev("守衛撲過來了") > 0.0 and bt.flat_dist(gd.data.get("lunge_to", Vector3.ZERO), p1) < 0.05, "實際撲的點和預告一致")
+	await load_stage(_feed_cfg({"enemies": [["guard", "守衛", Vector3(1.5, 0, -1.0)]]}))
+	bt.cast(1, g(-3.2, -1.0))
+	ok(bt.planned_route(who("守衛")).size() < 2 or bt.flat_dist(bt.lunge_point(who("守衛")), who("守衛").pos) < 0.01, "黃線繞出守衛的圈：沒有紅箭頭")
+	run()
+	ok(ev("守衛撲過來了") < 0.0 and bt.outcome == "win", "守衛從頭站到尾，家豪過關")

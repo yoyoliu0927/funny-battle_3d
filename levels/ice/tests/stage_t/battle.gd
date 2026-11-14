@@ -2,7 +2,7 @@ extends "res://levels/ice/rescue_battle.gd"
 ## 測試用的臨時戰局：道具、人、旗標都從 Engine 的 meta "ice_test" 讀。
 
 func _cfg() -> Dictionary:
-	return Engine.get_meta("ice_test", {})
+	return Engine.get_meta("ice_test", load("res://levels/ice/tests/stage_t/world.gd").DEMO)
 
 func _make_items() -> Array:
 	var out: Array = []

@@ -137,7 +137,7 @@ func _level_setup() -> void:
 	show_tutorial = false
 	avoid_thin = true
 	thin_auto = false          # 薄冰在 _step_thin() 處理：踩到的人先定住 0.3 秒
-	path = world.bird_path.duplicate()
+	path = _build_path(null)
 	var specs := _enemy_specs()
 	for i in enemies.size():
 		var s: Dictionary = specs[i]
@@ -239,6 +239,9 @@ func _level_setup() -> void:
 	world.add_child(_bird_ring)
 	# 道具格的圖示：拿香蕉皮模型算出來的圖
 	for it in items:
+		if it.id == "bait" and ResourceLoader.exists(PROP_DIR + "rescue/feed_icon.png"):
+			it.icon = load(PROP_DIR + "rescue/feed_icon.png")
+			it.set("icon_tex", it.icon)
 		if it.id == "banana" and ResourceLoader.exists(PROP_DIR + "rescue/banana_peel_icon.png"):
 			it.icon = load(PROP_DIR + "rescue/banana_peel_icon.png")
 			it.set("icon_tex", it.icon)
@@ -347,6 +350,9 @@ func _level_reset() -> void:
 	if world.has_method("reset_cage"):
 		world.reset_cage()
 	path_i = 0
+	feed_pos = null
+	_feed_node = null
+	path = _build_path(null)
 	falls = 0
 	caroms = 0
 	_done.clear()
@@ -426,6 +432,7 @@ func _level_reset() -> void:
 		_toast_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
 
 func _level_start() -> void:
+	path = _build_path(feed_pos)      # 瞄準飼料時畫面上的黃線是暫時的：開打一律用放好的那一條
 	_goal_label.visible = false
 	_goal_seen[_stage_key()] = true
 	for f in enemies:
@@ -1387,6 +1394,12 @@ func _tick_enemy(f: Fighter, dt: float) -> void:
 func _level_step(dt: float) -> void:
 	super(dt)
 	_step_thin(dt)
+	if _feed_node != null and is_instance_valid(_feed_node) and feed_pos != null and flat_dist(bird.pos, feed_pos) < 0.7:
+		# 家豪路過飼料：邊走邊啄，不停
+		_feed_node.queue_free()
+		_feed_node = null
+		log_event("家豪邊走邊啄掉飼料")
+		pop_label("啄", bird.pos + Vector3(0, 2.0, 0), Color(1, 1, 1), 600, bird)
 	_tick_chips(dt)
 	if _cut_t > 0.0:
 		_cut_t -= dt
@@ -1738,6 +1751,12 @@ func _process(dt: float) -> void:
 		_cut_cam.global_position = _cut_cam.global_position.lerp(tgt3 + _follow_off, 0.25)
 		_cut_cam.look_at(tgt3, Vector3.UP)
 		_cut_look = tgt3
+	if phase == Phase.PREPARE:
+		# 瞄準飼料時黃線當場彎過準星（守衛的紅箭頭、攔截虛線都跟著重算）；沒在瞄就是放好的那一條
+		var prev = feed_pos
+		if _aiming_feed() and aim_point != null and aim_error == "":
+			prev = aim_point
+		path = _build_path(prev)
 	_update_mini_light()
 	_turn_heads()
 	_style_peels()
@@ -1859,9 +1878,16 @@ func _draw_path() -> void:
 		pts.append(ground(path[i]))
 	pts.append(world.cage)
 	_vb.clear()
-	# 家豪的路線：飽和黃＋深色細框，但比紅線細（畫面上最搶眼的要是紅色的敵人路線）
 	var k := _px(bird.pos) * 1.35
 	var w := maxf(0.07, 1.7 * k)
+	if phase == Phase.PREPARE and _aiming_feed() and path.size() != (world.bird_path as Array).size():
+		# 瞄準飼料：原本的黃線留一條淡影
+		var old: Array = [bird.pos]
+		for p in world.bird_path:
+			old.append(ground(p))
+		old.append(world.cage)
+		_dashes(im, old, Color(1.0, 0.93, 0.7, 0.4), w * 0.8, 0.08)
+	# 家豪的路線：飽和黃＋深色細框，但比紅線細（畫面上最搶眼的要是紅色的敵人路線）
 	_dashes(im, pts, Color("5a3a10"), w + 0.9 * k, 0.085, 0.9 * k)
 	_dashes(im, pts, Color("ffc93c"), w, 0.1)
 	_flush(im)
@@ -1913,6 +1939,16 @@ func _draw_routes() -> void:
 				_arrow_head(a1 - dirv * 0.35, dirv, ROUTE_RED, 1.25)
 			continue
 		_route(route, ROUTE_RED, flow, not (er.ended or not ghost.is_empty()))
+		if phase == Phase.PREPARE and _has_feed_item() and not er.ended and ghost.is_empty() and f.state != "chase" and not f.data.has("thin_stop"):
+			# 有飼料的關卡：紅線跑完之後他會去哪裡攔家豪（細虛線）；攔不到就只有箭頭
+			var total := 0.0
+			for i in range(1, route.size()):
+				total += flat_dist(route[i - 1], route[i])
+			var ip = _intercept_from(route.back(), total / RUSH_SPEED)
+			if ip != null and flat_dist(ip, route.back()) > 0.6:
+				var kq := _px(route.back()) * 1.35
+				_flow([route.back(), ip], Color(1, 1, 1, 0.9), maxf(0.06, 1.9 * kq), 0.09, 0.3, 0.3, flow)
+				_flow([route.back(), ip], ROUTE_RED, maxf(0.035, 1.1 * kq), 0.1, 0.3, 0.3, flow)
 	if not _reroute_used and _reroute_label:
 		_reroute_label.visible = false
 	_reroute_used = false
@@ -4148,7 +4184,8 @@ func _update_aim_marker(cut: bool) -> void:
 		_aim_peel.transparency = 0.4            # 半透明：還沒放下去
 		_aim_mark.add_child(_aim_peel)
 	# 手上還有香蕉皮才有準星；用完就整個收掉
-	var has: bool = not items.is_empty() and items[selected].id == "banana" and charges[selected] != 0
+	var is_feed: bool = not items.is_empty() and items[selected].id == "bait"
+	var has: bool = not items.is_empty() and items[selected].id in ["banana", "bait"] and charges[selected] != 0
 	var holding: bool = has and phase != Phase.ENDED and not cut and not defeat_shown and aim_point != null and not _demo_playing
 	_aim_mark.visible = holding
 	if _preview:
@@ -4159,9 +4196,9 @@ func _update_aim_marker(cut: bool) -> void:
 		return
 	# 平常只有一個小圓圈；對到紅線上（丟在這裡有人會踩到）才出現綠圈＋半透明的香蕉皮
 	var ok: bool = aim_error == ""
-	var snap: bool = ok and _aim_on_route
+	var snap: bool = ok and (_aim_on_route or is_feed)      # 飼料：放得下就是綠圈（黃線已經當場彎給你看）
 	_aim_ring.visible = snap
-	_aim_peel.visible = snap
+	_aim_peel.visible = snap and not is_feed
 	_aim_dot.visible = not snap
 	(_aim_dot.material_override as StandardMaterial3D).albedo_color = Color(1, 1, 1) if ok else Color("9aa3ad")
 	_aim_mark.global_position = (aim_point as Vector3) + Vector3(0, 0.07, 0)
@@ -4884,3 +4921,96 @@ func _mark_thin_stops() -> void:
 			used += 1
 	for i in range(used, _thin_tags.size()):
 		(_thin_tags[i] as Label3D).visible = false
+
+# ---------------------------------------------------------------- 飼料（救企鵝模式）：改黃線
+#
+# 準備階段放一包。黃線多一個轉折點：插在離飼料最近的那一段黃線的兩個端點之間。家豪路過不停。
+# 能放的位置：離黃線 FEED_REACH 公尺內；新的兩段黃線不能穿過冰洞、雪人、松樹、籠子（薄冰可以）。
+
+const FEED_REACH := 4.0
+var feed_pos = null               # 放下去的飼料（null＝沒放）
+var _feed_node: Node3D
+
+func _has_feed_item() -> bool:
+	return items.any(func(it): return it.id == "bait")
+
+func _aiming_feed() -> bool:
+	return phase == Phase.PREPARE and not items.is_empty() and items[selected].id == "bait" and charges[selected] != 0
+
+## 原本的黃線（起點、轉折點、籠子）
+func _base_line() -> Array:
+	var pts: Array = [bird.start_pos]
+	for p in world.bird_path:
+		pts.append(ground(p))
+	pts.append(world.cage)
+	return pts
+
+## 離 p 最近的那一段黃線：[第幾段（0＝起點到第一個轉折點）, 距離]
+func _nearest_leg(p: Vector3) -> Array:
+	var pts := _base_line()
+	var best := 0
+	var bd := 1e9
+	for i in range(1, pts.size()):
+		var a: Vector3 = pts[i - 1]
+		var b: Vector3 = pts[i]
+		var ab := Vector2(b.x - a.x, b.z - a.z)
+		var t := clampf(Vector2(p.x - a.x, p.z - a.z).dot(ab) / maxf(ab.length_squared(), 0.0001), 0.0, 1.0)
+		var d := flat_dist(a.lerp(b, t), p)
+		if d < bd:
+			bd = d
+			best = i - 1
+	return [best, bd]
+
+## 家豪要走的轉折點（不含起點和籠子）；feed＝飼料的位置（null＝沒有）
+func _build_path(feed) -> Array:
+	var out: Array = (world.bird_path as Array).duplicate()
+	if feed != null:
+		out.insert(int(_nearest_leg(feed)[0]), Vector3((feed as Vector3).x, 0, (feed as Vector3).z))
+	return out
+
+## 飼料能不能放在 p（空字串＝可以）
+func feed_error(p: Vector3) -> String:
+	if phase != Phase.PREPARE:
+		return "飼料只能在準備階段放"
+	if world.in_water(p.x, p.z):
+		return "不能放在水裡"
+	if not world.walkable(p.x, p.z):
+		return "這裡放不了"
+	var leg := _nearest_leg(p)
+	if float(leg[1]) > FEED_REACH:
+		return "離黃線太遠"
+	var pts := _base_line()
+	var i: int = leg[0]
+	for seg in [[pts[i], p], [p, pts[i + 1]]]:
+		var why := _line_blocked(seg[0], seg[1])
+		if why != "":
+			return "黃線會穿過%s" % why
+	return ""
+
+## 黃線從 a 走到 b 會不會穿過冰洞、雪人、松樹、籠子（回傳穿過什麼；空字串＝不會）。終點是籠子的那一段不算籠子。
+func _line_blocked(a: Vector3, b: Vector3) -> String:
+	var n := maxi(int(flat_dist(a, b) / 0.15), 1)
+	for k in n + 1:
+		var q := a.lerp(b, float(k) / n)
+		if world.in_water(q.x, q.z):
+			return "冰洞"
+		for ob in world.obstacles:
+			var r := float(ob[1])
+			if r <= 0.0:
+				continue
+			var c := Vector3((ob[0] as Vector2).x, 0, (ob[0] as Vector2).y)
+			if flat_dist(c, world.cage) < 0.1:
+				if flat_dist(b, world.cage) < 0.1 or flat_dist(q, c) > r:
+					continue
+				return "籠子"
+			if flat_dist(q, c) < r + 0.35:
+				return "雪人或松樹"
+	return ""
+
+## 飼料放下去（rescue_feed_item.gd 呼叫）
+func place_feed(p: Vector3, node: Node3D) -> void:
+	feed_pos = p
+	_feed_node = node
+	path = _build_path(feed_pos)
+	pop_label("！", bird.pos + Vector3(0, 2.0, 0), Color(1, 0.9, 0.3), 800, bird)
+	sfx("pop")
