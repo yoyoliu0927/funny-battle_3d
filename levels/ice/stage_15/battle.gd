@@ -1,0 +1,38 @@
+extends "res://levels/ice/rescue_battle.gd"
+## 【冰雪島 5 尖峰時刻】時機：阿土要在阿水穿過滑行線的那一刻滑出去（和 stage_11 同一組座標）。
+## 保底：飼料讓守衛踩破薄冰；一片放阿火線上（滑進冰洞乙）；一片放阿土線上對的位置（撞上阿水，兩人進冰洞甲）。
+
+func _make_items() -> Array:
+	return [
+		BananaItem.new().uses_shared(2).cooldown_sec(0.0),
+		# 待接：飼料一包
+	]
+
+## 前兩個一定是阿土、阿水（時機輔助現在寫死看前兩個人）
+func _enemy_specs() -> Array:
+	return [
+		rusher("阿土", Vector3(-12.0, 0, -6.5), [Vector3(-1.0, 0, -6.5)]),
+		rusher("阿水", Vector3(7.2, 0, -13.6), [Vector3(0.6, 0, -5.0)]),
+		rusher("阿火", Vector3(9.0, 0, -3.4), [Vector3(1.2, 0, -3.4)]),
+		# 待接：守衛 (-1.5, -2.0) 等薄冰和飼料完成後加回來
+	]
+
+func _checklist() -> Array:
+	return [
+		{"id": "rescue", "text": "救出企鵝"},
+		{"id": "snow_hole", "text": "雪人頭也下水", "hint": "早一點撞"},
+		{"id": "clean_fall2", "text": "沒碰雪人進洞", "hint": "兩人同時到交叉點"},
+	]
+
+func _how_to() -> String:
+	return "同時到才撞得到 [Tab]"
+
+func _defeat_tip() -> String:
+	if _catcher != null and _catcher.data.get("guard", false):
+		return "先處理守衛"
+	return "要兩人同時到交叉點"
+
+func _level_setup() -> void:
+	super()
+	preview_full = false
+	show_timing = true
