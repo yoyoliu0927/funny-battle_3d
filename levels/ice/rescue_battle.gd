@@ -85,6 +85,9 @@ var _demo_labels: Array = []
 ## 紅色大標題「救出企鵝！」：只有第一關打開（而且只在第一次進來時出現）
 var show_goal := false
 static var _goal_seen := {}
+## 追人繞洞：true＝工人跑完紅線（或被撞停爬起來）改追家豪時，攔截點不會直線穿過「已經開著的洞」
+## （原有的冰洞、破掉的薄冰）；每個點都會穿過就坐下「追不上了」。還沒破的薄冰不會繞。撲擊不繞。
+var chase_avoids_holes := false
 ## 測試／截圖用：不用按 Tab 也切到正上方視角
 var force_top := false
 var _std_focus := Vector3.ZERO
@@ -1574,6 +1577,8 @@ func intercept_point(f: Fighter):
 		for k in range(0, n + 1):
 			var q := a.lerp(b, float(k) / n)
 			if flat_dist(f.pos, q) / RUSH_SPEED <= (walked + seg * float(k) / n) / BIRD_WALK:
+				if chase_avoids_holes and _crosses_hole(f.pos, q):
+					continue        # 直線過去會掉進開著的洞：換下一個點
 				return q
 		walked += seg
 	return null
@@ -2726,6 +2731,8 @@ func _intercept_from(from: Vector3, t0: float):
 		for k in range(0, n + 1):
 			var q := a.lerp(b, float(k) / n)
 			if flat_dist(from, q) / RUSH_SPEED <= (walked + seg * float(k) / n) / BIRD_WALK:
+				if chase_avoids_holes and _crosses_hole(from, q):
+					continue
 				return q
 		walked += seg
 	return null
@@ -5014,3 +5021,12 @@ func place_feed(p: Vector3, node: Node3D) -> void:
 	path = _build_path(feed_pos)
 	pop_label("！", bird.pos + Vector3(0, 2.0, 0), Color(1, 0.9, 0.3), 800, bird)
 	sfx("pop")
+
+## 從 a 直線走到 b 會不會經過開著的洞（冰洞、破掉的薄冰）
+func _crosses_hole(a: Vector3, b: Vector3) -> bool:
+	var n := maxi(int(flat_dist(a, b) / 0.15), 1)
+	for k in range(1, n + 1):
+		var q := a.lerp(b, float(k) / n)
+		if world.in_water(q.x, q.z):
+			return true
+	return false

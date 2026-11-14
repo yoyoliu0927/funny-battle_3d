@@ -203,3 +203,33 @@ func t_feed_guard() -> void:
 	ok(bt.planned_route(who("守衛")).size() < 2 or bt.flat_dist(bt.lunge_point(who("守衛")), who("守衛").pos) < 0.01, "黃線繞出守衛的圈：沒有紅箭頭")
 	run()
 	ok(ev("守衛撲過來了") < 0.0 and bt.outcome == "win", "守衛從頭站到尾，家豪過關")
+
+# ================================================================ 追人繞洞
+
+func _chase_cfg(flag: bool) -> Dictionary:
+	# 工人的紅線停在洞的西邊，家豪的黃線在洞的東邊：直線去攔會穿過洞
+	return {"hero": Vector3(3.0, 0, 8), "path": [Vector3(3.0, 0, -9.4)], "cage": Vector3(3.0, 0, -11.8),
+		"ponds": [{"center": Vector2(-0.3, -3.6), "r": 1.6}],
+		"enemies": [["rusher", "阿土", Vector3(-8.0, 0, -1.0), [Vector3(-3.0, 0, -1.0)]]], "flags": {"chase_avoids_holes": flag}}
+
+func t_chase_holes() -> void:
+	await load_stage(_chase_cfg(false))
+	run()
+	if ev("阿土掉進冰洞") < 0.0:
+		for e in bt.events:
+			print("     ", e.t, " ", e.text)
+	ok(ev("阿土掉進冰洞") > 0.0, "旗標沒開（第 1、2 關）：照舊直線追過去，掉進洞")
+	await load_stage(_chase_cfg(true))
+	var crossed := {"v": false}
+	run(40.0, func():
+		var f = who("阿土")
+		if f.state == "chase" and f.data.get("chase_to") != null and bt._crosses_hole(f.pos, f.data.chase_to):
+			crossed.v = true)
+	ok(ev("阿土掉進冰洞") < 0.0 and not crossed.v, "旗標開著：攔截點不會直線穿過開著的洞")
+	ok(ev("阿土改追攔截點") > 0.0 or ev("阿土追不上了") > 0.0, "換下一個攔得到的點，都不行就坐下（%s）" % ("改追" if ev("阿土改追攔截點") > 0.0 else "追不上"))
+	# 每個點都要穿過洞：坐下
+	var c := _chase_cfg(true)
+	c.ponds = [{"center": Vector2(0.0, -1.0), "r": 1.6}, {"center": Vector2(0.0, -4.4), "r": 1.6}, {"center": Vector2(0.0, -7.8), "r": 1.6}, {"center": Vector2(0.0, 2.4), "r": 1.6}, {"center": Vector2(0.0, -11.0), "r": 1.5}, {"center": Vector2(0.0, 5.6), "r": 1.5}]
+	await load_stage(c)
+	run()
+	ok(ev("阿土追不上了") > 0.0 and ev("阿土掉進冰洞") < 0.0 and bt.outcome == "win", "沒有不穿過洞的攔截點：坐下「追不上了」")
