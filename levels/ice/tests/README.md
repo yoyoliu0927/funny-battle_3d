@@ -86,3 +86,14 @@ func _make_items() -> Array:
 `levels/tables/stage_12..16.txt` 是關卡設計當時掃出來的原表，早於「飼料轉折點掉進洞裡不再卡住」的修正。
 重掃之後第 12 關完全一樣；第 13、14、15 關原本標「卡住60秒」的格子現在會分出輸贏（類別字母因此往前遞補）。
 要更新就在 `levels/` 底下跑對應的 `sNN.py`，用 `ICE_SWEEP_OUT=<資料夾>` 指定中間檔放哪裡。
+
+### 臉（手繪表情有沒有長在臉上）
+
+```bash
+bash levels/ice/tests/check_faces.sh     # 不用畫面：零件有沒有指到骨架、表情是不是只綁頭骨、有沒有貼著臉的表面。要看到 FACE_CHECK: ALL PASS
+# 有視窗、遊戲照平常每格自己跑：兩台鎖在頭骨上的鏡頭量「眼睛相對於頭」每一格有沒有跑掉（FACE_WATCH: ALL PASS），
+# 同時每個角色（含家豪）每換一個狀態就繞一圈拍近照（每 30 度一格，同高一圈、俯角 30 度一圈）存到輸出資料夾
+"$GODOT" --path . --script res://levels/ice/tests/face_watch.gd -- 12 <輸出資料夾> "prep:0,-5,-6.8" 7
+```
+
+新建的 `MeshInstance3D` 要蒙皮，一定要自己設 `skeleton = NodePath("..")`（這個版本預設是空的，不設就停在站姿的位置不跟骨頭動）。

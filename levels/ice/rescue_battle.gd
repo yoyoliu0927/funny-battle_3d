@@ -3529,6 +3529,8 @@ static func style_mini(wrapper: Node3D, look: Dictionary, look_id: String) -> Di
 			_mini_cache[key] = _restyle_mesh(mi.mesh, roles.get(part, {}), look, part.begins_with("head"))
 		var built: Dictionary = _mini_cache[key]
 		mi.mesh = built.main
+		if part.begins_with("head"):
+			rig.head_main = built.main
 		mi.material_override = mat
 		rig.skin = mi.skin
 		if built.hat != null:
@@ -3547,6 +3549,7 @@ static func style_mini(wrapper: Node3D, look: Dictionary, look_id: String) -> Di
 			f0.name = "Face0"
 			f0.mesh = built.face0
 			f0.skin = mi.skin
+			f0.skeleton = NodePath("..")      # 新建的零件預設沒有指到骨架：不指就不會跟著骨頭動（停在站姿的位置）
 			f0.material_override = mat
 			f0.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			sk.add_child(f0)
@@ -3582,23 +3585,16 @@ static func style_mini(wrapper: Node3D, look: Dictionary, look_id: String) -> Di
 		sm.scale = Vector3(0.8, 0.62, 0.8)
 		_tint_surfaces(rig, sm, look.get("scarf", look.get("hat", Color(0.8, 0.3, 0.2))), cream)
 		at2.add_child(sm)
-	# 手繪表情：一張貼片，跟頭、模型的嘴一樣綁在頭骨上（同一套蒙皮，轉頭、抬頭時不會跟臉錯開）
+	# 手繪表情：一片照著臉的表面起伏做的薄皮（緊貼臉，只高出一點點），跟頭的網格用同一根骨頭、同一套蒙皮
 	var face := MeshInstance3D.new()
 	var hb: int = rig.bones["head"]
-	var fc: Vector3 = sk.get_bone_global_rest(hb).origin + FACE_AT
-	var hs := FACE_SIZE * 0.5
-	var fa := []
-	fa.resize(Mesh.ARRAY_MAX)
-	fa[Mesh.ARRAY_VERTEX] = PackedVector3Array([fc + Vector3(-hs, hs, 0), fc + Vector3(hs, hs, 0), fc + Vector3(hs, -hs, 0), fc + Vector3(-hs, -hs, 0)])
-	fa[Mesh.ARRAY_NORMAL] = PackedVector3Array([Vector3.BACK, Vector3.BACK, Vector3.BACK, Vector3.BACK])
-	fa[Mesh.ARRAY_TEX_UV] = PackedVector2Array([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
-	fa[Mesh.ARRAY_BONES] = PackedInt32Array([hb, 0, 0, 0, hb, 0, 0, 0, hb, 0, 0, 0, hb, 0, 0, 0])
-	fa[Mesh.ARRAY_WEIGHTS] = PackedFloat32Array([1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0])
-	fa[Mesh.ARRAY_INDEX] = PackedInt32Array([0, 1, 2, 0, 2, 3])
-	var fmesh := ArrayMesh.new()
-	fmesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, fa)
+	var pkey := "patch|%s" % model_key
+	if not _mini_cache.has(pkey):
+		_mini_cache[pkey] = face_patch(rig.get("head_main"), sk.get_bone_global_rest(hb).origin, hb)
+	var fmesh: ArrayMesh = _mini_cache[pkey]
 	face.mesh = fmesh
 	face.skin = rig.get("skin")
+	face.skeleton = NodePath("..")        # 一定要指到骨架，不然貼片停在站姿的位置、頭一動就跟臉分開
 	face.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	var fm := StandardMaterial3D.new()
 	fm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -3614,6 +3610,77 @@ static func style_mini(wrapper: Node3D, look: Dictionary, look_id: String) -> Di
 	rig.face_mat = fm
 	rig.face_kind = ""
 	return rig
+
+## 表情那一片薄皮：在臉的正前方切成小格，每個格點往臉上「投影」，落在臉的表面上再高出 FACE_LIFT。
+## 臉是平的地方它就是平的，劉海凸出來的地方它跟著凸；每個點都綁頭骨，所以頭怎麼轉、怎麼歪都黏在臉上。
+const FACE_GRID := 72            # 一邊切幾格（細一點：劉海、鬍子這種有高低差的邊緣才不會拉出一大片斜面）
+const FACE_LIFT := 0.0015        # 高出臉的表面多少（模型座標；大約半公分）
+static func face_patch(head: Mesh, head_rest: Vector3, hb: int) -> ArrayMesh:
+	var c := head_rest + Vector3(FACE_AT.x, FACE_AT.y, 0)
+	var hs := FACE_SIZE * 0.5
+	var n := FACE_GRID + 1
+	var zs := PackedFloat32Array()
+	zs.resize(n * n)
+	zs.fill(-9.0)
+	if head != null:
+		var arr := head.surface_get_arrays(0)
+		var hv: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		var hi: PackedInt32Array = arr[Mesh.ARRAY_INDEX]
+		for t in range(0, hi.size(), 3):
+			var a: Vector3 = hv[hi[t]]
+			var b: Vector3 = hv[hi[t + 1]]
+			var d: Vector3 = hv[hi[t + 2]]
+			var den := (b.y - d.y) * (a.x - d.x) + (d.x - b.x) * (a.y - d.y)
+			if absf(den) < 1e-9:
+				continue          # 側面對著正前方的三角形：投影起來是一條線
+			var x0 := int(floorf((minf(a.x, minf(b.x, d.x)) - c.x + hs) / FACE_SIZE * FACE_GRID))
+			var x1 := int(ceilf((maxf(a.x, maxf(b.x, d.x)) - c.x + hs) / FACE_SIZE * FACE_GRID))
+			var y0 := int(floorf((c.y + hs - maxf(a.y, maxf(b.y, d.y))) / FACE_SIZE * FACE_GRID))
+			var y1 := int(ceilf((c.y + hs - minf(a.y, minf(b.y, d.y))) / FACE_SIZE * FACE_GRID))
+			for gy in range(maxi(y0, 0), mini(y1, FACE_GRID) + 1):
+				for gx in range(maxi(x0, 0), mini(x1, FACE_GRID) + 1):
+					var px := c.x - hs + FACE_SIZE * gx / FACE_GRID
+					var py := c.y + hs - FACE_SIZE * gy / FACE_GRID
+					var w0 := ((b.y - d.y) * (px - d.x) + (d.x - b.x) * (py - d.y)) / den
+					var w1 := ((d.y - a.y) * (px - d.x) + (a.x - d.x) * (py - d.y)) / den
+					var w2 := 1.0 - w0 - w1
+					if w0 < -1e-4 or w1 < -1e-4 or w2 < -1e-4:
+						continue
+					var z := a.z * w0 + b.z * w1 + d.z * w2
+					if z > zs[gy * n + gx]:
+						zs[gy * n + gx] = z
+	var verts := PackedVector3Array()
+	var norms := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var bones := PackedInt32Array()
+	var wts := PackedFloat32Array()
+	var idx := PackedInt32Array()
+	for gy in n:
+		for gx in n:
+			var z2 := zs[gy * n + gx]
+			verts.append(Vector3(c.x - hs + FACE_SIZE * gx / FACE_GRID, c.y + hs - FACE_SIZE * gy / FACE_GRID, (z2 if z2 > -8.0 else head_rest.z + FACE_AT.z) + FACE_LIFT))
+			norms.append(Vector3.BACK)
+			uvs.append(Vector2(float(gx) / FACE_GRID, float(gy) / FACE_GRID))
+			bones.append_array(PackedInt32Array([hb, 0, 0, 0]))
+			wts.append_array(PackedFloat32Array([1, 0, 0, 0]))
+	for gy in FACE_GRID:
+		for gx in FACE_GRID:
+			var i0 := gy * n + gx
+			# 四個角都要落在臉上（有一角落空＝超出頭的邊緣）：那一格不要，免得懸在頭外面
+			if head != null and (zs[i0] < -8.0 or zs[i0 + 1] < -8.0 or zs[i0 + n] < -8.0 or zs[i0 + n + 1] < -8.0):
+				continue
+			idx.append_array(PackedInt32Array([i0, i0 + 1, i0 + n + 1, i0, i0 + n + 1, i0 + n]))
+	var fa := []
+	fa.resize(Mesh.ARRAY_MAX)
+	fa[Mesh.ARRAY_VERTEX] = verts
+	fa[Mesh.ARRAY_NORMAL] = norms
+	fa[Mesh.ARRAY_TEX_UV] = uvs
+	fa[Mesh.ARRAY_BONES] = bones
+	fa[Mesh.ARRAY_WEIGHTS] = wts
+	fa[Mesh.ARRAY_INDEX] = idx
+	var fmesh := ArrayMesh.new()
+	fmesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, fa)
+	return fmesh
 
 ## 外加的小模型上色：主要的面用 main，名字裡有 Cuff／Stripe 的面用 trim（淺色的邊）
 static func _tint_surfaces(rig: Dictionary, mi: MeshInstance3D, main: Color, trim: Color) -> void:
