@@ -41,6 +41,8 @@ var walk_slides := true
 var feed_hazard_marks := true
 ## 人走路時會不會也繞開看得到的薄冰（救企鵝模式打開：走路繞得開，滑出去就停不下來）
 var avoid_thin := false
+## 薄冰由這裡處理（踩到 0.3 秒後破掉）；救企鵝模式自己處理（踩到的人先定住），會關掉
+var thin_auto := true
 ## 倒帶重播中：不出聲、不跳字、不慢動作
 var silent := false
 ## 字和跳字用的時鐘：開打後跟著遊戲時間走，準備階段跟著真實時間走（慢動作、快轉、截圖都對得上）
@@ -270,7 +272,7 @@ func _level_step_ended(dt: float) -> void:
 
 func _level_step(dt: float) -> void:
 	_tick_clock(dt)
-	for i in world.thin.size():
+	for i in (world.thin.size() if thin_auto else 0):
 		var th: Dictionary = world.thin[i]
 		match th.state:
 			"solid":

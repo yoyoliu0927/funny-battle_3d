@@ -271,8 +271,11 @@ func predict_slide(f: Fighter, dir: Vector3, start = null) -> Array:
 			break
 		pts.append(res.get("pos", pos))
 		match res.get("kind", "stop"):
-			"hole", "thin":
+			"hole":
 				out.append({"pts": pts, "end": res.pos, "text": "✕ %s 掉進冰洞" % who.name, "color": Color(1.0, 0.3, 0.2)})
+				return out
+			"thin":
+				out.append({"pts": pts, "end": res.pos, "text": "薄冰 %s 踩破" % who.name, "color": Color(1.0, 0.3, 0.2)})
 				return out
 			"hit":
 				var o: Fighter = res.other

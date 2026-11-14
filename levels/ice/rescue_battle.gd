@@ -136,6 +136,7 @@ func _level_setup() -> void:
 	super()
 	show_tutorial = false
 	avoid_thin = true
+	thin_auto = false          # 薄冰在 _step_thin() 處理：踩到的人先定住 0.3 秒
 	path = world.bird_path.duplicate()
 	var specs := _enemy_specs()
 	for i in enemies.size():
@@ -1046,7 +1047,10 @@ func _go_next() -> void:
 
 ## 這一章的小關清單（chapter.gd 的 STAGES）：[{scene 完整路徑, id}]
 func _chapter_stages() -> Array:
-	var chapter := load(get_script().resource_path.get_base_dir().get_base_dir() + "/chapter.gd") as Script
+	var cpath: String = get_script().resource_path.get_base_dir().get_base_dir() + "/chapter.gd"
+	if not ResourceLoader.exists(cpath):
+		return []          # 不在大關資料夾底下的場景（測試用的臨時關卡）
+	var chapter := load(cpath) as Script
 	if chapter == null:
 		return []
 	var stages: Array = chapter.get_script_constant_map().get("STAGES", [])
@@ -1302,7 +1306,10 @@ func _tick_bird(dt: float) -> void:
 
 func _tick_enemy(f: Fighter, dt: float) -> void:
 	# 已經在滑的人不會再踩到香蕉皮（不然會被第二片從半路彈回來，預告就不準了）
-	f.can_slip = f.state not in ["kslide", "stunned"]
+	f.can_slip = f.state not in ["kslide", "stunned", "crack"]
+	if f.state == "crack":
+		f.t += dt          # 踩在裂開的薄冰上：定住，等冰破
+		return
 	if bird.state == "lifted" or bird.data.get("held", false):
 		return
 	if f.data.get("pile") != null:
@@ -1379,6 +1386,7 @@ func _tick_enemy(f: Fighter, dt: float) -> void:
 
 func _level_step(dt: float) -> void:
 	super(dt)
+	_step_thin(dt)
 	_tick_chips(dt)
 	if _cut_t > 0.0:
 		_cut_t -= dt
@@ -1503,6 +1511,27 @@ func make_slip(f: Fighter, what := "香蕉皮") -> void:
 
 ## 工人接下來要走的折線（包含他現在的位置）
 func planned_route(f: Fighter) -> Array:
+	var pts := _raw_route(f)
+	f.data.erase("thin_stop")
+	if world.thin.is_empty() or pts.size() < 2:
+		return pts
+	# 路上有薄冰：走到邊緣就會踩破，後面的路走不到 → 在薄冰邊緣截斷（預告、畫線都用截斷後的）
+	var out: Array = [pts[0]]
+	for i in range(1, pts.size()):
+		var a: Vector3 = pts[i - 1]
+		var b: Vector3 = pts[i]
+		var n := maxi(int(flat_dist(a, b) / 0.05), 1)
+		for k in range(1, n + 1):
+			var q := a.lerp(b, float(k) / n)
+			var ti: int = world.thin_at(q.x, q.z)
+			if ti >= 0:
+				out.append(ground(q))
+				f.data.thin_stop = ti
+				return out
+		out.append(b)
+	return out
+
+func _raw_route(f: Fighter) -> Array:
 	var pts: Array = [f.pos]
 	if f.data.get("guard", f.get_meta("guard", false)):
 		if f.state in ["guard", "idle", "patrol"]:
@@ -1571,6 +1600,10 @@ func _tick_slide(f: Fighter, dt: float) -> void:
 				_slowmo_until = Time.get_ticks_msec() + 120 + 450
 				_snow_cut(f)
 				break
+	if r.kind == "thin":
+		f.pos = r.pos
+		_crack(f, int(r.thin))       # 滑上薄冰：定住 0.3 秒，冰破了才掉下去
+		return
 	if r.kind != "hit":
 		super(f, dt)
 		# 差一點：從別人身邊滑過去沒撞到 → 那個人嚇一跳回頭看
@@ -1843,7 +1876,7 @@ func _draw_routes() -> void:
 	_ghost_used.clear()
 	var flow := _clock * 1.3          # 虛線往工人要去的方向流動（只是畫面效果）
 	for f in enemies:
-		if not f.alive() or f.state in ["kslide", "stunned", "slip"]:
+		if not f.alive() or f.state in ["kslide", "stunned", "slip", "crack"]:
 			continue
 		var waiting: bool = f.data.get("guard", false) and f.state in ["guard", "idle", "patrol"]
 		if waiting:
@@ -1883,6 +1916,7 @@ func _draw_routes() -> void:
 	if not _reroute_used and _reroute_label:
 		_reroute_label.visible = false
 	_reroute_used = false
+	_mark_thin_stops()
 	_draw_demo(im)
 	_draw_time_dots()
 	_cross_lead = []
@@ -2071,7 +2105,10 @@ func peel_outcome(p: Vector3, skip = null) -> Array:
 				if not pr.is_empty():
 					var r: Dictionary = pr[0]
 					var tx := String(r.text)
-					if tx.begins_with("✕"):
+					if tx.begins_with("薄冰"):
+						r.text = "薄冰"
+						r.color = Color(0.4, 0.8, 1.0)
+					elif tx.begins_with("✕"):
 						r.text = "冰洞"
 						r.color = Color(0.4, 0.8, 1.0)
 					elif tx.begins_with("撞到雪") or tx.begins_with("撞牆"):
@@ -2889,7 +2926,9 @@ func _terrain_slide(f: Fighter, dir: Vector3, start: Vector3) -> Dictionary:
 	var t := "停"
 	if kind == "person":
 		t = (res.who as Fighter).name
-	elif kind in ["hole", "thin"]:
+	elif kind == "thin":
+		t = "薄冰"
+	elif kind == "hole":
 		t = "冰洞"
 	elif kind == "wall":
 		t = "咚"
@@ -3636,6 +3675,16 @@ static func mini_pose(kind: String, t: float, v := 0) -> Dictionary:
 				"arm-left": Vector3(0, 0, 1.2),
 				"arm-right": Vector3(0, 0, -1.2),
 			}
+		"crack":
+			# 腳下的薄冰裂開了：僵在原地、兩手亂揮保持平衡
+			return {
+				"torso": Vector3(0.1, 0, sin(t * 30.0) * 0.12),
+				"head": Vector3(0.3, 0, 0),
+				"arm-left": Vector3(0, sin(t * 26.0) * 0.6, 0.5 + cos(t * 26.0) * 0.6),
+				"arm-right": Vector3(0, -sin(t * 26.0 + 1.6) * 0.6, -0.5 - cos(t * 26.0 + 1.6) * 0.6),
+				"leg-left": Vector3(0, 0, 0.3),
+				"leg-right": Vector3(0, 0, -0.3),
+			}
 		"cheer":
 			# 同伴抓到家豪了：兩手舉高一跳一跳
 			var hop := absf(sin(t * 7.0))
@@ -3714,6 +3763,8 @@ func _mini_state(f: Fighter) -> Array:
 	if not f.alive():
 		return ["dizzy", "dizzy"]
 	match f.state:
+		"crack":
+			return ["crack", "shock"]
 		"kslide", "slip":
 			if phase == Phase.ENDED:
 				return ["dizzy", "dizzy"]      # 過關時還在滑的人：坐下來發暈（不要斜斜地定格在半空）
@@ -3784,7 +3835,7 @@ func _level_visuals() -> void:
 				f.node.global_position = (f.data.pile as Vector3) + Vector3(0, 0.42 * u, 0)
 				f.node.rotation = Vector3(PI, f.yaw, sin(_clock * 11.0) * 0.08)
 		# 頭轉向鏡頭、抬頭看鏡頭（帽簷才不會把表情蓋住；鏡頭在高處時特別需要）
-		if vcam and kind in ["slide", "dizzy", "tired", "sunk", "hold", "cheer"]:
+		if vcam and kind in ["slide", "dizzy", "tired", "sunk", "hold", "cheer", "crack"]:
 			var to_cam: Vector3 = f.node.global_basis.orthonormalized().inverse() * (vcam.global_position - head_pos(f))
 			var look := clampf(atan2(to_cam.x, to_cam.z), -1.1, 1.1) * 0.85
 			var up_a := clampf(atan2(to_cam.y, Vector2(to_cam.x, to_cam.z).length()), -0.2, 0.75) * 0.75
@@ -4734,3 +4785,102 @@ func _turn_heads() -> void:
 		var q := cur * Quaternion(Vector3.UP, look)
 		sk.set_bone_pose_rotation(hb, q)
 		rig.head_set = q
+
+# ---------------------------------------------------------------- 薄冰（救企鵝模式）
+#
+# 人的腳中心進到薄冰的半徑裡（走、追、撲、滑都算）：那個人定在原地 CRACK_TIME 秒（「喀」），然後冰破、掉下去出局。
+# 定住的時候抓不到家豪。這段時間又有人進來，一起掉。破了以後就是冰洞。家豪永遠不會踩破。
+
+func _crack(f: Fighter, i: int) -> void:
+	var th: Dictionary = world.thin[i]
+	if f.state == "crack" or not f.alive():
+		return
+	f.set_state("crack")
+	f.data.crack_i = i
+	f.kb_vel = Vector3.ZERO
+	if th.state == "solid":
+		th.state = "cracking"
+		th.t = 0.0
+		log_event("%s踩上薄冰，冰裂開了" % f.name)
+		pop_label("喀！", f.pos + Vector3(0, 3.0, 0), Color(1, 1, 1), 700, f)
+		sfx("crack")
+	else:
+		log_event("%s也踩上裂開的薄冰" % f.name)
+
+func _step_thin(dt: float) -> void:
+	for i in world.thin.size():
+		var th: Dictionary = world.thin[i]
+		if th.state == "broken":
+			continue
+		var c := Vector3(th.center.x, 0, th.center.y)
+		for f in enemies:
+			if f.alive() and f.state != "crack" and f.air < 0.5 and flat_dist(f.pos, c) < float(th.r):
+				_crack(f, i)
+		if th.state != "cracking":
+			continue
+		th.t += dt
+		if th.t < CRACK_TIME:
+			continue
+		world.break_thin(i)
+		log_event("薄冰破了！")
+		for f in enemies:
+			if not f.alive() or flat_dist(f.pos, c) >= float(th.r):
+				continue
+			# 站在這塊冰上的人（定住的、暈在上面的）一起掉；太靠邊的往洞裡挪一點
+			var d := flat_dist(f.pos, c)
+			var lim := maxf(float(th.r) - 0.6, 0.0)
+			if d > lim and d > 0.01:
+				f.pos = ground(c + (f.pos - c) * (lim / d))
+			f.data.thin_fall = i
+			if f.data.get("guard", false):
+				mark("guard_thin")
+			fall_in(f)
+
+## 香蕉皮不能放在薄冰上（飼料可以）
+func placement_error(i: int, p: Vector3) -> String:
+	if items[i].id == "banana" and world.thin_at(p.x, p.z) >= 0:
+		return "不能放在薄冰上"
+	return super(i, p)
+
+var _thin_tags: Array = []
+
+## 紅線、守衛的紅箭頭在薄冰邊緣截斷的地方：標「薄冰」，那塊冰外面一圈亮線
+func _mark_thin_stops() -> void:
+	var used := 0
+	var cut := _cut_cam != null and _cut_cam.current
+	if phase != Phase.ENDED and not cut:
+		var seen := {}
+		for f in enemies:
+			if not f.alive() or not f.data.has("thin_stop") or f.state in ["kslide", "stunned", "slip", "crack", "giveup"]:
+				continue
+			var ti: int = f.data.thin_stop
+			if seen.has(ti) or ti >= world.thin.size() or world.thin[ti].state == "broken":
+				continue
+			seen[ti] = true
+			var th: Dictionary = world.thin[ti]
+			var c := ground(Vector3(th.center.x, 0, th.center.y))
+			var ring: Array = []
+			for k in 41:
+				var a := k * TAU / 40.0
+				ring.append(c + Vector3(cos(a), 0, sin(a)) * (float(th.r) + 0.08))
+			var kpx := _px(c) * 1.35
+			var glow := 0.65 + 0.35 * sin(_clock * 6.0)
+			_flow(ring, Color(1, 1, 1, glow), maxf(0.07, 2.4 * kpx), 0.1, 0.5, 0.3, _clock * 0.6)
+			if used >= _thin_tags.size():
+				var l := Label3D.new()
+				l.text = "薄冰"
+				l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+				l.no_depth_test = true
+				l.pixel_size = 0.0005
+				l.fixed_size = true
+				l.font_size = 30
+				world.add_child(l)
+				_plate(l, "bubble")
+				_beige(l)
+				_thin_tags.append(l)
+			var tl: Label3D = _thin_tags[used]
+			tl.visible = true
+			tl.position = c + Vector3(0, 1.5, 0)
+			used += 1
+	for i in range(used, _thin_tags.size()):
+		(_thin_tags[i] as Label3D).visible = false
