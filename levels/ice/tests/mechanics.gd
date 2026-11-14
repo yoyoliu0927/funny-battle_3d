@@ -276,3 +276,49 @@ func t_aids() -> void:
 	bt.reset()
 	ok(bt._aid("cross") and bt._aid("ghost"), "拿過第一顆星再進來：交叉點標記和剪影出現")
 	bt.best_stars.erase(bt._stage_key())
+
+# ================================================================ 雪人預告照實、三人同洞
+
+func t_snowman_preview() -> void:
+	# 規格第 4 關的排法：兩個人走同一條紅線，往東滑的路上依序是雪人、冰洞
+	await load_stage({"lakes": [{"center": Vector2(3.5, -3.0), "rx": 9.0, "rz": 7.5}], "snowmen": [Vector3(4.0, 0, -2.0)],
+		"ponds": [{"center": Vector2(7.5, -2.0), "r": 1.4}], "items": [["banana", 2]], "flags": {"preview_full": false},
+		"enemies": [["rusher", "阿土", Vector3(-9.5, 0, -2.0), [Vector3(-1.2, 0, -2.0)]], ["rusher", "阿水", Vector3(-10.8, 0, -2.0), [Vector3(-1.2, 0, -2.0)]]]})
+	var a: Array = bt._tier(bt.peel_outcome(g(-2.0, -2.0)))
+	ok(a.size() > 0 and String(a[0].text) == "咚", "第一片：預告終點是雪人（咚）")
+	bt.cast(0, g(-2.0, -2.0))
+	var b: Array = bt._tier(bt.peel_outcome(g(-4.0, -2.0)))
+	ok(b.size() > 0 and String(b[0].text) == "冰洞", "放了第一片之後瞄第二片：雪人不再擋路，終點寫「冰洞」（實際：%s）" % (String(b[0].text) if b.size() > 0 else "無"))
+	var own: Array = bt._tier(bt.peel_outcome(g(-2.0, -2.0), g(-2.0, -2.0)))
+	ok(own.size() > 0 and String(own[0].text) == "咚", "已經放下的那一片自己的結果還是雪人")
+	bt.cast(0, g(-4.0, -2.0))
+	run()
+	ok(ev("差一點") < 0.0, "排在後面的人不會被當成「差一點」")
+	ok(bt.outcome == "win" and ev("阿水撞到阿土") > 0.0 and ev("阿土掉進冰洞") > 0.0 and ev("阿水掉進冰洞") > 0.0, "實際：後面的人撞上暈著的人，兩人滑過倒掉的雪人進冰洞")
+
+func t_three_in_hole() -> void:
+	await load_stage({"ponds": [{"center": Vector2(5.0, -2.0), "r": 1.4}], "items": [["banana", 3]], "stars": ["pair_hole"],
+		"enemies": [["rusher", "阿土", Vector3(-9.0, 0, -2.0), [Vector3(-1.5, 0, -2.0)]], ["rusher", "阿水", Vector3(-11.0, 0, -2.0), [Vector3(-1.5, 0, -2.0)]],
+			["rusher", "阿火", Vector3(-13.0, 0, -2.0), [Vector3(-1.5, 0, -2.0)]]]})
+	bt.silent = false
+	bt.cast(0, g(-4.0, -2.0))
+	bt.cast(0, g(-5.5, -2.0))
+	bt.cast(0, g(-7.0, -2.0))
+	run()
+	var fs: Array = bt.enemies
+	var all_in: bool = fs.all(func(e): return e.data.get("sunk", false) and bt.flat_dist(e.pos, Vector3(5.0, 0, -2.0)) < 1.4 + 0.3)
+	var dmin := 9.0
+	for i in 3:
+		for j in range(i + 1, 3):
+			dmin = minf(dmin, bt.flat_dist(fs[i].pos, fs[j].pos))
+	ok(all_in, "三個人都泡在同一個洞裡（洞不加大）")
+	ok(dmin > 1.1, "三角站位：兩兩至少隔 %.2f 公尺（頭不會疊在一起）" % dmin)
+	# 三個人面對的方向（平均）：沿這個方向量，前面兩個、後面一個
+	var face := Vector3.ZERO
+	for e in fs:
+		face += Vector3(sin(e.yaw), 0, cos(e.yaw))
+	face = face.normalized()
+	var d: Array = fs.map(func(e): return (e.pos as Vector3).dot(face))
+	d.sort()
+	ok(d[1] - d[0] > 0.5 and absf(d[2] - d[1]) < 0.5, "前二後一（沿面對方向的位置：%.1f、%.1f、%.1f）" % [d[0], d[1], d[2]])
+	ok(fs.all(func(e): return Vector3(sin(e.yaw), 0, cos(e.yaw)).dot(face) > 0.9), "三張臉朝同一邊（鏡頭那邊）")

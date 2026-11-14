@@ -153,6 +153,7 @@ func start_slide(f: Fighter, dir: Vector3) -> void:
 	f.data.erase("hit_by")
 	f.set_state("kslide")
 	f.data.sdir = dir
+	f.data.ahead = enemies.filter(func(o): return o != f and (o.pos - f.pos).dot(dir) > 0.0)   # 起滑時在前方的人
 	f.data.snow = 0.0
 	f.kb_vel = Vector3.ZERO
 	f.heavy = false

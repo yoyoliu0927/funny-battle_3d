@@ -611,14 +611,15 @@ func _update_buttons(cut: bool) -> void:
 
 func fall_in(f: Fighter) -> void:
 	# 同一個洞已經有人：並排露頭（左右各讓開一點），兩顆頭一起入鏡
-	for o in enemies:
-		if o != f and o.data.get("sunk", false) and flat_dist(o.pos, f.pos) < 0.9:
-			var side := _cam_side()
-			var mid: Vector3 = o.pos
-			f.pos = mid + side * PAIR_HALF
-			o.pos = mid - side * PAIR_HALF
-			f.data.pair = true
-			o.data.pair = true
+	var grp := _hole_group(f)
+	if grp.size() >= 3 or (grp.size() == 2 and flat_dist(grp[0].pos, grp[1].pos) < 0.9):
+		var first: Fighter = grp[0] if grp[0] != f else grp[1]
+		var keep_y: float = first.pos.y
+		grp.erase(f)
+		grp.append(f)          # 先掉下去的排前面
+		_seat_group(grp, (camera.global_position - f.pos) if camera else Vector3.BACK)
+		for e in grp:
+			e.pos.y = keep_y
 	super(f)
 	# 臉朝鏡頭，凍得發抖、吐泡泡
 	var cp: Vector3 = camera.global_position if camera else f.pos + Vector3(0, 0, 10)
@@ -909,13 +910,8 @@ func _start_win_show() -> void:
 			# 洞裡的受害者轉向鏡頭（看得到臉），家豪在他們後面吐槽
 			var near: Array = enemies.filter(func(e): return e.data.get("sunk", false) and flat_dist(e.pos, vp) < 3.0)
 			if near.size() >= 2:
-				# 兩個人並排（以這個鏡頭的左右排開），兩張臉都入鏡
-				var ctr: Vector3 = (near[0].pos + near[1].pos) * 0.5
-				var vd: Vector3 = cam - ctr
-				vd.y = 0.0
-				var sideways := vd.normalized().cross(Vector3.UP)
-				near[0].pos = ctr - sideways * PAIR_HALF
-				near[1].pos = ctr + sideways * PAIR_HALF
+				# 並排或三角站位（以這個鏡頭的左右排開），每張臉都入鏡
+				_seat_group(near, cam - near[0].pos)
 			for e in near:
 				e.data.sunk_yaw = atan2(cam.x - e.pos.x, cam.z - e.pos.z)
 				e.yaw = e.data.sunk_yaw   # 戰局已經停了，直接轉（不等下一步）
@@ -1665,6 +1661,8 @@ func _tick_slide(f: Fighter, dt: float) -> void:
 					continue
 				if o.data.get("guard", false) and o.state == "guard":
 					continue      # 站著的守衛不算「差一點」
+				if not (f.data.get("ahead", []) as Array).has(o):
+					continue      # 起滑的時候就在後面的人（排隊走同一條線的下一個）不算
 				var rel: Vector3 = o.pos - f.pos
 				rel.y = 0.0
 				if flat_dist(o.pos, f.pos) < 3.0 and rel.dot(sdir) < 0.0:
@@ -2173,8 +2171,16 @@ func peel_outcome(p: Vector3, skip = null) -> Array:
 				var keep_r := 0.0
 				if knock >= 0:
 					keep_r = world.obstacles[knock][1]
-					world.obstacles[knock][1] = 0.0
+					world.obstacles[knock][1] = -1.0
+				# 只畫場地的預告（preview_full＝false）：已經放下的香蕉皮會撞倒的雪人，不再當成擋路
+				var down: Array = [] if preview_full else _knocked_by_placed(p if skip == null else skip)
+				var keep_down: Array = []
+				for k in down:
+					keep_down.append(world.obstacles[k][1])
+					world.obstacles[k][1] = -1.0
 				var pr: Array = predict_slide(f, dir, start_p) if preview_full else [_terrain_slide(f, dir, start_p)]
+				for k in down.size():
+					world.obstacles[down[k]][1] = keep_down[k]
 				if knock >= 0:
 					world.obstacles[knock][1] = keep_r
 				if not pr.is_empty():
@@ -2571,7 +2577,7 @@ func _stop_slide(f: Fighter, msg: String) -> void:
 		f.data.erase("knock_at")
 		for ob in world.obstacles:
 			if (ob[0] as Vector2).distance_to(ka) < 0.05:
-				ob[1] = 0.0
+				ob[1] = -1.0      # 倒掉的雪人不再擋路（半徑 0 還是會擋 0.2 公尺，要給負的）
 	if f.hp > 0.0:
 		for p in world.get("snow_piles"):
 			if flat_dist(p, f.pos) < PILE_R:
@@ -4726,12 +4732,8 @@ func _face_cut(f: Fighter, sec: float) -> void:
 	_soft_cam = false
 	var cam_pos: Vector3 = f.pos + pick * 4.6 + Vector3(0, 0.8, 0)
 	_cut_to(tgt, cam_pos - tgt, sec)
-	var group: Array = enemies.filter(func(e): return e.data.get("sunk", false) and flat_dist(e.pos, f.pos) < 2.4)
-	if group.size() >= 2:
-		var ctr: Vector3 = (group[0].pos + group[1].pos) * 0.5
-		var sideways := pick.cross(Vector3.UP)
-		group[0].pos = ctr - sideways * PAIR_HALF
-		group[1].pos = ctr + sideways * PAIR_HALF
+	var group: Array = _hole_group(f)
+	_seat_group(group, pick)
 	for e in group:
 		e.data.sunk_yaw = atan2(cam_pos.x - e.pos.x, cam_pos.z - e.pos.z)
 		e.yaw = e.data.sunk_yaw
@@ -5131,3 +5133,80 @@ func _hole_id(p: Vector3) -> int:
 		if world.thin[i].state == "broken" and Vector2(p.x, p.z).distance_to(world.thin[i].center) < float(world.thin[i].r) + 0.6:
 			return 100 + i
 	return -1
+
+## 已經放下的香蕉皮（不含 skip 那一片）照場地滑出去會撞倒哪些雪人：回傳 world.obstacles 的序號
+func _knocked_by_placed(skip) -> Array:
+	var out: Array = []
+	var bi := skill_index("banana")
+	if bi < 0 or phase != Phase.PREPARE:
+		return out
+	for pl in items[bi].peels:
+		var pp: Vector3 = pl.pos
+		if skip != null and flat_dist(pp, skip) < 0.05:
+			continue
+		if not world.on_ice(pp.x, pp.z):
+			continue
+		for f in enemies:
+			if not f.alive() or f.data.get("guard", f.get_meta("guard", false)):
+				continue
+			var route := planned_route(f)
+			for i in range(1, route.size()):
+				var a: Vector3 = route[i - 1]
+				var b: Vector3 = route[i]
+				var ab := Vector2(b.x - a.x, b.z - a.z)
+				var l := ab.length()
+				if l < 0.01:
+					continue
+				var t := clampf(Vector2(pp.x - a.x, pp.z - a.z).dot(ab) / (l * l), 0.0, 1.0)
+				var q := a.lerp(b, t)
+				if flat_dist(q, pp) > ON_ROUTE:
+					continue
+				var dir := Vector3(ab.x, 0, ab.y) / l
+				var r := _terrain_slide(f, dir, ground(q - dir * minf(PEEL_STEP, flat_dist(a, q))))
+				if String(r.text) == "咚":
+					var e: Vector3 = r.end
+					for sn in world.get("snowman_nodes"):
+						if flat_dist(sn.pos, e) < 1.6:
+							for k in world.obstacles.size():
+								if (world.obstacles[k][0] as Vector2).distance_to(Vector2(sn.pos.x, sn.pos.z)) < 0.05 and float(world.obstacles[k][1]) > 0.0 and not out.has(k):
+									out.append(k)
+				break
+	return out
+
+# ---------------------------------------------------------------- 同一個洞泡好幾個人的站位
+
+## 跟 f 泡在同一個洞的人（包含 f 自己，不管他沉了沒）
+func _hole_group(f: Fighter) -> Array:
+	var id := _hole_id(f.pos)
+	var out: Array = []
+	for e in enemies:
+		if e == f or (e.data.get("sunk", false) and ((id >= 0 and _hole_id(e.pos) == id) or (id < 0 and flat_dist(e.pos, f.pos) < 2.4))):
+			out.append(e)
+	return out
+
+## 排位置：兩個人左右並排；三個人三角形（前二後一），臉都朝 to_cam 那邊。洞不加大。
+func _seat_group(group: Array, to_cam: Vector3) -> void:
+	if group.size() < 2:
+		return
+	to_cam.y = 0.0
+	to_cam = to_cam.normalized() if to_cam.length() > 0.01 else Vector3.BACK
+	var side := to_cam.cross(Vector3.UP)
+	var ctr := Vector3.ZERO
+	for e in group:
+		ctr += e.pos
+	ctr /= float(group.size())
+	var id := _hole_id(group[0].pos)
+	if group.size() >= 3 and id >= 0:
+		# 三個人：以洞的中心排（兩個人維持原本「以兩人中間」的排法）
+		var c2: Vector2 = world.get("ponds")[id].center if id < 100 else world.thin[id - 100].center
+		ctr = Vector3(c2.x, ctr.y, c2.y)
+	if group.size() == 2:
+		group[0].pos = ctr - side * PAIR_HALF
+		group[1].pos = ctr + side * PAIR_HALF
+	else:
+		group[0].pos = ctr - side * PAIR_HALF + to_cam * 0.42
+		group[1].pos = ctr + side * PAIR_HALF + to_cam * 0.42
+		for k in range(2, group.size()):
+			group[k].pos = ctr - to_cam * 0.72 + side * (float(k - 2) * 1.3)
+	for e in group:
+		e.data.pair = true
