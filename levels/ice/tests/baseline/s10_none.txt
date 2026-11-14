@@ -1,0 +1,4 @@
+    0.00s 開始
+    5.63s 工人抓住了家豪
+    6.52s 落敗
+RESULT stage=10 strategy=none outcome=lose time=6.5 bird_hp=0.0 left=2 casts=0

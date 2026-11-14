@@ -1,0 +1,5 @@
+    0.00s 開始
+    5.18s 阿土改追攔截點 (0.00, -6.36)，從 (-1.22, -6.50)
+    5.20s 阿水抓住了家豪
+    6.08s 落敗
+RESULT stage=11 strategy=none outcome=lose time=6.1 bird_hp=0.0 left=2 casts=0
