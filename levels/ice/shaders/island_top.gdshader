@@ -7,6 +7,8 @@ uniform int lake_count = 0;
 uniform vec4 lakes[4];            // 中心 x, z, 半徑 x, z
 uniform int hole_count = 0;
 uniform vec4 holes[8];            // 中心 x, z, 挖空的半徑（洞口的破冰邊緣是模型，蓋在這個圓上面）
+uniform int thin_count = 0;
+uniform vec4 thins[8];            // 還沒破的薄冰：中心 x, z, 半徑（冰片本身是模型；這裡在它外面畫一圈深色的裂縫和一圈霜，任何光線下都看得出「這塊不一樣」）
 uniform int creek_count = 0;
 uniform vec4 creeks[3];           // 小溪：起點 x, z → 終點 x, z（終點那一頭比較寬，通常接到湖）
 uniform sampler2D crack_tex : repeat_enable, filter_linear_mipmap_anisotropic;   // R 粗裂紋 G 細節（小裂紋、刮痕、氣泡）B 深處雲霧
@@ -135,6 +137,17 @@ void fragment() {
 	float aur = smoothstep(0.15, 1.0, ar) * (0.55 + 0.45 * n_lo) * aurora_refl * ice * (1.0 - frost) * smoothstep(0.45, 0.80, e2);
 	icec += vec3(0.55, 0.85, 1.0) * center_lift * (1.0 - smoothstep(0.15, 0.80, e2));
 
+	// 薄冰的外框：緊貼冰片一圈斷斷續續的深藍裂縫，再往外一圈淡淡的白霜
+	for (int i = 0; i < thin_count; i++) {
+		vec2 td = p - thins[i].xy;
+		float tdist = length(td) - thins[i].z;
+		float tang = atan(td.y, td.x);
+		float dash = smoothstep(0.25, 0.45, 0.5 + 0.5 * sin(tang * 9.0 + thins[i].x));
+		float ring = (1.0 - smoothstep(0.03, 0.10, abs(tdist - 0.06))) * dash;
+		float halo = (1.0 - smoothstep(0.10, 0.75, tdist)) * step(0.0, tdist);
+		icec = mix(icec, vec3(0.90, 0.97, 1.0), halo * 0.45);
+		icec = mix(icec, vec3(0.05, 0.22, 0.48), ring * 0.9);
+	}
 	ALBEDO = mix(snowc, icec * mix(ice_lit, 1.0, frost), ice);
 	// 冰面不要太像鏡子：燈籠照在上面會變成一大顆過曝的白斑
 	ROUGHNESS = mix(1.0, 0.34, ice * (1.0 - frost * 0.75));

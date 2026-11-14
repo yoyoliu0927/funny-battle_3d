@@ -14,6 +14,7 @@ uniform vec3 aurora_a : source_color = vec3(0.20, 1.0, 0.70);    // 極光下緣
 uniform vec3 aurora_b : source_color = vec3(0.45, 0.40, 1.0);    // 極光上緣（紫）
 uniform float aurora_elev = 0.28;                                // 極光下緣多高（收尾鏡頭會把它壓低一點，整條才進得了畫面）
 uniform float aurora_speed = 1.0;                                // 極光流動的速度（收尾時加快）
+uniform float cloud_cover = 0.0;                                 // 雲量：0 = 零星幾朵，1 = 整片陰天
 uniform float glow_band = 0.85;                                  // 地平線那條亮帶多明顯
 uniform float band_thin = 11.0;                                  // 亮帶多窄（越大越貼著地平線）
 
@@ -31,9 +32,10 @@ void sky() {
 		col = mix(horizon_color, top_color, pow(d.y, 0.55));
 		vec2 uv = d.xz / (d.y + 0.22) * 1.2 + vec2(TIME * 0.004, 0.0);
 		float c = fbm2(uv * vec2(0.7, 1.5));
-		float cl = smoothstep(0.57, 0.68, c);
+		float cl = smoothstep(0.57 - cloud_cover * 0.42, 0.68 - cloud_cover * 0.36, c);
+		cl = max(cl, cloud_cover * 0.75);
 		vec3 cc = mix(cloud_shade, cloud_color, smoothstep(0.63, 0.80, c));
-		col = mix(col, cc, cl * smoothstep(0.03, 0.22, d.y) * 0.7);
+		col = mix(col, cc, cl * smoothstep(0.03, 0.22, d.y) * mix(0.7, 0.95, cloud_cover));
 		if (stars > 0.0) {
 			// 星星：把視線方向切成小方格，每格最多一顆（不會因為靠近天頂或地平線被拉長），三種大小
 			vec3 q = d * 64.0;

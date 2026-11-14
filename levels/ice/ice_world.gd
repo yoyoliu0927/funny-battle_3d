@@ -46,7 +46,9 @@ var decor := true
 ##   "lamps"     路兩旁的燈籠："from"、"to"
 ##   "creek"     結冰的小溪："from" 是源頭，"to" 通常接到湖邊；最多 3 條
 var zones: Array = []
-## 這一關的時段：只換光線、天空、海的顏色。"morning" 早晨／"sunset" 黃昏／"dusk" 藍調傍晚
+## 這一關的時段：只換光線、天空、海的顏色。
+##   "morning" 早晨（低太陽、長影子）　"noon" 正午（頭頂的白光、短影子、最藍的天和海）　"overcast" 陰天細雪（灰白、幾乎沒有影子、雪下得密）
+##   "golden" 金色傍晚（金黃的斜陽配藍影子）　"sunset" 黃昏（桃粉的雪、紫色的海）　"dusk" 極光夜（最後一關用）
 var mood := "morning"
 ## 玩家鏡頭的視角（度）。共用場景預設是 72（廣角，遠的東西會變很小）；
 ## 救企鵝的關卡用 45 左右、鏡頭退遠一點，冰湖才會佔滿畫面中間，看起來像一個小模型。0 = 不改
@@ -96,6 +98,8 @@ var _toon_cache := {}              # 模型原本的材質 → 卡通材質（ki
 var _tree_cache := {}              # 雪松原本的網格 → 加了頂點色（每層深淺）的網格
 var _tree_mats := {}
 var _penguin_mats := {}
+var _thin_mat: ShaderMaterial      # 薄冰片：自己發光的霜白色（不管什麼時段都比旁邊的冰淺）
+var _crack_mat: StandardMaterial3D # 薄冰上的裂痕：不吃光的深藍
 var _statue_mat: ShaderMaterial    # 冰雕（比冰湖暗一點、帶一點時段的顏色，不跟冰湖搶）
 var _sky_mat: ShaderMaterial
 var _glow_mats: Array = []         # 會發光的燈籠材質 {mat, base}（收尾時閃爍）
@@ -125,6 +129,35 @@ const MOODS := {
 		"statue": [Color(0.44, 0.40, 0.76), Color(0.90, 0.80, 0.96)],
 		"sea_deep": Color(0.20, 0.22, 0.54), "sea_near": Color(0.42, 0.36, 0.68), "sea_stroke": Color(1.0, 0.80, 0.74), "sea_stroke2": Color(0.66, 0.50, 0.78),
 		"cliff": [Color(0.86, 0.92, 0.98), Color(0.36, 0.72, 0.90), Color(0.16, 0.40, 0.72)], "cliff_glow": 0.40},
+	# 正午：太陽在頭頂（影子短短的貼在腳下）、白光、天和海都是最飽和的藍，雪最白
+	"noon": {"sun": Color(1.0, 0.99, 0.95), "energy": 1.65, "rot": Vector3(-1.18, 0.5, 0), "amb": Color(0.60, 0.76, 1.0), "amb_e": 0.95,
+		"top": Color(0.08, 0.40, 0.92), "hor": Color(0.58, 0.84, 1.0), "band": Color(0.72, 0.92, 1.0), "glow_band": 0.7,
+		"cloud": Color(1.0, 1.0, 1.0), "cloud_sh": Color(0.78, 0.88, 1.0), "sun_glow": Color(1.0, 0.98, 0.9), "stars": 0.0, "aurora": 0.0,
+		"snow_lit": Color(0.94, 0.97, 1.0), "snow_shade": Color(0.68, 0.82, 1.0), "exposure": 0.88,
+		"ice_glow": 0.18, "ice_lit": 0.80, "sky_tint": Color(0.80, 0.94, 1.0), "water": 1.05, "lamp": 1.0,
+		"ice_mid": Color(0.10, 0.70, 0.90), "ice_deep": Color(0.02, 0.36, 0.74),
+		"sea_deep": Color(0.01, 0.30, 0.66), "sea_near": Color(0.06, 0.62, 0.84), "sea_stroke": Color(0.86, 0.98, 1.0), "sea_stroke2": Color(0.20, 0.76, 0.92),
+		"cliff": [Color(0.78, 0.97, 1.0), Color(0.20, 0.78, 0.94), Color(0.04, 0.44, 0.76)], "cliff_glow": 0.16},
+	# 陰天細雪：整片灰白的雲、柔光幾乎沒有影子、灰綠色的海、雪下得密；顏色最淡的一關
+	"overcast": {"sun": Color(0.90, 0.93, 1.0), "energy": 0.45, "rot": Vector3(-0.95, 0.9, 0), "amb": Color(0.76, 0.80, 0.88), "amb_e": 1.25,
+		"top": Color(0.60, 0.66, 0.76), "hor": Color(0.80, 0.84, 0.90), "band": Color(0.84, 0.87, 0.92), "glow_band": 0.6, "cloud_cover": 1.0,
+		"cloud": Color(0.90, 0.92, 0.96), "cloud_sh": Color(0.62, 0.67, 0.76), "sun_glow": Color(0.0, 0.0, 0.0), "stars": 0.0, "aurora": 0.0,
+		"snow_lit": Color(0.90, 0.92, 0.96), "snow_shade": Color(0.72, 0.78, 0.90), "exposure": 0.96, "snow": 1100, "fog_density": 0.006,
+		"ice_glow": 0.34, "ice_lit": 0.70, "sky_tint": Color(0.84, 0.88, 0.94), "water": 0.9, "lamp": 1.3,
+		"ice_mid": Color(0.26, 0.60, 0.74), "ice_deep": Color(0.10, 0.34, 0.54),
+		"sea_deep": Color(0.14, 0.26, 0.36), "sea_near": Color(0.28, 0.44, 0.52), "sea_stroke": Color(0.82, 0.90, 0.93), "sea_stroke2": Color(0.42, 0.58, 0.64),
+		"sea_far": Color(0.74, 0.79, 0.85), "fog": Color(0.82, 0.85, 0.90),
+		"cliff": [Color(0.80, 0.90, 0.94), Color(0.40, 0.66, 0.78), Color(0.18, 0.40, 0.56)], "cliff_glow": 0.22},
+	# 金色傍晚：太陽很低、金黃色的斜光配藍色的長影子，海是深青綠帶金色波光（黃昏那一關是桃粉配紫，分得出來）
+	"golden": {"sun": Color(1.0, 0.80, 0.42), "energy": 1.75, "rot": Vector3(-0.36, -1.05, 0), "amb": Color(0.60, 0.68, 0.92), "amb_e": 0.72,
+		"top": Color(0.26, 0.50, 0.84), "hor": Color(1.0, 0.86, 0.52), "band": Color(1.0, 0.90, 0.60), "glow_band": 0.9,
+		"cloud": Color(1.0, 0.92, 0.70), "cloud_sh": Color(0.86, 0.64, 0.50), "sun_glow": Color(1.0, 0.80, 0.36), "stars": 0.0, "aurora": 0.0,
+		"snow_lit": Color(1.0, 0.96, 0.88), "snow_shade": Color(0.58, 0.68, 0.94), "exposure": 0.98,
+		"ice_glow": 0.48, "ice_lit": 0.50, "sky_tint": Color(1.0, 0.94, 0.78), "water": 1.0, "lamp": 1.4,
+		"ice_mid": Color(0.14, 0.68, 0.84), "ice_deep": Color(0.04, 0.36, 0.66),
+		"sea_deep": Color(0.03, 0.26, 0.40), "sea_near": Color(0.22, 0.52, 0.56), "sea_stroke": Color(1.0, 0.92, 0.62), "sea_stroke2": Color(0.56, 0.70, 0.60),
+		"statue": [Color(0.22, 0.46, 0.74), Color(0.80, 0.90, 0.98)],
+		"cliff": [Color(0.94, 0.94, 0.90), Color(0.30, 0.72, 0.86), Color(0.08, 0.40, 0.66)], "cliff_glow": 0.34},
 	# 夜晚：深靛色到青綠的夜空、星星、一條極光；桃紅只留在地平線。海是深青色，跟黃昏的紫色海分得出來。
 	"dusk": {"sun": Color(0.74, 0.84, 1.0), "energy": 0.80, "rot": Vector3(-0.62, -0.7, 0), "amb": Color(0.42, 0.48, 0.64), "amb_e": 0.95,
 		"aurora_refl": 1.0, "center_lift": 0.14, "statue": [Color(0.16, 0.40, 0.66), Color(0.60, 0.84, 0.94)],
@@ -145,6 +178,11 @@ func _configure() -> void:
 	hill_amount = 0.35
 	grass_count = 0
 	_ice_configure()
+	# 測試用：場景還沒進樹之前用 set_meta 換時段、加薄冰（美術檢查的截圖腳本會用；正式遊戲不會設）
+	if has_meta("test_mood"):
+		mood = String(get_meta("test_mood"))
+	if has_meta("test_thin"):
+		thin_spots = thin_spots + (get_meta("test_thin") as Array)
 	forest_band = 0.0            # 地圖外面是海，不要共用場地的外圈森林
 	_fit_isle()
 
@@ -288,7 +326,7 @@ func thin_at(x: float, z: float, margin := 0.0) -> int:
 			return i
 	return -1
 
-## 薄冰破掉：冰片消失，露出洞和水
+## 薄冰破掉：冰片消失，露出洞和水；碎冰往外噴、濺一圈水花（純畫面）
 func break_thin(i: int) -> void:
 	var th: Dictionary = thin[i]
 	th.state = "broken"
@@ -296,6 +334,50 @@ func break_thin(i: int) -> void:
 	(th.node as Node3D).visible = false
 	(th.water as Node3D).visible = true
 	_refresh_holes()
+	_break_fx(th)
+
+func _break_fx(th: Dictionary) -> void:
+	if not is_inside_tree() or DisplayServer.get_name() == "headless":
+		return
+	var c := Vector3(th.center.x, height_at(th.center.x, th.center.y), th.center.y)
+	var r: float = th.r
+	var holder := Node3D.new()
+	(th.water as Node3D).get_parent().add_child(holder)
+	for k in 7:
+		var a := k * TAU / 7.0 + 0.4
+		var ch := _prop(holder, MB + "ice_chunk_" + ["e", "b", "a"][k % 3] + ".glb", c + Vector3(cos(a), 0, sin(a)) * r * 0.5, a, 0.5)
+		if ch == null:
+			continue
+		var out := c + Vector3(cos(a), 0, sin(a)) * (r + 0.5 + 0.5 * (k % 2))
+		var tw := ch.create_tween()
+		tw.set_parallel(true)
+		tw.tween_property(ch, "position:x", out.x, 0.45)
+		tw.tween_property(ch, "position:z", out.z, 0.45)
+		tw.tween_property(ch, "position:y", c.y + 0.9, 0.22).set_ease(Tween.EASE_OUT).set_trans(Tween.TRANS_QUAD)
+		tw.tween_property(ch, "rotation:x", 3.0 + k, 0.45)
+		tw.chain().tween_property(ch, "position:y", c.y - 0.5, 0.25).set_ease(Tween.EASE_IN).set_trans(Tween.TRANS_QUAD)
+	var ps := GPUParticles3D.new()
+	ps.one_shot = true
+	ps.explosiveness = 0.95
+	ps.amount = 28
+	ps.lifetime = 0.7
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_RING
+	pm.emission_ring_axis = Vector3.UP
+	pm.emission_ring_radius = r * 0.8
+	pm.emission_ring_inner_radius = r * 0.4
+	pm.emission_ring_height = 0.1
+	pm.direction = Vector3.UP
+	pm.spread = 35.0
+	pm.initial_velocity_min = 2.5
+	pm.initial_velocity_max = 4.5
+	pm.gravity = Vector3(0, -9.0, 0)
+	ps.process_material = pm
+	ps.draw_pass_1 = _spark_quad(Color(0.9, 0.98, 1.0), 0.3, false)
+	ps.position = c + Vector3(0, 0.1, 0)
+	holder.add_child(ps)
+	ps.emitting = true
+	get_tree().create_timer(1.2).timeout.connect(holder.queue_free)
 
 ## 多一塊薄冰（鹽撒下去會用到）；parent 放 bt.fx_root，重試時會一起刪掉
 func add_thin(center: Vector2, r: float, parent: Node3D) -> int:
@@ -364,6 +446,16 @@ func _near_hole(x: float, z: float, margin: float) -> bool:
 	for p in ponds:
 		if Vector2(x, z).distance_to(p.center) < float(p.r) + margin:
 			return true
+	for t in thin_spots:          # 薄冰破了就是冰洞，一樣要讓開
+		if Vector2(x, z).distance_to(t.center) < float(t.r) + margin:
+			return true
+	return false
+
+## (x, z) 是不是壓在薄冰上或緊貼著（小東西——碎冰、釣具——不能蓋住薄冰，不然看不出那塊冰不一樣）
+func _on_thin(x: float, z: float, margin := 0.7) -> bool:
+	for t in thin_spots:
+		if Vector2(x, z).distance_to(t.center) < float(t.r) + margin:
+			return true
 	return false
 
 ## 模型的材質換成這一關的著色器：
@@ -392,6 +484,8 @@ func _restyle(n: Node3D, shadows := true) -> void:
 				"cloud": mi.set_surface_override_material(i, _cloud_mat)
 				"flame_outer": mi.set_surface_override_material(i, _flame_mat(Color(1.0, 0.36, 0.06), Color(1.0, 0.70, 0.16)))
 				"flame_inner": mi.set_surface_override_material(i, _flame_mat(Color(1.0, 0.78, 0.22), Color(1.0, 0.97, 0.70)))
+				"thin_ice": mi.set_surface_override_material(i, _thin_mat)
+				"crack": mi.set_surface_override_material(i, _crack_mat)
 				_:
 					var tm := _toon_mat(mat)
 					if tm:
@@ -492,6 +586,7 @@ func _build_extra() -> void:
 		_build_hole(root, i)
 	for s in thin_spots:
 		thin.append(_make_thin(s.center, float(s.r), root))
+	_refresh_holes()
 	for p in snowmen:
 		_snowman(root, p)
 	for i in pines.size():
@@ -570,6 +665,15 @@ func _make_materials() -> void:
 	_wall_mat.set_shader_parameter("frost_top", 0.0)
 	_wall_mat.set_shader_parameter("crack_amount", 0.15)
 	_wall_mat.set_shader_parameter("glow", float(md.ice_glow) + 0.38)
+	_thin_mat = _ice_solid.duplicate() as ShaderMaterial
+	_thin_mat.set_shader_parameter("inner", Color(0.74, 0.92, 1.0))
+	_thin_mat.set_shader_parameter("outer", Color(1.0, 1.0, 1.0))
+	_thin_mat.set_shader_parameter("frost_top", 0.75)
+	_thin_mat.set_shader_parameter("crack_amount", 0.5)
+	_thin_mat.set_shader_parameter("glow", 0.55)
+	_crack_mat = StandardMaterial3D.new()
+	_crack_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_crack_mat.albedo_color = Color(0.06, 0.24, 0.50)
 	_water_mat = ShaderMaterial.new()
 	_water_mat.shader = load(SH + "hole_water.gdshader")
 	_water_mat.set_shader_parameter("wave_tex", load(TX + "sea_waves.png"))
@@ -618,6 +722,13 @@ func _refresh_holes() -> void:
 	_top_mat.set_shader_parameter("hole_count", ha.size())
 	ha.resize(8)
 	_top_mat.set_shader_parameter("holes", ha)
+	var ta := PackedVector4Array()
+	for th in thin:
+		if th.state != "broken" and ta.size() < 8:
+			ta.append(Vector4(th.center.x, th.center.y, float(th.r), 0.0))
+	_top_mat.set_shader_parameter("thin_count", ta.size())
+	ta.resize(8)
+	_top_mat.set_shader_parameter("thins", ta)
 
 ## 冰洞口的模型（Blender）：一圈被敲破、看得到厚度的冰，上面黏著碎冰，洞裡是水面。模型半徑 1，放大成實際半徑。
 func _hole_rim(parent: Node3D, pos: Vector3, r: float, variant: int) -> Node3D:
@@ -662,7 +773,7 @@ func _build_hole(root: Node3D, i: int) -> void:
 			continue
 		var px := c.x + cos(a) * rr
 		var pz := c.y + sin(a) * rr
-		var keep_out := false
+		var keep_out := _on_thin(px, pz)
 		for sp in clear_spots:
 			if Vector2(px - sp.x, pz - sp.z).length() < 4.2:
 				keep_out = true
@@ -698,7 +809,19 @@ func _make_thin(center: Vector2, r: float, parent: Node3D) -> Dictionary:
 	var rng := RandomNumberGenerator.new()
 	rng.seed = world_seed + int(center.x * 31.0 + center.y * 17.0)
 	_floating_chunks(water, Vector3(0, -0.26, 0), r, 3, rng)
-	return {"center": center, "r": r, "state": "solid", "t": 0.0, "node": node, "water": water, "base": base, "dynamic": false}
+	# 第二層裂痕（平常藏著，開始裂的時候才從中心長出來）：同一個模型只留裂痕、轉個角度
+	var cracks2: Node3D = null
+	var extra := _prop(node, MB + "thin_ice.glb", Vector3(0, 0.012, 0), center.x * 1.7 + center.y + 0.45, 1.0)
+	if extra:
+		extra.scale = Vector3(r, 1.0, r)
+		for m in extra.find_children("*", "MeshInstance3D", true, false):
+			var emi := m as MeshInstance3D
+			emi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			if String(emi.name).begins_with("ThinIce"):
+				emi.visible = false
+		extra.visible = false
+		cracks2 = extra
+	return {"center": center, "r": r, "state": "solid", "t": 0.0, "node": node, "water": water, "base": base, "dynamic": false, "cracks2": cracks2}
 
 ## 雪人（Blender 模型）：頭是獨立的節點，可以被撞下來扣在工人頭上（水桶帽跟著頭走）
 func _snowman(parent: Node3D, p: Vector3) -> void:
@@ -903,7 +1026,7 @@ func _weather() -> void:
 		env.tonemap_exposure = m.exposure
 		env.fog_enabled = true
 		env.fog_light_color = m.get("fog", m.band)
-		env.fog_density = 0.0009
+		env.fog_density = m.get("fog_density", 0.0009)
 		env.fog_sky_affect = 0.0
 		env.fog_sun_scatter = 0.1
 		# 不反射天空：黃昏粉紅色的天會把冰面洗成灰紫色（冰的反光由著色器自己畫）
@@ -929,6 +1052,7 @@ func _weather() -> void:
 		sm.set_shader_parameter("mist_color", m.band)
 		sm.set_shader_parameter("abyss_color", m.get("sea_far", (m.band as Color).lerp(m.sea_near, 0.25)))
 		sm.set_shader_parameter("glow_band", m.glow_band)
+		sm.set_shader_parameter("cloud_cover", m.get("cloud_cover", 0.0))
 		sm.set_shader_parameter("band_thin", m.get("band_thin", 11.0))
 		sm.set_shader_parameter("cloud_color", m.cloud)
 		sm.set_shader_parameter("cloud_shade", m.cloud_sh)
@@ -1110,6 +1234,8 @@ func _fishing_hole(root: Node3D, c: Vector2, r: float, rng: RandomNumberGenerato
 	var a := atan2(c.y - camera_start.z, c.x - camera_start.x) + rng.randf_range(-0.6, 0.6)
 	var ice_y := water_surface_y(c.x, c.y)
 	var edge := Vector3(c.x + cos(a) * (r * 1.4 + 0.45), ice_y, c.y + sin(a) * (r * 1.4 + 0.45))
+	if _on_thin(edge.x, edge.z, 1.4):
+		return                      # 釣具會壓到旁邊的薄冰：這個洞就不擺
 	_clutter.append(_prop(root, KS + "bucket.glb", edge, a, 1.4))
 	var f := _prop(root, KS + "fish.glb", edge + Vector3(cos(a + 1.3) * 0.55, 0.02, sin(a + 1.3) * 0.55), a + 0.6, 1.2)
 	_clutter.append(f)
@@ -1278,7 +1404,7 @@ func _creek_banks(root: Node3D, a: Vector3, b: Vector3) -> void:
 ## 下雪：大範圍、慢慢飄的圓雪花
 func _snowfall(root: Node3D) -> void:
 	var ps := GPUParticles3D.new()
-	ps.amount = 320
+	ps.amount = int(_mood().get("snow", 320))
 	ps.lifetime = 9.0
 	ps.preprocess = 9.0
 	ps.visibility_aabb = AABB(Vector3(-24, -2, -24), Vector3(48, 26, 48))
@@ -1327,6 +1453,15 @@ func _snowfall(root: Node3D) -> void:
 
 func _process(dt: float) -> void:
 	_animate_decor()
+	# 正在裂的薄冰：第二層裂痕從中心往外長（戰局把 state 設成 "cracking" 就會有）
+	for th in thin:
+		var c2 = th.get("cracks2")
+		if c2 != null and is_instance_valid(c2):
+			var on: bool = th.state == "cracking"
+			(c2 as Node3D).visible = on
+			if on:
+				var k := clampf(float(th.t) / 0.3, 0.0, 1.0)
+				(c2 as Node3D).scale = Vector3.ONE * lerpf(0.35, 1.0, k)
 	if _finale_on:
 		_tick_finale(dt)
 
