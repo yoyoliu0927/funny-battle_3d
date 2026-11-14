@@ -1334,9 +1334,21 @@ func _tick_bird(dt: float) -> void:
 				if not _ran:
 					_ran = true
 					pass
+			# 轉折點掉進洞裡了（飼料放在薄冰上、那塊冰後來被踩破）：那個點不用去了，直接走下一個
+			# （不跳過的話，家豪會在洞的兩邊來回飛，永遠到不了）
+			while path_i < path.size() and world.in_water((path[path_i] as Vector3).x, (path[path_i] as Vector3).z):
+				path_i += 1
+				log_event("家豪的轉折點掉進洞裡，直接往下一個點走")
 			if path_i < path.size():
 				var tgt: Vector3 = ground(path[path_i])
-				if flat_dist(b.pos, tgt) < 0.3:
+				# 這一段是從哪裡出發的（用來判斷「已經越過轉折點」：飛過洞落地時常常越過 0.3 公尺的範圍）
+				if int(b.data.get("leg_i", -1)) != path_i:
+					b.data.leg_i = path_i
+					b.data.leg_from = b.pos
+				var lf: Vector3 = b.data.leg_from
+				var leg := Vector2(tgt.x - lf.x, tgt.z - lf.z)
+				var passed: bool = leg.length() > 0.01 and Vector2(b.pos.x - lf.x, b.pos.z - lf.z).dot(leg) >= leg.length_squared()
+				if flat_dist(b.pos, tgt) < 0.3 or passed:
 					path_i += 1
 				else:
 					_bird_walk(tgt, spd, dt, "charge")

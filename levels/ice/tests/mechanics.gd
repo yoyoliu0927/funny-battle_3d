@@ -361,3 +361,18 @@ func t_finale_bump() -> void:
 	bt.reset()
 	bt._apply_visuals()
 	ok(not gd.data.has("fin") and bt.flat_dist(gd.node.global_position, pos0) < 0.1, "重來後回到原位")
+
+# ================================================================ 飼料放在薄冰上、那塊冰後來破了
+
+func t_feed_on_broken_thin() -> void:
+	var demo: Dictionary = load("res://levels/ice/tests/stage_t/world.gd").DEMO
+	for p in [Vector2(5.0, -5.5), Vector2(6.0, -5.8), Vector2(3.0, 1.0)]:
+		await load_stage(demo)
+		ok(bt.cast(1, g(p.x, p.y)), "飼料可以放在薄冰上／旁邊 (%.1f, %.1f)" % [p.x, p.y])
+		run(60.0)
+		ok(bt.phase == bt.Phase.ENDED and bt.time < 20.0, "轉折點掉進洞裡也走得完：%.1f 秒結束（%s）" % [bt.time, bt.outcome])
+	# 通用的保險：超過時間上限一定有結果
+	await load_stage(demo)
+	bt.time_limit = 3.0
+	run(60.0)
+	ok(bt.phase == bt.Phase.ENDED and bt.outcome == "lose" and ev("天黑了") > 0.0, "超過時間上限（time_limit）就算輸，不會無限跑")
