@@ -7,6 +7,9 @@ const CITY := ""            # 選關地圖上的位置；空白就照 ORDER 自�
 const AUTHOR := ""          # 你的名字
 const ORDER := 10           # 地圖上的順序（小的排前面）
 const DESC := "救出被關起來的企鵝！人在冰上會滑，雞不會。"
+## 選關地圖：每一小關一座主題不同的小島（漁村、冰雕廣場、冰晶溪谷、燈塔、鐘樓、燈籠夜市），走到哪一關天色就換成那一關的時段
+const MAP_SCRIPT := "res://levels/ice/map_isles.gd"
+const MAP_SKY := "res://levels/ice/shaders/isle_sky.gdshader"
 ## 小關（3~6 個）。scene 寫相對於這個資料夾的路徑
 const STAGES := [
 	{"title": "雪人與冰洞", "desc": "香蕉皮丟在紅線的哪一段，工人就往那一段的方向滑。", "scene": "stage_9/stage.tscn"},
