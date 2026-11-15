@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scripts/fort_main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/fort_builder.gd" id="2_world"]
@@ -17,7 +17,7 @@ sky_material = SubResource("sky_mat")
 background_mode = 2
 sky = SubResource("sky")
 ambient_light_source = 2
-ambient_light_color = Color(0.60, 0.72, 0.88, 1)
+ambient_light_color = Color(0.74, 0.74, 0.80, 1)
 ambient_light_energy = 0.85
 tonemap_mode = 2
 tonemap_white = 4.0
@@ -26,30 +26,25 @@ ssao_radius = 2.0
 ssao_intensity = 1.0
 ssao_light_affect = 0.2
 fog_enabled = true
-fog_light_color = Color(0.70, 0.86, 0.90, 1)
+fog_light_color = Color(0.92, 0.88, 0.78, 1)
 fog_light_energy = 1.0
 fog_sun_scatter = 0.35
-fog_density = 0.0045
+fog_density = 0.0022
 fog_aerial_perspective = 0.0
-fog_sky_affect = 0.25
+fog_sky_affect = 0.12
 glow_enabled = true
-glow_intensity = 0.45
+glow_intensity = 0.3
 glow_strength = 0.9
-glow_bloom = 0.12
+glow_bloom = 0.03
 glow_hdr_threshold = 0.85
 glow_blend_mode = 1
 adjustment_enabled = true
 adjustment_saturation = 1.35
-adjustment_contrast = 1.08
+adjustment_contrast = 1.14
 
 [sub_resource type="CapsuleShape3D" id="capsule"]
 radius = 0.35
 height = 1.8
-
-[sub_resource type="LabelSettings" id="hint_label"]
-font_size = 18
-outline_size = 6
-outline_color = Color(0, 0, 0, 0.55)
 
 [node name="Fort" type="Node3D"]
 script = ExtResource("1_main")
@@ -87,14 +82,6 @@ near = 0.08
 far = 1500.0
 
 [node name="HUD" type="CanvasLayer" parent="."]
-
-[node name="Hint" type="Label" parent="HUD"]
-offset_left = 20.0
-offset_top = 16.0
-offset_right = 1100.0
-offset_bottom = 44.0
-text = "第二關｜WASD 飄移｜空白 上升｜Shift 下降｜滑鼠 轉視角｜1 2 3 選神蹟｜左鍵 施放｜Enter 開始｜R 重試｜M 地圖｜Esc 放開游標"
-label_settings = SubResource("hint_label")
 
 [node name="Crosshair" type="Control" parent="HUD"]
 layout_mode = 3

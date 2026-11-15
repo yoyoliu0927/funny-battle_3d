@@ -1,0 +1,3 @@
+jf open 粉圓 2.1（jf-openhuninn-2.1.ttf）by justfont — https://github.com/justfont/open-huninn-font
+授權：SIL Open Font License 1.1（見 OFL-LICENSE.txt），可免費使用，可以跟遊戲一起散布。
+用途：全遊戲共用的介面字型（scripts/ui/ui_style.gd）。

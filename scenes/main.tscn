@@ -1,4 +1,4 @@
-[gd_scene load_steps=12 format=3]
+[gd_scene load_steps=11 format=3]
 
 [ext_resource type="Script" path="res://scripts/main.gd" id="1_main"]
 [ext_resource type="Script" path="res://scripts/farm_builder.gd" id="2_world"]
@@ -46,11 +46,6 @@ adjustment_contrast = 1.08
 radius = 0.35
 height = 1.8
 
-[sub_resource type="LabelSettings" id="hint_label"]
-font_size = 18
-outline_size = 6
-outline_color = Color(0, 0, 0, 0.55)
-
 [node name="Main" type="Node3D"]
 script = ExtResource("1_main")
 
@@ -85,14 +80,6 @@ near = 0.08
 far = 1500.0
 
 [node name="HUD" type="CanvasLayer" parent="."]
-
-[node name="Hint" type="Label" parent="HUD"]
-offset_left = 20.0
-offset_top = 16.0
-offset_right = 1100.0
-offset_bottom = 44.0
-text = "WASD 飄移｜空白 上升｜Shift 下降｜滑鼠 轉視角｜1 2 3 選神蹟｜左鍵 施放｜Enter 開始｜R 重試｜M 地圖｜Esc 放開游標"
-label_settings = SubResource("hint_label")
 
 [node name="Crosshair" type="Control" parent="HUD"]
 layout_mode = 3

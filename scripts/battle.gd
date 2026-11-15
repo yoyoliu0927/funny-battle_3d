@@ -42,13 +42,14 @@ const HOP_TIME := 0.7          # 飛越圍欄的小跳
 const FENCE_CLEAR := 1.0
 
 ## 神蹟設定
+const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術（手帳風格）
 const SKILLS := [
 	# prep = 準備階段（預先佈置）能放幾次；live = 開打後（現場）能放幾次；-1 代表不限次數
 	# 兩個次數各算各的，準備階段沒用完的不會留到現場
 	# cooldown = 現場用一次之後要等幾秒才能再用（準備階段沒有冷卻）
 	{"id": "feed", "name": "飼料", "key": "1", "prep": -1, "live": -1, "cooldown": 1.5, "radius": 0.6, "color": Color(1.0, 0.85, 0.3)},
 	{"id": "banana", "name": "香蕉皮", "key": "2", "prep": -1, "live": -1, "cooldown": 4.0, "radius": 0.5, "color": Color(1.0, 0.9, 0.25)},
-	{"id": "rock", "name": "巨石", "key": "3", "prep": -1, "live": -1, "cooldown": 8.0, "radius": 0.9, "color": Color(0.85, 0.85, 0.8)},
+	{"id": "rock", "name": "巨石", "key": "3", "prep": 1, "live": -1, "cooldown": 8.0, "radius": 0.9, "color": Color(0.85, 0.85, 0.8)},
 ]
 const PEEL_RADIUS := 0.55      # 走到香蕉皮這麼近就會踩到
 const SLIP_TIME := 3.0         # 滑倒後躺在地上的時間
@@ -81,6 +82,11 @@ const CANNON_HIT_FARMER := 6.0
 const TURRET_RANGE := 12.0
 const TURRET_AIM := 1.0        # 瞄準（地上出現紅圈）多久後開砲
 const TURRET_RELOAD := 5.0
+const SHOW_EDGE_ARROW := false   # 家豪跑出畫面時的邊緣箭頭（先關掉）
+const TURRET_TURN := 1.8        # 炮塔轉向的速度（弧度/秒）：先看到砲管轉過來，才開始瞄準
+const TURRET_FACE := 0.12       # 砲管對準到這個角度以內才開始瞄準（紅圈出現）
+const TURRET_RECOIL := 0.35     # 開砲後座力的時間
+const CANNON_SNAP := 2.2        # 大砲落點離指揮官高台邊緣這麼近，就自動吸到高台中間
 const TURRET_FIRST := 2.5      # 開打後第一砲要等多久（第二座再晚一點）
 const SHELL_TIME := 1.0        # 砲彈飛行時間
 const SHELL_PEAK := 3.0
@@ -160,6 +166,13 @@ var _fx_root: Node3D
 
 # HUD
 var _phase_label: Label
+var _phase_start_key: Control
+var _enemy_col: VBoxContainer
+var _crew_label: Label
+var _bird_bar: PaperBar
+var _edge_arrow: EdgeArrow
+var _first_hint: PanelContainer
+var _phase_retry_key: Control
 var _toast_label: Label
 var _summary_panel: PanelContainer
 var _summary_label: Label
@@ -167,19 +180,29 @@ var _toast_t := 0.0
 var _hotbar: Hotbar
 var _dialog: DialogBox
 var _napoleon_tex: Texture2D
-# 開場教學：箭頭依序指著技能欄的每一格，旁邊一小段說明
-const TUT_STEP_TIME := 5.5
-const TUT_TEXT := [
-	"【1 飼料】撒在地上，家豪會忍不住跑去吃，吃一把回一點血。\n用它把家豪引到你想要的地方。",
-	"【2 香蕉皮】丟在路上，走過去踩到就會滑倒，躺在地上好一陣子。\n小心，家豪自己也會踩到。",
-	"【3 巨石】一顆圓滾滾的大石頭。\n或許可以讓它自己滾起來？",
+# 新手教學：第一次進關卡時跳出教學彈窗（左邊播示範動畫、右邊說明），H 可以再叫出來
+const TUT_PAGES := [
+	{"title": "操作方式", "controls": [["W／A／S／D", "飄移"], ["Space", "上升"], ["Shift", "下降"], ["MOUSE", "轉視角"],
+		["1／2／3", "選神蹟"], ["LMB", "施放"], ["Enter", "開打"], ["R", "重試"], ["M", "回地圖"], ["H", "再看一次說明"]],
+		"body": "你是一個飄在空中的幽靈，只能從旁觀察、偷偷降下神蹟幫家豪。
+
+準備階段先把神蹟佈置好，再按 Enter 開打。"},
+	{"title": "飼料", "clip": "feed", "keys": [["1", "選擇"], ["LMB", "對準地面撒下"]],
+		"body": "撒在地上，家豪會忍不住跑過去吃，吃一把回一點血。
+
+用它把家豪引到你想要的地方，或拖住他、讓他避開農夫。"},
+	{"title": "香蕉皮", "clip": "banana", "keys": [["2", "選擇"], ["LMB", "對準地面丟下"]],
+		"body": "丟在路上，誰走過去踩到就會滑倒，躺在地上好一陣子。
+
+放在農夫巡邏的路線上最有效。小心，家豪自己也會踩到。"},
+	{"title": "巨石", "clip": "rock", "keys": [["3", "選擇"], ["LMB", "斜坡滾、平地擋"]],
+		"body": "一顆圓滾滾的大石頭。放在斜坡上會自己滾下去，一路撞倒擋路的東西；放在平地上就是一塊路障，誰都過不去。\n\n瞄準時會畫出滾動路線，撞得到的東西會亮綠色。"},
 ]
-var tutorial_step := -1        # -1 = 沒在教學
-var _tut_t := 0.0
+var tutorial_step: int:       # 教學彈窗現在在第幾頁（-1 = 沒開）
+	get:
+		return _tut.page if _tut else -1
 var _tut_seen := false
-var _tut_arrow: TutArrow
-var _tut_panel: PanelContainer
-var _tut_label: Label
+var _tut: Node                 # 教學彈窗（scripts/tutorial_popup.gd）
 var _hud_layer: CanvasLayer
 # 換階段的通知卡（像 Mac 的通知：右上角滑進來、停一下、滑出去）
 const NOTICE_TIME := 2.6
@@ -187,7 +210,6 @@ var _notice: PanelContainer
 var _notice_title: Label
 var _notice_body: Label
 var _notice_t := -1.0
-var _notice_base_top := 0.0
 # 輸了的畫面
 const DEFEAT_ORIGIN := Vector3(600.0, 0.0, 600.0)
 var defeat_room: Node3D
@@ -229,6 +251,9 @@ class Fighter:
 	var fly_peak := 1.0
 	var after_fly := ""
 	var detouring := false
+	var steer_side := 1.0  # 繞障礙物時偏向哪一邊（記住，避免左右抖動）
+	var steer_angle := 0.0  # 目前繞開的偏角
+	var steer_t := -1.0     # 什麼時候決定繞開的（< 0 = 沒在繞）
 	var chased := false
 	# 農夫專用
 	var route: Array = []
@@ -245,11 +270,8 @@ class Fighter:
 	var alert_t := -1.0
 	var target: Fighter
 	var feed_target := -1
-	# 血條
-	var bar: Control
-	var bar_fill: ColorRect
-	var bar_chip: ColorRect
-	var chip := 1.0
+	var bar: Control        # 頭上的血條（現在不畫了，留著給舊的檢查用，一直是 null）
+	var chip := 1.0         # 血條淺色那段（扣血後慢慢追上）
 
 	func set_state(s: String) -> void:
 		state = s
@@ -266,12 +288,14 @@ class EnemyFace extends Control:
 	var boss := false
 	var dead := false
 
+	## 圓形貼紙：深色外圈、米色底，中間畫臉；倒下就變灰、打紅叉
 	func _draw() -> void:
-		var r := Rect2(Vector2.ZERO, size)
-		draw_rect(r, Color(0.1, 0.11, 0.13, 0.8))
-		draw_rect(r, Color(1, 0.85, 0.4, 0.9) if boss else Color(1, 1, 1, 0.35), false, 3.0 if boss else 2.0)
-		var c := size * Vector2(0.5, 0.58)
-		var k := size.x / 56.0
+		var c0 := size * 0.5
+		var rad := minf(size.x, size.y) * 0.5
+		draw_circle(c0, rad, UIStyle.INK)
+		draw_circle(c0, rad - 2.5, Color("f6ecd4") if not boss else Color("ffe9a8"))
+		var c := size * Vector2(0.5, 0.6)
+		var k := size.x / 60.0
 		var skin := Color(0.96, 0.78, 0.62)
 		draw_circle(c, 15 * k, skin)
 		# 帽子
@@ -280,20 +304,96 @@ class EnemyFace extends Control:
 		draw_rect(Rect2(c + Vector2(-11, -27) * k, Vector2(22, 12) * k), hat)
 		if not boss:
 			draw_rect(Rect2(c + Vector2(-11, -19) * k, Vector2(22, 3) * k), Color(0.8, 0.25, 0.2))
-		# 眼睛 / 眼鏡、嘴、鬍子
 		if boss:
 			for sx in [-1.0, 1.0]:
-				draw_arc(c + Vector2(6 * sx, -2) * k, 4.5 * k, 0, TAU, 16, Color(0.1, 0.1, 0.1), 2.0 * k)
-			draw_line(c + Vector2(-1.5, -2) * k, c + Vector2(1.5, -2) * k, Color(0.1, 0.1, 0.1), 2.0 * k)
+				draw_arc(c + Vector2(6 * sx, -2) * k, 4.5 * k, 0, TAU, 16, UIStyle.INK, 2.0 * k)
+			draw_line(c + Vector2(-1.5, -2) * k, c + Vector2(1.5, -2) * k, UIStyle.INK, 2.0 * k)
 			draw_rect(Rect2(c + Vector2(-7, 6) * k, Vector2(14, 3) * k), Color(0.35, 0.22, 0.15))
 		else:
 			for sx in [-1.0, 1.0]:
-				draw_circle(c + Vector2(6 * sx, -2) * k, 2.0 * k, Color(0.12, 0.1, 0.1))
+				draw_circle(c + Vector2(6 * sx, -2) * k, 2.0 * k, UIStyle.INK)
 			draw_line(c + Vector2(-5, 7) * k, c + Vector2(5, 7) * k, Color(0.55, 0.3, 0.25), 2.0 * k)
 		if dead:
-			draw_rect(r, Color(0.1, 0.1, 0.1, 0.55))
-			draw_line(Vector2(8, 8) * k, size - Vector2(8, 8) * k, Color(0.95, 0.3, 0.25), 4.0 * k)
-			draw_line(Vector2(size.x - 8 * k, 8 * k), Vector2(8 * k, size.y - 8 * k), Color(0.95, 0.3, 0.25), 4.0 * k)
+			draw_circle(c0, rad - 2.5, Color(0.25, 0.22, 0.2, 0.55))
+			var d := rad * 0.55
+			for v in [Vector2(d, d), Vector2(d, -d)]:
+				draw_line(c0 - v, c0 + v, UIStyle.INK, 6.0, true)
+				draw_line(c0 - v, c0 + v, UIStyle.accent(), 3.5, true)
+
+## 血條（手帳風格）：深色圓角外框、米色底；淺色那段是剛扣掉的血，慢慢追上
+class PaperBar extends Control:
+	var fill := Color("58b85a")
+	var ratio := 1.0
+	var chip := 1.0
+
+	func set_values(r: float, c: float) -> void:
+		if absf(r - ratio) > 0.001 or absf(c - chip) > 0.001:
+			ratio = r
+			chip = c
+			queue_redraw()
+
+	func _draw() -> void:
+		var r := Rect2(Vector2.ZERO, size)
+		var rad := int(size.y * 0.5)
+		var bg := StyleBoxFlat.new()
+		bg.bg_color = Color("e9dcc0")
+		bg.set_corner_radius_all(rad)
+		bg.anti_aliasing = true
+		draw_style_box(bg, r)
+		var inner := r.grow(-3.0)
+		for part in [[chip, Color(1, 0.93, 0.7)], [ratio, fill]]:
+			var w: float = inner.size.x * clampf(part[0], 0.0, 1.0)
+			if w <= 0.5:
+				continue
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = part[1]
+			sb.set_corner_radius_all(int(inner.size.y * 0.5))
+			sb.anti_aliasing = true
+			draw_style_box(sb, Rect2(inner.position, Vector2(maxf(w, inner.size.y), inner.size.y)))
+		var edge := StyleBoxFlat.new()
+		edge.draw_center = false
+		edge.border_color = UIStyle.INK
+		edge.set_border_width_all(2)
+		edge.set_corner_radius_all(rad)
+		edge.anti_aliasing = true
+		draw_style_box(edge, r)
+
+## 圓形大頭貼：深色外圈＋米色底＋頭像
+class Portrait extends Control:
+	var tex: Texture2D
+
+	func _draw() -> void:
+		var c := size * 0.5
+		var rad := minf(size.x, size.y) * 0.5
+		draw_circle(c, rad, UIStyle.INK)
+		draw_circle(c, rad - 2.5, Color("f6ecd4"))
+		if tex:
+			var s2 := (rad - 3.0) * 2.0
+			draw_texture_rect(tex, Rect2(c - Vector2(s2, s2) * 0.5, Vector2(s2, s2)), false)
+
+## 家豪不在畫面裡時，畫面邊緣的箭頭（綠色、深色描邊，跟家豪的血條同色）
+class EdgeArrow extends Control:
+	var on := false
+	var pos := Vector2.ZERO
+	var ang := 0.0
+
+	func _draw() -> void:
+		if not on:
+			return
+		var dir := Vector2.from_angle(ang)
+		var nrm := Vector2(-dir.y, dir.x)
+		var tip := pos + dir * 26.0
+		var pts := PackedVector2Array([tip, pos - dir * 6.0 + nrm * 20.0, pos - dir * 6.0 - nrm * 20.0])
+		var big := PackedVector2Array([tip + dir * 5.0, pos - dir * 10.0 + nrm * 26.0, pos - dir * 10.0 - nrm * 26.0])
+		draw_colored_polygon(big, UIStyle.INK)
+		draw_colored_polygon(pts, Color("58b85a"))
+		# 箭頭後面一個小圓貼紙寫「家豪」
+		var lc := pos - dir * 40.0
+		draw_circle(lc, 22.0, UIStyle.INK)
+		draw_circle(lc, 19.5, Color("fff8e7"))
+		var font := get_theme_default_font()
+		var tw := font.get_string_size("家豪", HORIZONTAL_ALIGNMENT_LEFT, -1, 14).x
+		draw_string(font, lc + Vector2(-tw * 0.5, 5), "家豪", HORIZONTAL_ALIGNMENT_LEFT, -1, 14, UIStyle.INK)
 
 ## 技能欄的一格
 ## 方塊遊戲風格的快捷欄：一整條相連的格子，選中的那格外面套一圈粗白框，圖示用像素點畫
@@ -320,60 +420,68 @@ class Hotbar extends Control:
 			pulse_t = maxf(pulse_t - dt, 0.0)
 			queue_redraw()
 
+	## 手帳風格（跟教學卡、對話框同一套）：每個神蹟一張米色圓角紙卡，選中的往上浮、紅框；
+	## 中間一顆深色圓貼紙放像素圖示，右上角紅色圓徽章是這個階段還能用幾次
 	func _draw() -> void:
 		var bs := bar_size()
-		# 整條外框
-		draw_rect(Rect2(Vector2.ZERO, bs), Color(0.05, 0.05, 0.05, 0.8))
+		var font := get_theme_default_font()
+		var k := _pulse_k()
 		for i in skills.size():
 			var cell := Rect2(Vector2(2.0 + i * S, 2.0), Vector2(S, S))
-			# 格子邊框（淺灰）＋ 內部半透明深色
-			draw_rect(cell, Color(0.56, 0.56, 0.56, 0.95))
-			var inner := cell.grow(-4.0)
-			draw_rect(inner, Color(0.16, 0.18, 0.16, 0.82))
-			# 內凹的立體感：左上暗、右下亮
-			draw_rect(Rect2(inner.position, Vector2(inner.size.x, 3)), Color(0.08, 0.08, 0.08, 0.9))
-			draw_rect(Rect2(inner.position, Vector2(3, inner.size.y)), Color(0.08, 0.08, 0.08, 0.9))
-			draw_rect(Rect2(inner.position + Vector2(0, inner.size.y - 3), Vector2(inner.size.x, 3)), Color(0.4, 0.4, 0.4, 0.9))
-			draw_rect(Rect2(inner.position + Vector2(inner.size.x - 3, 0), Vector2(3, inner.size.y)), Color(0.4, 0.4, 0.4, 0.9))
+			var is_sel := i == selected
+			var card := cell.grow(-5.0)
+			if is_sel:
+				card.position.y -= 7.0
 			var live: int = counts[i] if i < counts.size() else 0
 			var prep: int = prep_counts[i] if i < prep_counts.size() else 0
 			var cnt: int = prep if prepping else live
 			var cd: float = cooldowns[i] if i < cooldowns.size() else 0.0
-			_draw_icon(skills[i].id, cell.get_center(), cnt == 0)
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = UIStyle.PAPER if cnt != 0 else Color(0.86, 0.84, 0.8)
+			sb.border_color = UIStyle.accent() if is_sel else UIStyle.INK
+			sb.set_border_width_all(4 if is_sel else 3)
+			sb.border_width_bottom = 6 if is_sel else 5
+			sb.set_corner_radius_all(14)
+			sb.shadow_color = Color(0, 0, 0, 0.28)
+			sb.shadow_size = 5
+			sb.shadow_offset = Vector2(2, 4)
+			sb.anti_aliasing = true
+			draw_style_box(sb, card)
+			# 圖示底下的圓貼紙（讓黃色的像素圖示在米色紙上也清楚）
+			draw_circle(card.get_center() + Vector2(0, 3), 25.0, Color(0.36, 0.27, 0.2, 0.92 if cnt != 0 else 0.5))
+			_draw_icon(skills[i].id, card.get_center() + Vector2(0, 3), cnt == 0)
 			if cd > 0.0:
 				# 冷卻中：一片暗色從上往下縮短，中間顯示剩下的秒數
 				var frac := clampf(cd / float(skills[i].cooldown), 0.0, 1.0)
-				draw_rect(Rect2(inner.position + Vector2(0, inner.size.y * (1.0 - frac)), Vector2(inner.size.x, inner.size.y * frac)), Color(0, 0, 0, 0.6))
-				var ft := get_theme_default_font()
+				var inner := card.grow(-4.0)
+				draw_rect(Rect2(inner.position + Vector2(0, inner.size.y * (1.0 - frac)), Vector2(inner.size.x, inner.size.y * frac)), Color(0, 0, 0, 0.55))
 				var ct := "%.1f" % cd if cd < 10.0 else "%d" % ceili(cd)
-				var cw := ft.get_string_size(ct, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
-				_shadow_text(ft, cell.get_center() + Vector2(-cw * 0.5, 9), ct, 26, Color(1, 1, 1))
-			var font := get_theme_default_font()
+				var cw := font.get_string_size(ct, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
+				_shadow_text(font, card.get_center() + Vector2(-cw * 0.5, 9), ct, 26, Color(1, 1, 1))
 			# 左上角小小的按鍵數字
-			_shadow_text(font, cell.position + Vector2(9, 24), skills[i].key, 17, Color(0.85, 0.85, 0.85))
-			# 右下角數量：目前這個階段還能用幾次（換階段時數字跳一下）
-			var bump := 1.0 + 0.45 * _pulse_k()
-			var fs := int(24 * bump)
+			draw_string(font, card.position + Vector2(8, 19), skills[i].key, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(UIStyle.INK, 0.7))
+			# 右上角的次數徽章（換階段時徽章跳一下、閃一圈金光）
+			var bc := card.position + Vector2(card.size.x - 5.0, 5.0)
+			var rad := 17.0 * (1.0 + 0.25 * k)
+			draw_circle(bc, rad, UIStyle.INK)
+			draw_circle(bc, rad - 2.5, UIStyle.accent() if cnt != 0 else Color(0.55, 0.55, 0.55))
 			var txt := "∞" if cnt < 0 else str(cnt)
+			var fs := int(20 * (1.0 + 0.3 * k))
 			var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
-			_shadow_text(font, cell.position + Vector2(S - 10 - tw, S - 10), txt, fs, Color(1, 1, 1) if cnt != 0 else Color(1, 0.35, 0.3))
-			# 換階段：每一格亮一圈白光再淡掉
-			var k := _pulse_k()
+			draw_string(font, bc + Vector2(-tw * 0.5, fs * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1))
 			if k > 0.0:
-				draw_rect(inner, Color(1, 1, 1, 0.28 * k))
-				draw_rect(cell.grow(-1.0), Color(1, 0.95, 0.7, 0.9 * k), false, 3.0)
-		# 選中的格子：粗白框，比格子大一圈、蓋在相鄰格子上
-		var sel := Rect2(Vector2(2.0 + selected * S, 2.0), Vector2(S, S)).grow(4.0)
-		draw_rect(sel, Color(0.05, 0.05, 0.05, 0.95), false, 10.0)
-		draw_rect(sel.grow(-2.0), Color(0.93, 0.93, 0.93), false, 6.0)
-		draw_rect(sel.grow(-5.0), Color(0.62, 0.62, 0.62), false, 1.0)
-		# 切換時在上方浮出技能名稱
+				draw_arc(bc, rad + 2.0, 0.0, TAU, 24, Color(1.0, 0.85, 0.3, 0.9 * k), 3.0, true)
+		# 切換時在上方浮出技能名稱（米色小紙片）
 		if name_t > 0.0 and selected < skills.size():
-			var font := get_theme_default_font()
 			var nm: String = skills[selected].name
 			var a := clampf(name_t / 0.5, 0.0, 1.0)
-			var w := font.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 26).x
-			_shadow_text(font, Vector2((bs.x - w) * 0.5, -16), nm, 26, Color(1, 1, 1, a))
+			var w := font.get_string_size(nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 22).x
+			var tag := Rect2(Vector2((bs.x - w) * 0.5 - 14.0, -46.0), Vector2(w + 28.0, 34.0))
+			var tsb := UIStyle.slip_box(Vector2(14, 6), 0.96 * a)
+			tsb.border_color = Color(tsb.border_color, a)
+			tsb.shadow_color = Color(tsb.shadow_color, tsb.shadow_color.a * a)
+			draw_style_box(tsb, tag)
+			draw_string(font, Vector2(tag.position.x + 14.0, tag.position.y + 24.0), nm, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, Color(UIStyle.INK, a))
 
 	## 閃一下的強度：開頭快速亮起，再慢慢淡掉
 	func _pulse_k() -> float:
@@ -442,20 +550,6 @@ class Hotbar extends Control:
 				_px(c, 1, 10, Color(0.4, 0.26, 0.1).darkened(dim))
 				_px(c, 10, 10, Color(0.4, 0.26, 0.1).darkened(dim))
 
-## 開場教學用的白色大箭頭（往下指，粗粗方方的）
-class TutArrow extends Control:
-	func _draw() -> void:
-		var w := size.x
-		var h := size.y
-		var shaft := Rect2(Vector2(w * 0.5 - 7, 0), Vector2(14, h - 26))
-		var head := PackedVector2Array([Vector2(w * 0.5 - 26, h - 30), Vector2(w * 0.5 + 26, h - 30), Vector2(w * 0.5, h)])
-		# 黑色外框
-		draw_rect(shaft.grow(3), Color(0.1, 0.1, 0.1, 0.85))
-		var ho := PackedVector2Array([Vector2(w * 0.5 - 32, h - 33), Vector2(w * 0.5 + 32, h - 33), Vector2(w * 0.5, h + 5)])
-		draw_colored_polygon(ho, Color(0.1, 0.1, 0.1, 0.85))
-		draw_rect(shaft, Color(1, 1, 1))
-		draw_colored_polygon(head, Color(1, 1, 1))
-
 ## 畫面中下方的對話框：左邊家豪的頭像、右邊文字，自己滑上來、停一下、再自己滑下去
 ## 可以另外帶一張圖放在右側，圖比框高，會超出框外
 class DialogBox extends Control:
@@ -497,17 +591,20 @@ class DialogBox extends Control:
 		var off := Vector2((size.x - W) * 0.5, (1.0 - e) * 50.0)
 		var a := e
 		var box := Rect2(off, Vector2(W, H))
-		var sb := StyleBoxFlat.new()
-		sb.bg_color = Color(0.07, 0.07, 0.09, 0.45 * a)   # 半透明，看得到後面的場景
-		sb.border_color = Color(1, 1, 1, 0.6 * a)
-		sb.set_border_width_all(4)
-		sb.set_corner_radius_all(10)
+		# 米色筆記紙＋深色實線框＋小小的硬陰影（跟其他介面同一套，不用半透明）
+		var sb := UIStyle.slip_box(Vector2(14, 8), a)
+		sb.border_color = Color(UIStyle.INK, a)
+		sb.set_border_width_all(3)
+		sb.border_width_bottom = 5
+		sb.set_corner_radius_all(12)
+		sb.shadow_color = Color(0, 0, 0, 0.25 * a)
 		draw_style_box(sb, box)
-		# 左邊：家豪的頭像（圓形大頭照，外面一圈白框）
+		# 左邊：家豪的頭像（圓形大頭貼，深色外圈）
 		var pc := off + Vector2(70, H * 0.5)
-		draw_circle(pc, 50, Color(1, 1, 1, 0.85 * a))
+		draw_circle(pc, 50, Color(UIStyle.INK, a))
+		draw_circle(pc, 47, Color(0.965, 0.925, 0.83, a))
 		if portrait:
-			draw_texture_rect(portrait, Rect2(pc - Vector2(47, 47), Vector2(94, 94)), false, Color(1, 1, 1, a))
+			draw_texture_rect(portrait, Rect2(pc - Vector2(44, 44), Vector2(88, 88)), false, Color(1, 1, 1, a))
 		# 右邊：文字
 		var font := get_theme_default_font()
 		var fs := 34
@@ -518,8 +615,7 @@ class DialogBox extends Control:
 			fs -= 2
 			tw = font.get_string_size(text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 		var ty := off.y + H * 0.5 + fs * 0.35
-		draw_string(font, Vector2(tx + 3, ty + 3), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(0, 0, 0, 0.8 * a))
-		draw_string(font, Vector2(tx, ty), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1, a))
+		draw_string(font, Vector2(tx, ty), text, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(UIStyle.INK, a))
 		# 右側的圖：底部貼著框底，往上超出框外
 		if pic:
 			var ph := 210.0
@@ -540,6 +636,7 @@ func _ready() -> void:
 	world.add_child(_fx_root)
 	_ensure_actions()
 	_build_fighters()
+	_ink_interactables()
 	_build_preview()
 	_build_hud()
 	_build_defeat()
@@ -552,6 +649,7 @@ func _ensure_actions() -> void:
 	var map := {
 		"battle_start": [KEY_ENTER, KEY_KP_ENTER], "battle_reset": [KEY_R], "back_to_map": [KEY_M],
 		"skill_1": [KEY_1, KEY_KP_1], "skill_2": [KEY_2, KEY_KP_2], "skill_3": [KEY_3, KEY_KP_3],
+		"tutorial": [KEY_H],
 	}
 	for action in map:
 		if not InputMap.has_action(action):
@@ -626,6 +724,8 @@ func _build_fighters() -> void:
 			"side": "enemy", "cd": 0.0, "aim_t": -1.0, "lock": Vector3.ZERO}
 		if td.gun:
 			td["gun_rot"] = (td.gun as Node3D).rotation
+			td["gun_pos"] = (td.gun as Node3D).position
+			td["recoil"] = 0.0
 			td["warn"] = _make_warn_ring()
 		if td.gunner:
 			td["gunner_xf"] = (td.gunner as Node3D).transform
@@ -670,7 +770,7 @@ func _build_preview() -> void:
 	dot_mesh.rings = 4
 	var dm := StandardMaterial3D.new()
 	dm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	dm.no_depth_test = true
+	dm.no_depth_test = false   # 被山坡擋住的那段就看不到（不然會像飄在空中）
 	dm.albedo_color = Color(1, 1, 1, 0.95)
 	dm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	for i in 48:
@@ -703,6 +803,9 @@ func reset() -> void:
 	for c in _fx_root.get_children():
 		c.queue_free()
 	feeds.clear()
+	for r in rocks:
+		if r.has("obs"):
+			world.obstacles.erase(r.obs)
 	rocks.clear()
 	lights.clear()
 	peels.clear()
@@ -719,6 +822,8 @@ func reset() -> void:
 		t.aim_t = -1.0
 		if t.gun:
 			(t.gun as Node3D).rotation = t.gun_rot
+			(t.gun as Node3D).position = t.gun_pos
+			t.recoil = 0.0
 			(t.warn as Node3D).visible = false
 		if t.gunner:
 			(t.gunner as Node3D).transform = t.gunner_xf
@@ -752,6 +857,7 @@ func reset() -> void:
 		f.attack_n = 0
 		f.fled_half = false
 		f.detouring = false
+		f.steer_t = -1.0
 		f.chased = false
 		f.aggro = false
 		f.alert_t = -1.0
@@ -782,6 +888,7 @@ func start() -> void:
 	_update_phase_label()
 	_refresh_slots()
 	notify_phase("開戰了", "神蹟次數換成戰鬥中的次數")
+	_show_first_hint(false)
 	phase_changed.emit("running")
 
 func _end(result: String) -> void:
@@ -790,7 +897,15 @@ func _end(result: String) -> void:
 	_log("勝利" if result == "win" else "落敗")
 	if result == "win":
 		if not "--autotest" in OS.get_cmdline_user_args():   # 自動驗收不動到玩家的存檔
-			preload("res://scripts/progress.gd").mark_cleared(1)   # 第 1 關攻下了，地圖上會插上綠旗
+			var pg := preload("res://scripts/progress.gd")
+			var st = world.get("stage")
+			if st == null:
+				pg.mark_cleared(1)   # 第 1 關攻下了，地圖上會插上綠旗
+			else:
+				pg.mark_fort_stage(int(st))   # 第 2 關的小關：全過才算攻下
+				if int(st) >= 3:
+					pg.mark_cleared(2)
+				_toast("2-%d 過關！回地圖再進來就是 2-%d" % [st, st + 1] if st < 3 else "2-3 過關！要塞攻下了", 3.0)
 		bird.set_state("cheer")
 		bird.air = 0.0
 	else:
@@ -819,6 +934,8 @@ func _unhandled_input(event: InputEvent) -> void:
 	elif event.is_action_pressed("back_to_map"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		get_tree().change_scene_to_file("res://scenes/level_select.tscn")
+	elif event.is_action_pressed("tutorial"):
+		_set_tut_step(0)
 	elif event.is_action_pressed("skill_1"):
 		select_skill(0)
 	elif event.is_action_pressed("skill_2"):
@@ -872,9 +989,13 @@ func try_cast() -> bool:
 ## 這裡能不能放這個神蹟；可以回傳空字串，不行回傳原因
 func placement_error(i: int, p: Vector3) -> String:
 	var id: String = SKILLS[i].id
+	if _ground_normal(p).y < 0.72:
+		return "這裡太陡了，放不住"
 	if id == "rock":
 		if not world.rock_ground(p.x, p.z):
 			return "這裡放不了"
+		if _hits_obstacle(Vector2(p.x, p.z)):
+			return "那裡被擋住了"
 		for f in [bird] + farmers:
 			if f.alive() and _flat_dist(f.pos, p) < ROCK_CLEAR:
 				return "那裡有人，巨石放不下去"
@@ -922,18 +1043,21 @@ func cast(i: int, p: Vector3) -> bool:
 		"banana":
 			_spawn_peel(p)
 	_refresh_slots()
+	_show_first_hint(false)
 	return true
 
 func _spawn_rock(p: Vector3) -> void:
 	var rock := MeshInstance3D.new()
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4242 + rocks.size()
-	rock.mesh = world.make_rock_mesh(rng, 3, 0.08)
+	rock.mesh = world.make_rock_mesh(rng, 3, 0.08, false)   # 圓的（平底的會在地上浮起來一截）
 	rock.material_override = world._rock_material
 	rock.scale = Vector3.ONE * ROCK_RADIUS
 	var path := simulate_roll(p)
 	rock.position = path[0] if path.size() > 0 else p
 	_fx_root.add_child(rock)
+	_ink(rock)
+	_settle_rock(rock)   # 準備階段還沒滾，先貼地放好
 	rocks.append({"path": path, "i": 0, "node": rock, "done": path.size() < 2, "hit": []})
 
 ## 從 start 放下巨石，預測它每個物理幀的位置（和實際滾動完全一樣，用來畫路徑）
@@ -971,6 +1095,7 @@ func _hits_obstacle(p: Vector2) -> bool:
 func _spawn_feed(p: Vector3) -> void:
 	var node := Node3D.new()
 	node.position = p
+	node.quaternion = Quaternion(Vector3.UP, _ground_normal(p))
 	var mat := ShaderMaterial.new()
 	mat.shader = load("res://shaders/toon_color.gdshader")
 	mat.set_shader_parameter("albedo", Color(0.98, 0.82, 0.32))
@@ -1017,8 +1142,9 @@ func skill_index(id: String) -> int:
 ## 香蕉皮：中間一小截，外面三片翻開的皮
 func _spawn_peel(p: Vector3) -> void:
 	var node := Node3D.new()
-	node.position = p + Vector3(0, 0.02, 0)
-	node.rotation.y = float(peels.size()) * 1.3
+	var pn := _ground_normal(p)
+	node.position = p + pn * 0.02
+	node.basis = Basis(Quaternion(Vector3.UP, pn)) * Basis(Vector3.UP, float(peels.size()) * 1.3)
 	var yel := StandardMaterial3D.new()
 	yel.albedo_color = Color(1.0, 0.88, 0.22)
 	yel.roughness = 0.6
@@ -1291,7 +1417,10 @@ func _step(dt: float) -> void:
 		_tick_towers(dt)   # 勝負已分，但正在倒的水塔和穀倉要照樣倒完
 
 func _process(dt: float) -> void:
-	_tick_tutorial(dt)
+	for r in rocks:
+		if r.done and not r.get("rested", false):
+			_rest_rock(r)
+	_fade_near_camera(dt)
 	_tick_notice(dt)
 	_tick_cooldowns(dt)
 	_update_aim()
@@ -1305,20 +1434,21 @@ func _process(dt: float) -> void:
 	_preview.visible = show
 	if show:
 		var r: float = SKILLS[selected].radius
-		_preview.global_position = aim_point + Vector3(0, 0.08, 0)
+		var n := _ground_normal(aim_point)
+		_preview.global_position = aim_point + n * 0.08
+		_preview.quaternion = Quaternion(Vector3.UP, n)   # 圈圈貼著坡面，不會一半插在土裡、一半浮在空中
 		_preview.scale = Vector3(r, 1, r)
 		var c: Color = SKILLS[selected].color if ok else Color(1.0, 0.3, 0.25)
 		(_preview.material_override as StandardMaterial3D).albedo_color = Color(c, 0.85)
 	_update_path_preview(ok and SKILLS[selected].id == "rock")
-	var can := ok
-	if crosshair and "highlight" in crosshair:
-		crosshair.highlight = can
+	if crosshair and "state" in crosshair:
+		crosshair.state = (1 if ok else 2) if show else 0   # 綠＝可以放、紅＝這裡不行
 	_tick_hud_misc(dt)
 
 ## 家豪卡在砲管裡：砲口跟著準心轉，畫出拋物線和落點
 func _update_cannon_aim() -> void:
 	if aim_point != null:
-		cannon_target = _clamp_cannon_target(aim_point)
+		cannon_target = _snap_cannon_target(_clamp_cannon_target(aim_point))
 	world.aim_cannon(cannon_target)
 	var m: Vector3 = world.cannon_muzzle()
 	var dist := Vector2(cannon_target.x - m.x, cannon_target.z - m.z).length()
@@ -1334,10 +1464,15 @@ func _update_cannon_aim() -> void:
 		else:
 			d.visible = false
 	_preview.visible = true
-	_preview.global_position = cannon_target + Vector3(0, 0.08, 0)
+	var cn := _ground_normal(cannon_target)
+	_preview.global_position = cannon_target + cn * 0.08
+	_preview.quaternion = Quaternion(Vector3.UP, cn)
 	_preview.scale = Vector3(1.2, 1, 1.2)
 	var on_boss: bool = world.has_method("on_boss_platform") and world.on_boss_platform(cannon_target)
 	(_preview.material_override as StandardMaterial3D).albedo_color = Color(0.4, 1.0, 0.4, 0.9) if on_boss else Color(1, 0.6, 0.2, 0.85)
+	if cannon_locked:
+		var pulse := 1.0 + 0.12 * sin(Time.get_ticks_msec() * 0.012)
+		_preview.scale = Vector3(2.2 * pulse, 1, 2.2 * pulse)
 	if crosshair and "highlight" in crosshair:
 		crosshair.highlight = true
 
@@ -1346,6 +1481,7 @@ func _tick_hud_misc(dt: float) -> void:
 		_toast_t -= dt
 		if _toast_t <= 0.0:
 			_toast_label.text = ""
+			_toast_label.visible = false
 	if _defeat_delay > 0.0:
 		_defeat_delay -= dt
 		if _defeat_delay <= 0.0:
@@ -1353,17 +1489,35 @@ func _tick_hud_misc(dt: float) -> void:
 	if phase == Phase.RUNNING:
 		_update_phase_label()
 	_update_bars(dt)
+	# 偵測扇形：只強調離家豪最近的那一個，其他只留淡淡的外框
+	var focus: Fighter = null
+	var fd := INF
 	for f in farmers:
-		_draw_cone(f)
+		if f.cone != null and f.alive() and not f.aggro:
+			var d := _flat_dist(f.pos, bird.pos)
+			if d < fd:
+				fd = d
+				focus = f
+	for f in farmers:
+		_draw_cone(f, f == focus)
+	var up := 0
+	var crew := 0
 	for row in _enemy_rows:
 		var f: Fighter = row.fighter
-		var r: float = f.ratio() if f.alive() else 0.0
-		(row.fill as ColorRect).size.x = row.width * r
-		(row.chip as ColorRect).size.x = row.width * f.chip
+		if row.bar != null:
+			(row.bar as PaperBar).set_values(f.ratio() if f.alive() else 0.0, f.chip)
+		else:
+			crew += 1
+			up += 1 if f.alive() else 0
 		var face: EnemyFace = row.face
 		if face.dead != (not f.alive()):
 			face.dead = not f.alive()
 			face.queue_redraw()
+	if _crew_label:
+		_crew_label.text = "農夫 %d/%d" % [up, crew]
+	if _bird_bar:
+		_bird_bar.set_values(bird.ratio() if bird.alive() else 0.0, bird.chip)
+	_update_edge_arrow()
 
 # ------------------------------------------------------------------ 農夫
 
@@ -1746,8 +1900,9 @@ func _make_cone() -> MeshInstance3D:
 	world.add_child(mi)
 	return mi
 
-## 把偵測區畫成貼著地面的紅色扇形
-func _draw_cone(f: Fighter) -> void:
+## 把偵測區畫成貼著地面的紅色扇形（紅 = 有攻擊範圍的感覺）；
+## 離家豪最近的那個填色比較明顯，其他只有淡淡的外框
+func _draw_cone(f: Fighter, focus := true) -> void:
 	if f.cone == null:
 		return
 	var im := f.cone.mesh as ImmediateMesh
@@ -1770,8 +1925,10 @@ func _draw_cone(f: Fighter) -> void:
 		pts.append(row)
 	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
 	for r in rings:
-		var c0 := Color(1.0, 0.1, 0.08, 0.5 - 0.03 * r)
-		var c1 := Color(1.0, 0.1, 0.08, 0.5 - 0.03 * (r + 1))
+		var a0 := (0.2 if focus else 0.04) * (1.0 - 0.08 * r)
+		var a1 := (0.2 if focus else 0.04) * (1.0 - 0.08 * (r + 1))
+		var c0 := Color(1.0, 0.1, 0.08, a0 * 1.4)
+		var c1 := Color(1.0, 0.1, 0.08, a1 * 1.4)
 		for k in segs:
 			var a: Vector3 = pts[r][k]
 			var b: Vector3 = pts[r][k + 1]
@@ -1783,7 +1940,7 @@ func _draw_cone(f: Fighter) -> void:
 	im.surface_end()
 	# 邊框：外緣弧線和兩條側邊，用細長條畫，遠看也清楚
 	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
-	var edge := Color(1.0, 0.2, 0.15, 0.95)
+	var edge := Color(1.0, 0.2, 0.15, 0.95 if focus else 0.45)
 	var border := []
 	for r in rings + 1:
 		border.append(pts[r][0])
@@ -1990,7 +2147,10 @@ func _bird_walk(target: Vector3, spd: float, dt: float, resume: String) -> void:
 		var over: Vector3 = cross + d.normalized() * 1.4
 		_start_fly(over, HOP_TIME, 1.2, resume)
 		return
-	var moved: Vector3 = world.clamp_play(_avoid(b.pos, nxt, 0.35))
+	var sdir := _steer_dir(b, d.normalized(), step.length(), d.length())
+	b.yaw = atan2(sdir.x, sdir.z)
+	var moved: Vector3 = world.clamp_play(_avoid(b.pos, b.pos + sdir * step.length(), 0.35))
+	moved = _separate(b, moved, 0.7)
 	if _wall_crossing(b.pos, moved) == null:
 		b.pos = _ground(moved)
 
@@ -1999,6 +2159,22 @@ func _bird_walk(target: Vector3, spd: float, dt: float, resume: String) -> void:
 func _default_cannon_target() -> Vector3:
 	var m: Vector3 = world.cannon_muzzle()
 	return _ground(m + world.cannon_dir() * 12.0)
+
+## 瞄準輔助：落點靠近指揮官高台（還在場上）就吸到高台中間，鎖定時提示一次
+## （從遠處用第一人稱準心瞄一個小高台很難，差一點點就掉到台下）
+var cannon_locked := false
+func _snap_cannon_target(p: Vector3) -> Vector3:
+	var lock := false
+	if world.has_method("on_boss_platform") and boss and boss.alive() and "PLATFORM_C" in world:
+		var c: Vector2 = world.PLATFORM_C
+		var m: Vector3 = world.cannon_muzzle()
+		if Vector2(p.x, p.z).distance_to(c) < world.PLATFORM_R + CANNON_SNAP 				and Vector2(c.x - m.x, c.y - m.z).length() <= CANNON_RANGE + 0.5:
+			p = _ground(Vector3(c.x, 0, c.y))
+			lock = true
+	if lock and not cannon_locked:
+		_toast("鎖定指揮官！左鍵發射", 1.2)
+	cannon_locked = lock
+	return p
 
 ## 把準心指的點收進射程內
 func _clamp_cannon_target(p: Vector3) -> Vector3:
@@ -2045,6 +2221,7 @@ func _fire_cannon() -> void:
 	launch_hurt = true
 	cannon_t = -1.0
 	cannon_fire_req = false
+	cannon_locked = false
 	world.set_fuse(0.0)
 	b.set_state("launch")
 	_noise_at(m)
@@ -2116,8 +2293,17 @@ func _make_warn_ring() -> MeshInstance3D:
 	world.add_child(mi)
 	return mi
 
+var _ally_mat: StandardMaterial3D
+## 我方炮塔瞄準的圈是綠色（敵方是紅色），一眼看得出是在幫家豪開砲
+func _ally_warn_mat() -> StandardMaterial3D:
+	if _ally_mat == null:
+		_ally_mat = _warn_mat.duplicate() as StandardMaterial3D
+		_ally_mat.albedo_color = Color(0.3, 1.0, 0.35, 0.85)
+	return _ally_mat
+
 func _gun_muzzle(t: Dictionary) -> Vector3:
-	return (t.gun as Node3D).global_position + Vector3.UP * 0.8
+	var g := t.gun as Node3D
+	return g.global_position + Vector3(sin(g.rotation.y), 0, cos(g.rotation.y)) * 1.1 + Vector3.UP * 0.8
 
 ## 炮塔要打誰：敵方炮塔打家豪，被佔領的炮塔打最近的農夫（老闆打不到）
 func _turret_target(k: int) -> Variant:
@@ -2138,32 +2324,58 @@ func _turret_target(k: int) -> Variant:
 				best = f.pos
 	return best
 
+## 炮塔：先把砲管慢慢轉向目標（看得到在轉）→ 對準了才開始瞄準（地上出現紅圈，越來越亮）
+## → 開砲（砲管往後一縮、砲口冒煙，砲彈從砲口飛出去）
 func _tick_turrets(dt: float) -> void:
 	for k in towers.size():
 		var t: Dictionary = towers[k]
 		if t.gun == null:
 			continue
+		var gun := t.gun as Node3D
 		var warn := t.warn as MeshInstance3D
+		# 後座力：開砲後砲管沿著砲口反方向縮一下再回來
+		var rec: float = t.get("recoil", 0.0)
+		if rec > 0.0:
+			rec = maxf(rec - dt, 0.0)
+			t.recoil = rec
+		var kick := sin(clampf(rec / TURRET_RECOIL, 0.0, 1.0) * PI) * 0.35
+		gun.position = t.gun_pos - Vector3(sin(gun.rotation.y), 0, cos(gun.rotation.y)) * kick
 		if t.state != "stand":
 			warn.visible = false
 			continue
 		var tgt: Variant = _turret_target(k)
+		var look: Variant = t.lock if t.aim_t >= 0.0 else tgt
+		if t.aim_t >= 0.0 and tgt != null:
+			t.lock = tgt
+			look = tgt
+		# 砲管（和砲手）轉向要打的點
+		var facing := false
+		if look != null:
+			var d: Vector3 = (look as Vector3) - gun.global_position
+			var want := atan2(d.x, d.z)
+			gun.rotation.y = _turn_toward(gun.rotation.y, want, TURRET_TURN * dt)
+			facing = absf(wrapf(want - gun.rotation.y, -PI, PI)) < TURRET_FACE
+			if t.gunner and (t.gunner as Node3D).visible:
+				(t.gunner as Node3D).rotation.y = gun.rotation.y
 		if t.aim_t >= 0.0:
 			t.aim_t += dt
-			if tgt != null:
-				t.lock = tgt
-			var d: Vector3 = t.lock - (t.gun as Node3D).global_position
-			(t.gun as Node3D).rotation.y = atan2(d.x, d.z)
 			warn.visible = true
-			warn.global_position = t.lock + Vector3(0, 0.1, 0)
+			warn.material_override = _warn_mat if t.side == "enemy" else _ally_warn_mat()
+			var wn := _ground_normal(t.lock)
+			warn.global_position = t.lock + wn * 0.1
+			warn.quaternion = Quaternion(Vector3.UP, wn)
+			var u: float = clampf(t.aim_t / TURRET_AIM, 0.0, 1.0)
+			warn.scale = Vector3.ONE * lerpf(1.6, 1.0, u)   # 紅圈從大縮到砲彈的爆炸範圍
 			if t.aim_t >= TURRET_AIM:
 				_fire_shell(k, t.lock)
 				t.aim_t = -1.0
-				t.cd = TURRET_RELOAD
+				t.recoil = TURRET_RECOIL
+				t.cd = TURRET_RELOAD if t.side == "enemy" else TURRET_RELOAD * 0.6
 				warn.visible = false
 		else:
+			warn.visible = false
 			t.cd -= dt
-			if t.cd <= 0.0 and tgt != null:
+			if t.cd <= 0.0 and tgt != null and facing:
 				t.aim_t = 0.0
 				t.lock = tgt
 				_log("炮塔%s瞄準%s" % [_tower_name(k), "家豪" if t.side == "enemy" else "農夫"])
@@ -2178,7 +2390,8 @@ func _fire_shell(k: int, to: Vector3) -> void:
 	sm.radius = 0.22
 	sm.height = 0.44
 	mi.mesh = sm
-	mi.material_override = _toon_mat(Color(0.15, 0.15, 0.17))
+	mi.material_override = _toon_mat(Color(0.15, 0.15, 0.17) if t.side == "enemy" else Color(1.0, 0.55, 0.1))
+	mi.scale = Vector3.ONE * (1.0 if t.side == "enemy" else 1.5)
 	_fx_root.add_child(mi)
 	var from := _gun_muzzle(t)
 	mi.global_position = from
@@ -2404,6 +2617,8 @@ func _hit_bird(dmg: float, heavy: bool, from: Vector3, by: Fighter = null) -> vo
 	else:
 		b.set_state("hop")
 		b.kb_vel = away * 0.5 / 0.25
+	# 挨打的地方冒一小團亮黃色，看得出這一跳是「被打到」，不是自己想跳
+	_puff(b.pos + Vector3(0, 0.9, 0), Color(1.0, 0.92, 0.45, 0.85), 5, 0.16)
 
 ## 偷襲：農夫還沒發現家豪就被啄，傷害加倍，還會嚇一跳愣住
 func _sneak(f: Fighter) -> void:
@@ -2597,11 +2812,67 @@ func _walk(f: Fighter, target: Vector3, spd: float, dt: float) -> void:
 	d.y = 0.0
 	if d.length() < 0.001:
 		return
-	f.yaw = atan2(d.x, d.z)
-	var nxt := f.pos + d.normalized() * minf(spd * dt, d.length())
+	var step := minf(spd * dt, d.length())
+	var dir := _steer_dir(f, d.normalized(), step, d.length())
+	# 身體轉向有速度上限：就算路線突然改變，人（和他腳下的偵測扇形）也是轉過去，不會一步之內甩到另一邊
+	f.yaw = _turn_toward(f.yaw, atan2(dir.x, dir.z), TURN_SPEED * dt)
+	var nxt := f.pos + dir * step
 	nxt = world.clamp_play(_avoid(f.pos, nxt, 0.5))
+	nxt = _separate(f, nxt)
 	if _fence_crossing(f.pos, nxt) == null:
 		f.pos = _ground(nxt)
+
+const TURN_SPEED := 7.0        # 農夫走路時轉身的速度上限（弧度／秒；轉半圈約 0.45 秒）
+const STEER_LOOK := 1.0        # 走路時往前看多遠有沒有障礙
+const STEER_HOLD := 0.35       # 決定繞開之後，至少照那個方向走這麼久（避免一步繞、一步不繞地來回抖）
+
+func _turn_toward(from: float, to: float, max_step: float) -> float:
+	var diff := angle_difference(from, to)
+	return to if absf(diff) <= max_step else from + signf(diff) * max_step
+
+## 前方有障礙就把方向轉開：試各個偏角，挑最接近目標方向又不撞的。
+## dist = 離目標還有多遠。目標就在眼前（比往前看的距離還近）就直接走過去，不要去看目標後面的東西，
+## 否則目標點剛好在障礙物旁邊時，會永遠走不到、在原地左右甩頭。
+func _steer_dir(f: Fighter, dir: Vector3, step: float, dist := INF) -> Vector3:
+	if dist <= step + STEER_LOOK:
+		f.steer_t = -1.0
+		return dir
+	# 剛決定要繞：這段時間內維持同一個偏角，不重新判斷
+	if f.steer_t >= 0.0 and time >= f.steer_t and time - f.steer_t < STEER_HOLD:
+		var held := dir.rotated(Vector3.UP, f.steer_angle)
+		if not _blocked_at(f.pos + held * (step + STEER_LOOK)):
+			return held
+	if not _blocked_at(f.pos + dir * (step + STEER_LOOK)):
+		f.steer_t = -1.0
+		return dir
+	for a in [0.4, 0.8, 1.2, 1.6, 2.0, 2.5]:
+		for s in [f.steer_side, -f.steer_side]:
+			var cand := dir.rotated(Vector3.UP, a * s)
+			if not _blocked_at(f.pos + cand * (step + STEER_LOOK)):
+				f.steer_side = s
+				f.steer_angle = a * s
+				f.steer_t = time
+				return cand
+	return dir
+
+func _blocked_at(p: Vector3) -> bool:
+	for o in world.obstacles:
+		var c: Vector2 = o[0]
+		if Vector2(p.x, p.z).distance_to(c) < float(o[1]) + 0.6:
+			return true
+	return false
+
+## 農夫之間不能重疊：太近就把自己往外推開
+func _separate(f: Fighter, nxt: Vector3, min_d := 1.0) -> Vector3:
+	var out := nxt
+	for o in farmers + ([bird] if f != bird else []):
+		if o == f or not o.alive() or (o == bird and bird.air > 0.5):
+			continue
+		var d := Vector3(out.x - o.pos.x, 0, out.z - o.pos.z)
+		if d.length() < min_d:
+			var push := d.normalized() if d.length() > 0.001 else Vector3(cos(float(([bird] + farmers).find(f)) * 2.4), 0, sin(float(([bird] + farmers).find(f)) * 2.4))
+			out = Vector3(o.pos.x, out.y, o.pos.z) + push * min_d
+	return out
 
 func _apply_knockback(f: Fighter, dt: float) -> void:
 	if f.kb_vel.length() < 0.01:
@@ -2759,32 +3030,9 @@ func _build_hud() -> void:
 	add_child(layer)
 	_hud_layer = layer
 
-	for f in [bird] + farmers:
-		var bar := Control.new()
-		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		bar.size = Vector2(96, 12)
-		var bg := ColorRect.new()
-		bg.color = Color(0.08, 0.06, 0.06, 0.75)
-		bg.size = Vector2(96, 12)
-		bar.add_child(bg)
-		var chip := ColorRect.new()
-		chip.color = Color(1.0, 0.92, 0.8, 0.9)
-		chip.position = Vector2(2, 2)
-		chip.size = Vector2(92, 8)
-		bar.add_child(chip)
-		var fill := ColorRect.new()
-		# 主角綠色、敵人紅色
-		fill.color = Color(0.3, 0.82, 0.32) if f.is_bird else Color(0.86, 0.13, 0.12)
-		fill.position = Vector2(2, 2)
-		fill.size = Vector2(92, 8)
-		bar.add_child(fill)
-		layer.add_child(bar)
-		f.bar = bar
-		f.bar_fill = fill
-		f.bar_chip = chip
-
 	# 技能欄：畫面下方一整條相連的快捷欄（方塊遊戲風格）
 	_hotbar = Hotbar.new()
+	UIStyle.apply_theme(_hotbar)
 	_hotbar.skills = SKILLS
 	_hotbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var hb := _hotbar.bar_size()
@@ -2807,91 +3055,162 @@ func _build_hud() -> void:
 	layer.add_child(_dialog)
 	_napoleon_tex = _load_tex("res://assets/ui/napoleon.png")
 	_dialog.portrait = _load_tex("res://assets/ui/jiahao_portrait.png")
-	_tut_arrow = TutArrow.new()
-	_tut_arrow.size = Vector2(70, 120)
-	_tut_arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_tut_arrow.visible = false
-	layer.add_child(_tut_arrow)
-	_tut_panel = PanelContainer.new()
-	var tsb := StyleBoxFlat.new()
-	tsb.bg_color = Color(0.06, 0.06, 0.06, 0.78)
-	tsb.border_color = Color(1, 1, 1, 0.9)
-	tsb.set_border_width_all(3)
-	tsb.set_content_margin_all(14)
-	_tut_panel.add_theme_stylebox_override("panel", tsb)
-	_tut_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_tut_panel.visible = false
-	_tut_label = Label.new()
-	var tls := LabelSettings.new()
-	tls.font_size = 22
-	tls.line_spacing = 4
-	_tut_label.label_settings = tls
-	_tut_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_tut_panel.add_child(_tut_label)
-	layer.add_child(_tut_panel)
+	_tut = preload("res://scripts/tutorial_popup.gd").new()
+	add_child(_tut)
+	_tut.set_pages(TUT_PAGES)
+	_tut.closed.connect(_on_tut_closed)
 
-	var top := LabelSettings.new()
-	top.font_size = 26
-	top.outline_size = 8
-	top.outline_color = Color(0, 0, 0, 0.6)
-	# 右上角敵人欄：一列一個敵人（頭像方格 + 右側血條），老闆排最上面
+	# 右上角敵人欄（米色小紙片）：老闆一張（頭像＋血條，他是過關目標）；
+	# 農夫合成一張，只排一排小頭像，被打倒就打紅叉——用陷阱一次就倒，血量沒什麼好看的
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 8)
+	col.add_theme_constant_override("separation", 10)
+	col.alignment = BoxContainer.ALIGNMENT_BEGIN
 	col.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	col.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	col.offset_right = -20
 	col.offset_top = 16
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(col)
-	var order: Array = farmers.filter(func(f): return f.is_boss) + farmers.filter(func(f): return not f.is_boss)
-	var ns := LabelSettings.new()
-	ns.font_size = 17
-	ns.outline_size = 6
-	ns.outline_color = Color(0, 0, 0, 0.6)
-	for f in order:
-		var erow := HBoxContainer.new()
-		erow.add_theme_constant_override("separation", 10)
-		erow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		col.add_child(erow)
+	_enemy_col = col
+	for f in farmers.filter(func(f): return f.is_boss):
+		var card := PanelContainer.new()
+		UIStyle.slip(card, Vector2(12, 8))
+		card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.size_flags_horizontal = Control.SIZE_SHRINK_END
+		col.add_child(card)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 10)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(row)
 		var face := EnemyFace.new()
-		face.boss = f.is_boss
-		face.custom_minimum_size = Vector2(64, 64) if f.is_boss else Vector2(52, 52)
+		face.boss = true
+		face.custom_minimum_size = Vector2(52, 52)
 		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		erow.add_child(face)
+		row.add_child(face)
 		var info := VBoxContainer.new()
 		info.alignment = BoxContainer.ALIGNMENT_CENTER
 		info.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		erow.add_child(info)
+		row.add_child(info)
 		var nm := Label.new()
-		nm.text = f.name + ("（持槍）" if f.is_boss else "")
-		nm.label_settings = ns
+		nm.text = f.name + "（持槍）"
+		nm.label_settings = UIStyle.ls(17, UIStyle.INK)
 		info.add_child(nm)
-		var bar := Control.new()
-		bar.custom_minimum_size = Vector2(170 if f.is_boss else 140, 14)
-		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		var bar := PaperBar.new()
+		bar.fill = Color("e2483d")
+		bar.custom_minimum_size = Vector2(170, 16)
 		info.add_child(bar)
-		var bg := ColorRect.new()
-		bg.color = Color(0.08, 0.06, 0.06, 0.8)
-		bg.size = bar.custom_minimum_size
-		bar.add_child(bg)
-		var chip := ColorRect.new()
-		chip.color = Color(1.0, 0.92, 0.8, 0.9)
-		chip.position = Vector2(2, 2)
-		chip.size = bar.custom_minimum_size - Vector2(4, 4)
-		bar.add_child(chip)
-		var fill := ColorRect.new()
-		fill.color = Color(0.86, 0.13, 0.12)
-		fill.position = Vector2(2, 2)
-		fill.size = bar.custom_minimum_size - Vector2(4, 4)
-		bar.add_child(fill)
-		_enemy_rows.append({"fighter": f, "face": face, "fill": fill, "chip": chip, "width": bar.custom_minimum_size.x - 4.0})
+		_enemy_rows.append({"fighter": f, "face": face, "bar": bar})
+	var crew: Array = farmers.filter(func(f): return not f.is_boss)
+	if not crew.is_empty():
+		var card := PanelContainer.new()
+		UIStyle.slip(card, Vector2(12, 8))
+		card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.size_flags_horizontal = Control.SIZE_SHRINK_END
+		col.add_child(card)
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(row)
+		_crew_label = Label.new()
+		_crew_label.label_settings = UIStyle.ls(17, UIStyle.INK)
+		_crew_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(_crew_label)
+		for f in crew:
+			var face := EnemyFace.new()
+			face.custom_minimum_size = Vector2(40, 40)
+			face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			row.add_child(face)
+			_enemy_rows.append({"fighter": f, "face": face, "bar": null})
+	# 左下角：家豪的頭像＋血條（頭上不再疊血條）
+	var me := PanelContainer.new()
+	UIStyle.slip(me, Vector2(12, 8))
+	me.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	me.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
+	me.offset_left = 20
+	me.offset_bottom = -22
+	me.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	layer.add_child(me)
+	var mrow := HBoxContainer.new()
+	mrow.add_theme_constant_override("separation", 10)
+	mrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	me.add_child(mrow)
+	var pic := Portrait.new()
+	pic.tex = _load_tex("res://assets/ui/jiahao_portrait.png")
+	pic.custom_minimum_size = Vector2(52, 52)
+	pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mrow.add_child(pic)
+	var minfo := VBoxContainer.new()
+	minfo.alignment = BoxContainer.ALIGNMENT_CENTER
+	minfo.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	mrow.add_child(minfo)
+	var mn := Label.new()
+	mn.text = "家豪"
+	mn.label_settings = UIStyle.ls(17, UIStyle.INK)
+	minfo.add_child(mn)
+	_bird_bar = PaperBar.new()
+	_bird_bar.fill = Color("58b85a")
+	_bird_bar.custom_minimum_size = Vector2(170, 16)
+	minfo.add_child(_bird_bar)
+	# 家豪跑出畫面時，畫面邊緣的箭頭指著他
+	_edge_arrow = EdgeArrow.new()
+	_edge_arrow.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_edge_arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(_edge_arrow)
+
+	# 上方中間：現在的階段（米色小紙片＋鍵帽），取代原本一整排的操作文字
+	var phase_box := PanelContainer.new()
+	UIStyle.slip(phase_box, Vector2(18, 8))
+	phase_box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	phase_box.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	phase_box.offset_top = 18
+	phase_box.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	layer.add_child(phase_box)
+	var prow := HBoxContainer.new()
+	prow.add_theme_constant_override("separation", 16)
+	prow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	phase_box.add_child(prow)
 	_phase_label = Label.new()
-	_phase_label.label_settings = top
-	_phase_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_phase_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	_phase_label.offset_top = 56
-	_phase_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	layer.add_child(_phase_label)
+	_phase_label.label_settings = UIStyle.ls(22, UIStyle.INK)
+	_phase_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	prow.add_child(_phase_label)
+	_phase_start_key = UIStyle.key_hint("Enter", "開打", 16)
+	prow.add_child(_phase_start_key)
+	_phase_retry_key = UIStyle.key_hint("R", "重試", 16)
+	prow.add_child(_phase_retry_key)
+	# 右下角：常用的三顆鍵（其他操作都在 H 的說明裡）
+	var corner := PanelContainer.new()
+	UIStyle.slip(corner, Vector2(12, 6))
+	corner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	corner.modulate.a = 0.85
+	corner.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	corner.offset_right = -20
+	corner.offset_bottom = -22
+	corner.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	corner.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	layer.add_child(corner)
+	var crow := HBoxContainer.new()
+	crow.add_theme_constant_override("separation", 14)
+	crow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	corner.add_child(crow)
+	crow.add_child(UIStyle.key_hint("H", "操作說明", 13))
+	crow.add_child(UIStyle.key_hint("R", "重試", 13))
+	crow.add_child(UIStyle.key_hint("M", "地圖", 13))
+	# 第一次玩：教學關掉後，在神蹟欄上方提示一次「先試著放一個」，放成功就收起來
+	_first_hint = PanelContainer.new()
+	UIStyle.slip(_first_hint, Vector2(16, 8))
+	_first_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_first_hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_first_hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_first_hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_first_hint.offset_bottom = -_hotbar.bar_size().y - 22 - 62
+	_first_hint.visible = false
+	layer.add_child(_first_hint)
+	var fh := HBoxContainer.new()
+	fh.add_theme_constant_override("separation", 8)
+	fh.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_first_hint.add_child(fh)
+	fh.add_child(UIStyle.key_hint("1", "選飼料，對準地面", 16))
+	fh.add_child(UIStyle.mouse_hint("left", "撒一把試試看", 16))
 
 	_build_notice(layer)
 
@@ -2906,19 +3225,16 @@ func _build_hud() -> void:
 	_toast_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	_toast_label.offset_top = -140
 	_toast_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	UIStyle.pill(_toast_label)   # 圓角膠囊
+	_toast_label.visible = false
 	layer.add_child(_toast_label)
 
 	_summary_panel = PanelContainer.new()
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.08, 0.1, 0.12, 0.78)
-	sb.set_corner_radius_all(14)
-	sb.set_content_margin_all(22)
-	_summary_panel.add_theme_stylebox_override("panel", sb)
+	UIStyle.paper(_summary_panel, 0.0)
 	_summary_panel.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
 	_summary_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	_summary_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
-	var ss := LabelSettings.new()
-	ss.font_size = 22
+	var ss := UIStyle.ls(22, UIStyle.INK)
 	ss.line_spacing = 6
 	_summary_label = Label.new()
 	_summary_label.label_settings = ss
@@ -2939,30 +3255,35 @@ func _build_defeat() -> void:
 	_defeat_layer.layer = 6
 	_defeat_layer.visible = false
 	add_child(_defeat_layer)
-	var band := ColorRect.new()
-	band.color = Color(0.11, 0.14, 0.2)
+	var band := PanelContainer.new()
+	UIStyle.paper(band, 0.0)   # 跟其他畫面同一張筆記紙
 	band.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
-	band.anchor_top = 0.82
-	band.offset_top = 0
+	band.offset_left = 160
+	band.offset_right = -160
+	band.offset_top = -190
+	band.offset_bottom = -30
 	_defeat_layer.add_child(band)
 	var box := VBoxContainer.new()
-	box.set_anchors_preset(Control.PRESET_FULL_RECT)
 	box.alignment = BoxContainer.ALIGNMENT_CENTER
 	box.add_theme_constant_override("separation", 6)
 	band.add_child(box)
-	var big := LabelSettings.new()
-	big.font_size = 34
+	var big := UIStyle.ls(34, UIStyle.accent())
 	_defeat_label = Label.new()
 	_defeat_label.label_settings = big
 	_defeat_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_defeat_label)
-	var small := LabelSettings.new()
-	small.font_size = 19
-	small.font_color = Color(1, 1, 1, 0.75)
+	var small := UIStyle.ls(19, Color(UIStyle.INK, 0.8))
+	small.line_spacing = 4
 	_defeat_detail = Label.new()
 	_defeat_detail.label_settings = small
 	_defeat_detail.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_defeat_detail)
+	var keys := HBoxContainer.new()
+	keys.alignment = BoxContainer.ALIGNMENT_CENTER
+	keys.add_theme_constant_override("separation", 28)
+	box.add_child(keys)
+	keys.add_child(UIStyle.key_hint("R", "重試", 16))
+	keys.add_child(UIStyle.key_hint("M", "回到地圖", 16))
 
 func _show_defeat() -> void:
 	defeat_shown = true
@@ -2976,7 +3297,7 @@ func _show_defeat() -> void:
 	var left := farmers.filter(func(f): return f.alive()).size()
 	_defeat_label.text = "家豪被抓去當晚餐了……"
 	var tip := "提示：撒飼料把家豪引開，讓他一次只對上一個農夫。" if casts.is_empty() else "提示：換個時機或位置降下神蹟再試一次。"
-	_defeat_detail.text = "第 %d 次嘗試　｜　撐了 %.1f 秒　｜　還剩 %d 個農夫\n%s\nR 重試　｜　M 回到地圖" % [attempts.size(), time, left, tip]
+	_defeat_detail.text = "第 %d 次嘗試　｜　撐了 %.1f 秒　｜　還剩 %d 個農夫\n%s" % [attempts.size(), time, left, tip]
 	_defeat_layer.visible = true
 
 func _hide_defeat() -> void:
@@ -3004,48 +3325,32 @@ func _refresh_slots() -> void:
 	_hotbar.selected = selected
 	_hotbar.queue_redraw()
 
+## 血條的淺色那段（扣血後慢慢追上）；頭上已經不畫血條，數值給左下角家豪卡和右上角老闆卡用
 func _update_bars(dt: float) -> void:
 	for f in [bird] + farmers:
-		var head: Vector3 = f.pos + Vector3(0, f.air + (1.75 if f.is_bird else (3.4 if f.is_boss else 2.85)), 0)
-		var show: bool = not camera.is_position_behind(head) and (f.alive() or phase == Phase.ENDED)
-		f.bar.visible = show
-		if not show:
-			continue
-		f.bar.position = camera.unproject_position(head) - f.bar.size * 0.5
 		var r: float = f.ratio()
 		f.chip = maxf(r, f.chip - dt * 0.6) if f.chip > r else r
-		f.bar_fill.size.x = 92.0 * r
-		f.bar_chip.size.x = 92.0 * f.chip
 
 func _update_phase_label() -> void:
 	match phase:
 		Phase.PREPARE:
-			_phase_label.text = "準備中：可以先撒飼料、換觀察位置　按 Enter 開始"
+			_phase_label.text = "準備中・先佈置神蹟"
 		Phase.RUNNING:
-			_phase_label.text = "戰鬥中  %.1f 秒　｜　R 重試" % time
+			_phase_label.text = "戰鬥中　%.1f 秒" % time
 		Phase.ENDED:
-			_phase_label.text = ("勝利！" if outcome == "win" else "落敗…") + "　按 R 重試"
+			_phase_label.text = "勝利！" if outcome == "win" else "落敗…"
+	_phase_start_key.visible = phase == Phase.PREPARE
+	_phase_retry_key.visible = phase == Phase.ENDED
 
 func _build_notice(layer: CanvasLayer) -> void:
 	_notice = PanelContainer.new()
 	_notice.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var sb := StyleBoxFlat.new()
-	sb.bg_color = Color(0.97, 0.97, 0.98, 0.9)
-	sb.set_corner_radius_all(16)
-	sb.content_margin_left = 14
-	sb.content_margin_right = 18
-	sb.content_margin_top = 12
-	sb.content_margin_bottom = 12
-	sb.shadow_color = Color(0, 0, 0, 0.25)
-	sb.shadow_size = 10
-	sb.shadow_offset = Vector2(0, 3)
-	_notice.add_theme_stylebox_override("panel", sb)
+	_notice.add_theme_stylebox_override("panel", UIStyle.slip_box(Vector2(16, 10)))   # 米色小紙片，硬陰影
 	_notice.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	_notice.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	_notice.custom_minimum_size = Vector2(330, 0)
 	# 放在右上角敵人欄的下面
-	_notice_base_top = 16.0 + _enemy_rows.size() * 64.0 + 14.0
-	_notice.offset_top = _notice_base_top
+	_notice.offset_top = 200.0   # 實際位置在 notify_phase 時依敵人欄的高度再算
 	_notice.offset_right = -20
 	var row := HBoxContainer.new()
 	row.add_theme_constant_override("separation", 12)
@@ -3062,16 +3367,10 @@ func _build_notice(layer: CanvasLayer) -> void:
 	texts.add_theme_constant_override("separation", 2)
 	row.add_child(texts)
 	_notice_title = Label.new()
-	var tls := LabelSettings.new()
-	tls.font_size = 18
-	tls.font_color = Color(0.1, 0.1, 0.12)
-	_notice_title.label_settings = tls
+	_notice_title.label_settings = UIStyle.ls(19, UIStyle.accent())
 	texts.add_child(_notice_title)
 	_notice_body = Label.new()
-	var bls := LabelSettings.new()
-	bls.font_size = 15
-	bls.font_color = Color(0.3, 0.3, 0.34)
-	_notice_body.label_settings = bls
+	_notice_body.label_settings = UIStyle.ls(15, Color(UIStyle.INK, 0.8))
 	texts.add_child(_notice_body)
 	_notice.visible = false
 	layer.add_child(_notice)
@@ -3083,6 +3382,8 @@ func notify_phase(title: String, body: String) -> void:
 	_notice_title.text = title
 	_notice_body.text = body
 	_notice_t = 0.0
+	if _enemy_col:
+		_notice.offset_top = 16.0 + _enemy_col.get_combined_minimum_size().y + 14.0
 	_notice.visible = true
 	_notice.modulate.a = 0.0
 	if _hotbar:
@@ -3106,6 +3407,13 @@ func _tick_notice(dt: float) -> void:
 
 func _toast(text: String, dur: float) -> void:
 	_toast_label.text = text
+	_toast_label.visible = text != ""
+	# 膠囊照文字大小重新置中（不然會沿用上一次的高度）
+	var sz := _toast_label.get_combined_minimum_size()
+	_toast_label.offset_left = -sz.x * 0.5
+	_toast_label.offset_right = sz.x * 0.5
+	_toast_label.offset_top = -140.0 - sz.y * 0.5
+	_toast_label.offset_bottom = -140.0 + sz.y * 0.5
 	_toast_t = dur
 
 func _show_summary() -> void:
@@ -3127,43 +3435,210 @@ func _show_summary() -> void:
 
 # ------------------------------------------------------------------ 開場教學
 
+## 第一次玩才自動跳出（記在存檔裡）；之後按 H 隨時可以再看
 func start_tutorial() -> void:
-	if _tut_seen:
+	if _tut_seen or preload("res://scripts/progress.gd").tutorial_seen():
 		return
 	_tut_seen = true
 	_set_tut_step(0)
 
+## i >= 0：打開教學彈窗到第 i 頁；-1：關掉
 func _set_tut_step(i: int) -> void:
-	tutorial_step = i
-	_tut_t = 0.0
-	var on := i >= 0 and i < TUT_TEXT.size()
-	_tut_arrow.visible = on
-	_tut_panel.visible = on
-	if not on:
-		tutorial_step = -1
-		select_skill(0)
+	if _tut == null:
 		return
-	select_skill(i)
-	_hotbar.name_t = 0.0   # 教學時說明框已經寫了名字，不用再浮一次
-	_tut_label.text = TUT_TEXT[i] + "\n（%d / %d）" % [i + 1, TUT_TEXT.size()]
-	_tut_panel.reset_size()
+	if i < 0:
+		_tut.close()
+	elif not _tut.is_open():
+		_tut.open(i)
 
-func _tick_tutorial(dt: float) -> void:
-	if tutorial_step < 0:
+func _on_tut_closed() -> void:
+	if _tut_seen and casts.is_empty() and phase == Phase.PREPARE:
+		_show_first_hint(true)   # 第一次自動跳出的教學看完 → 提示先放一個試試
+	if not "--autotest" in OS.get_cmdline_user_args():
+		preload("res://scripts/progress.gd").mark_tutorial_seen()
+	if player.has_method("_set_looking"):
+		player._set_looking(true)
+	if _hotbar:
+		_hotbar.pulse()   # 提醒一下：神蹟在下面這條
+
+## 家豪不在畫面裡（在背後、或跑到畫面外）時，畫面邊緣出現一個箭頭指著他
+func _update_edge_arrow() -> void:
+	if _edge_arrow == null or not SHOW_EDGE_ARROW:
 		return
-	if phase != Phase.PREPARE:
-		_set_tut_step(-1)
+	var head: Vector3 = bird.pos + Vector3(0, bird.air + 1.0, 0)
+	var vp := get_viewport().get_visible_rect().size
+	var behind := camera.is_position_behind(head)
+	var sp := camera.unproject_position(head)
+	# 箭頭能出現的框：避開上方狀態列和下方的神蹟欄、家豪卡
+	var bottom := 330.0 if (_dialog and _dialog.showing()) else 190.0   # 對話框出現時再往上讓
+	var box := Rect2(Vector2(80, 100), vp - Vector2(160, 100 + bottom))
+	var inside := not behind and box.has_point(sp)
+	var on := not inside and bird.alive() and phase != Phase.ENDED and not defeat_shown
+	if not on:
+		if _edge_arrow.on:
+			_edge_arrow.on = false
+			_edge_arrow.queue_redraw()
 		return
-	_tut_t += dt
-	if _tut_t >= TUT_STEP_TIME:
-		_set_tut_step(tutorial_step + 1)
-		if tutorial_step < 0:
-			return
-	# 箭頭對準第 i 格的正上方，輕輕上下跳動；說明框在箭頭上面
-	var hb := _hotbar.get_global_rect()
-	var cx := hb.position.x + 2.0 + (tutorial_step + 0.5) * Hotbar.S
-	var bob := absf(sin(_tut_t * 4.0)) * 10.0
-	_tut_arrow.position = Vector2(cx - _tut_arrow.size.x * 0.5, hb.position.y - _tut_arrow.size.y - 14.0 - bob)
-	var ps := _tut_panel.size
-	var vw := get_viewport().get_visible_rect().size.x
-	_tut_panel.position = Vector2(clampf(cx - ps.x * 0.5, 12.0, vw - ps.x - 12.0), _tut_arrow.position.y - ps.y - 10.0 + bob)
+	var c := box.get_center()
+	var d := sp - c
+	if behind:
+		d = -d
+	if d.length() < 1.0:
+		d = Vector2(0, 1)
+	# 從框的中心沿著方向射到框邊
+	var half := box.size * 0.5
+	var t := minf(half.x / maxf(absf(d.x), 0.001), half.y / maxf(absf(d.y), 0.001))
+	_edge_arrow.on = true
+	_edge_arrow.pos = c + d * t
+	_edge_arrow.ang = d.angle()
+	_edge_arrow.queue_redraw()
+
+func _show_first_hint(on: bool) -> void:
+	if _first_hint:
+		_first_hint.visible = on
+
+# ------------------------------------------------------------------ 墨色描邊
+
+const INK_SHADER := preload("res://shaders/ink_outline.gdshader")
+var _ink_mat: ShaderMaterial
+
+## 可以互動的東西（角色、炮塔/水塔、大砲、巨石）加上跟介面一樣的墨色描邊，
+## 跟背景的樹、山、草地分開，畫面也比較像同一本繪本
+func _ink_interactables() -> void:
+	for f in [bird] + farmers:
+		if f.node:
+			_ink(f.node)
+	for t in towers:
+		if t.node:
+			_ink(t.node)
+	var cn = world.get("cannon_node")
+	if cn is Node3D:
+		_ink(cn)
+
+func _ink(root: Node, width := 2.6) -> void:
+	if _ink_mat == null:
+		_ink_mat = ShaderMaterial.new()
+		_ink_mat.shader = INK_SHADER
+	var mat := _ink_mat
+	if absf(width - 2.6) > 0.01:
+		mat = _ink_mat.duplicate()
+		mat.set_shader_parameter("width_px", width)
+	var stack: Array = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is MeshInstance3D and _ink_ok(n):
+			(n as MeshInstance3D).material_overlay = mat
+		for c in n.get_children():
+			stack.append(c)
+
+## 半透明的東西（偵測扇形、預覽圈、特效）不描邊
+func _ink_ok(mi: MeshInstance3D) -> bool:
+	if mi.mesh == null or mi.material_overlay != null:
+		return false
+	var m := mi.material_override
+	if m == null and mi.mesh.get_surface_count() > 0:
+		m = mi.get_active_material(0)
+	if m is BaseMaterial3D and (m as BaseMaterial3D).transparency != BaseMaterial3D.TRANSPARENCY_DISABLED:
+		return false
+	return true
+
+# ------------------------------------------------------------------ 貼地
+
+## 地面的法線（用高度差算），坡越陡 y 越小
+func _ground_normal(p: Vector3) -> Vector3:
+	var e := 0.3
+	var hx: float = world.height_at(p.x + e, p.z) - world.height_at(p.x - e, p.z)
+	var hz: float = world.height_at(p.x, p.z + e) - world.height_at(p.x, p.z - e)
+	return Vector3(-hx, 2.0 * e, -hz).normalized()
+
+var _rock_verts: Dictionary = {}   # mesh → 頂點（算巨石最低點用）
+
+## 巨石停下來：往下貼到地面（最低的頂點剛好碰地、再陷一點點），
+## 變成一塊路障（家豪和農夫都會繞開，不能穿過去），站太近的人被輕輕推開
+func _rest_rock(r: Dictionary) -> void:
+	r.rested = true
+	var node: MeshInstance3D = r.node
+	if not is_instance_valid(node):
+		return
+	_settle_rock(node)
+	var c := Vector2(node.global_position.x, node.global_position.z)
+	var rad := ROCK_RADIUS * 0.9
+	r.obs = [c, rad]
+	world.obstacles.append(r.obs)
+	for f in [bird] + farmers:
+		var d := Vector2(f.pos.x, f.pos.z) - c
+		var need := rad + 0.75
+		if f.alive() and d.length() < need:
+			var dir := d.normalized() if d.length() > 0.01 else Vector2.RIGHT
+			var np := c + dir * need
+			f.pos = _ground(Vector3(np.x, 0, np.y))
+
+## 巨石往下（或往上）移到最低的頂點剛好碰地、再陷一點點
+func _settle_rock(node: MeshInstance3D) -> void:
+	if not _rock_verts.has(node.mesh):
+		_rock_verts[node.mesh] = node.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX]
+	var xf := node.global_transform
+	var gap := INF
+	for v in _rock_verts[node.mesh]:
+		var w: Vector3 = xf * v
+		gap = minf(gap, w.y - world.height_at(w.x, w.z))
+	if gap < INF:
+		node.global_position.y -= gap + 0.06
+
+# ------------------------------------------------------------------ 鏡頭前的建築變半透明
+
+## 幽靈飄到城牆、城門、塔、房子旁邊時，貼在鏡頭前面的那塊變半透明，才看得到後面
+const FADE_NEAR := 1.6          # 這麼近就幾乎透明
+const FADE_FAR := 3.2           # 這麼遠以外完全不透明
+const FADE_MAX := 0.75
+var _fade_list: Array = []      # GeometryInstance3D（模型、3D 字）
+var _fade_ready := false
+
+func _collect_fade() -> void:
+	_fade_ready = true
+	var roots: Array = []
+	for nm in ["FortWalls", "FortGate", "CannonTowers", "CommanderPlatform", "Props", "Cannon", "Buildings", "FarmFence"]:
+		var n := world.find_child(nm, true, false)
+		if n:
+			roots.append(n)
+	for t in towers:
+		if t.node and not roots.has(t.node):
+			roots.append(t.node)
+	var stack := roots.duplicate()
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		if n is GeometryInstance3D:   # 模型和招牌上的 3D 字都算
+			_fade_list.append(n)
+		for ch in n.get_children():
+			stack.append(ch)
+
+func _fade_near_camera(dt: float) -> void:
+	if not _fade_ready:
+		_collect_fade()
+	var cam := get_viewport().get_camera_3d()
+	if cam == null:
+		return
+	var cp := cam.global_position
+	var k := clampf(dt * 8.0, 0.0, 1.0)
+	# 準心看的那一點：擋在鏡頭和那一點中間的建築也要變透明
+	var look_at: Vector3 = aim_point if aim_point != null else cp - cam.global_basis.z * 15.0
+	for m in _fade_list:
+		if not is_instance_valid(m):
+			continue
+		var mi := m as GeometryInstance3D
+		if not mi.is_visible_in_tree():
+			continue
+		# 在模型自己的座標裡找離鏡頭最近的點（斜放的牆用世界座標的包圍盒會大很多）
+		var xf := mi.global_transform
+		var box := mi.get_aabb()
+		var lp := xf.affine_inverse() * cp
+		var q: Vector3 = xf * lp.clamp(box.position, box.end)
+		var d := cp.distance_to(q)
+		var want := FADE_MAX * (1.0 - clampf((d - FADE_NEAR) / (FADE_FAR - FADE_NEAR), 0.0, 1.0))
+		if want < FADE_MAX and d < 14.0:
+			var la := xf.affine_inverse() * look_at
+			# 終點往回縮一點，目標本身（例如被瞄準的塔）不會被弄透明
+			if box.intersects_segment(lp, lp.lerp(la, 0.92)) != null:
+				want = FADE_MAX
+		if absf(mi.transparency - want) > 0.005:
+			mi.transparency = lerpf(mi.transparency, want, k)

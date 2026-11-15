@@ -61,6 +61,7 @@ var _caption: Label
 var _lines: SpeedLines
 var _hidden: Array = []      # 特寫時暫時藏起來的 HUD
 var _base_scale := Vector3.ONE   # 落水的人原本的大小（結束時還原）
+var _crown_mat: ShaderMaterial   # 森林樹冠的材質（擋住鏡頭的樹要鏤空）
 
 func _ready() -> void:
 	bt = get_parent()
@@ -228,6 +229,7 @@ func _enter_shot(i: int) -> void:
 func _finish() -> void:
 	active = false
 	Engine.time_scale = 1.0
+	_fade_trees(Vector3.ZERO, Vector3.ZERO, 0.0)
 	_layer.visible = false
 	_lines.strength = 0.0
 	if _target and is_instance_valid(_target.node) and _kind == "drown":
@@ -290,6 +292,20 @@ func _frame(shot: Dictionary) -> void:
 	cam.global_position = eye
 	if eye.distance_to(at) > 0.05:
 		cam.look_at(at, Vector3.UP)
+	_fade_trees(eye, p + Vector3(0, 0.6, 0), 1.0)
+
+## 擋在鏡頭和主角之間的樹冠鏤空（看得到主角）；amt = 0 就還原
+func _fade_trees(a: Vector3, b: Vector3, amt: float) -> void:
+	if _crown_mat == null:
+		var crowns := bt.world.get_node_or_null("ForestCrowns") as MeshInstance3D
+		if crowns == null:
+			return
+		_crown_mat = crowns.material_override as ShaderMaterial
+		if _crown_mat == null:
+			return
+	_crown_mat.set_shader_parameter("fade_a", a)
+	_crown_mat.set_shader_parameter("fade_b", b)
+	_crown_mat.set_shader_parameter("fade_amt", amt)
 
 ## 誇張變形（只改外觀，不影響戰局）
 func _deform(shot: Dictionary, el: float) -> void:

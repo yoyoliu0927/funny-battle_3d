@@ -306,24 +306,26 @@ func _battle_tests() -> void:
 		"滾下→%d 滾上→%d 兩指滑→%d" % [after_wheel, after_up, after_pan])
 	await _press(KEY_1)
 	await _shot("08_prepare_skillbar")
-	# 開場教學：箭頭依序指著三格技能，各有一段說明；開打就收起來
+	# 新手教學彈窗：暫停遊戲、左邊播示範動畫；D 換頁、最後一頁按空白關掉並恢復
 	bt._tut_seen = false
-	bt.start_tutorial()
+	bt._set_tut_step(0)
 	await _wait(0.6)
-	var hbr: Rect2 = bt._hotbar.get_global_rect()
-	var arrow_cx: float = bt._tut_arrow.position.x + bt._tut_arrow.size.x * 0.5
-	var slot0_cx: float = hbr.position.x + 2.0 + 0.5 * 84.0
-	var t0_ok: bool = bt.tutorial_step == 0 and bt._tut_arrow.visible and absf(arrow_cx - slot0_cx) < 4.0 and bt._tut_label.text.contains("飼料")
-	await _shot("08e_tutorial_rock")
-	bt._set_tut_step(1)
-	await _wait(0.6)
-	await _shot("08f_tutorial_feed")
-	bt._set_tut_step(2)
+	var t0_ok: bool = bt.tutorial_step == 0 and get_tree().paused and bt._tut._title.text == "操作方式" and bt._tut._controls.visible
+	await _press(KEY_D)
+	await _wait(0.4)
+	t0_ok = t0_ok and bt._tut._title.text == "飼料" and bt._tut._frames > 0
+	await _shot("08e_tutorial_popup")
+	await _press(KEY_D)
+	await _wait(0.5)
+	await _shot("08f_tutorial_banana")
+	await _press(KEY_D)
 	await _wait(0.3)
-	var t2_ok: bool = bt.tutorial_step == 2 and bt.selected == 2 and bt._tut_label.text.contains("自己滾起來")
-	bt._set_tut_step(3)
+	var t2_ok: bool = bt.tutorial_step == 3 and bt._tut._title.text == "巨石"
+	await _press(KEY_SPACE)
 	await _wait(0.1)
-	_check("開場教學：箭頭依序指著三格技能並說明，最後收起來", t0_ok and t2_ok and bt.tutorial_step == -1 and not bt._tut_arrow.visible and bt.selected == 0)
+	_check("新手教學彈窗：暫停、操作表＋三頁示範動畫、最後一頁關掉恢復", t0_ok and t2_ok and bt.tutorial_step == -1 and not get_tree().paused,
+		"操作/飼料頁=%s 巨石頁=%s 關閉後頁=%d 暫停=%s" % [t0_ok, t2_ok, bt.tutorial_step, get_tree().paused])
+	_check("頭上沒有血條，家豪的血量在左下角", bt.farmers.all(func(f): return f.bar == null) and bt.bird.bar == null and bt._bird_bar != null)
 
 	# 巡邏與偵測區
 	_check("每個農夫前方都有紅色偵測區", bt.farmers.all(func(f): return f.is_boss or f.cone.visible))

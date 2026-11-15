@@ -55,7 +55,15 @@ const M_CASTLE := "res://assets/castle/"
 const M_PIRATE := "res://assets/pirate/"
 const M_TD := "res://assets/tdkit/"
 
-var gate_pos := Vector2.ZERO      # 城門中心（牆線上）
+var stage := 3                    # 現在是第幾個小關（1~3）
+
+## 這個小關有哪幾組守衛（2-1 只留中庭那一個，路過炮塔 B 前面）
+func stage_routes(s: int) -> Array:
+	if s <= 1:
+		return [FORT_ROUTES[1]]
+	return FORT_ROUTES
+
+var gate_pos := Vector2.ZERO     # 城門中心（牆線上）
 var gate_dir := Vector2.ZERO      # 從要塞中心指向城門（往外）
 var fort_towers: Array = []       # [{node, pos, radius, height}]
 var cannon_node: Node3D
@@ -70,7 +78,13 @@ func _ready() -> void:
 	gate_pos = _ellipse(th)
 	gate_dir = (gate_pos - FORT_C).normalized()
 	hero_start = FORT_HERO_START
-	farmer_routes = FORT_ROUTES
+	# 小關：2-1 只有一個農夫；2-2 三個農夫；2-3 三個農夫加指揮官（共用同一張場地）
+	# 平常照存檔從還沒過的小關開始；--fortstage=N 可指定（自動測試用）
+	stage = clampi(preload("res://scripts/progress.gd").fort_stages() + 1, 1, 3)
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--fortstage="):
+			stage = clampi(int(a.substr(12)), 1, 3)
+	farmer_routes = stage_routes(stage)
 	demo_rock_start = null      # 這關沒有示範石頭
 	tower_chain = false         # 炮塔不是骨牌：被巨石撞到就順著巨石的方向倒
 	_rng.seed = world_seed
@@ -221,9 +235,10 @@ func _build_fort_characters() -> void:
 	chars.set_script(load("res://scripts/characters.gd"))
 	add_child(chars)
 	var posts: Array = []
-	for r in FORT_ROUTES:
+	for r in farmer_routes:
 		posts.append(r.route[0])
-	posts.append(boss_post)   # 最後一個是指揮官（暫時沿用第一關老闆的模型和行為）
+	if stage >= 3:
+		posts.append(boss_post)   # 最後一個是指揮官（暫時沿用第一關老闆的模型和行為）
 	chars.setup_multi(self, FORT_HERO_START, posts, true)
 
 func _forest_rect() -> Rect2:

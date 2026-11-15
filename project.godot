@@ -21,6 +21,10 @@ window/size/viewport_height=900
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
 
+[gui]
+
+theme/custom_font="res://assets/fonts/jf-openhuninn-2.1.ttf"
+
 [input]
 
 move_forward={
