@@ -1,0 +1,47 @@
+劉起佑版用到的素材（全部是 CC0 公眾領域授權：可自由使用、修改、商用，不需要標註）
+
+quaternius_village/
+  Medieval Village MegaKit（Standard 免費版）— Quaternius
+  https://quaternius.com/packs/medievalvillagemegakit.html
+  下載自 https://opengameart.org/content/medieval-village-megakit
+  授權：CC0 1.0（見 quaternius_village/License.txt）
+  只放了用到的零件；貼圖從原尺寸縮成 1024 以減少專案大小。
+
+kaykit_halloween/
+  KayKit : Halloween Bits 1.0 — Kay Lousberg（www.kaylousberg.com）
+  https://github.com/KayKit-Game-Assets/KayKit-Halloween-Bits-1.0
+  授權：CC0 1.0（見 kaykit_halloween/LICENSE.txt）
+
+kenney_town/
+  Fantasy Town Kit 2.0 — Kenney（www.kenney.nl）
+  https://kenney.nl/assets/fantasy-town-kit
+  下載自 https://opengameart.org/content/fantasy-town-kit
+  授權：CC0 1.0（見 kenney_town/License.txt）
+
+kenney_graveyard/
+  Graveyard Kit 5.0 — Kenney（www.kenney.nl）
+  https://kenney.nl/assets/graveyard-kit
+  下載自 https://opengameart.org/content/graveyard-kit
+  授權：CC0 1.0（見 kenney_graveyard/License.txt）
+
+polyhaven/
+  Monastery Stone Floor（1K：diff / nor_gl / rough / ao）— Poly Haven
+  https://polyhaven.com/a/monastery_stone_floor
+  授權：CC0 1.0
+
+  第二小關（超寫實）用的 Poly Haven 素材，全部 CC0 1.0，都在 polyhaven/ 底下：
+  模型（1K 貼圖的 glTF）：boulder_01、rock_moss_set_01、rock_09、tree_stump_01、dead_tree_trunk、
+    fern_02、shrub_02、shrub_03、shrub_04、weed_plant_02、grass_bermuda_01、wooden_barrels_01、
+    wooden_crate_02、dry_branches_medium_01
+    （fern_02、shrub_02/03/04、weed_plant_02、grass_bermuda_01 另外下載了 alpha 透明遮罩）
+  貼圖（1K：diff / nor_gl / arm）：forrest_ground_01、brown_mud_leaves_01、rocky_terrain_02、
+    weathered_brown_planks、red_slate_roof_tiles_01、bark_brown_02
+  天空全景（2K HDR）：meadow_2
+  網址格式：https://polyhaven.com/a/<名稱>
+
+hand/
+  PSX First Person Arms（v1.1.0，arms_rig.glb）— Drillimpact
+  https://drillimpact.itch.io/psx-first-person-arms-free
+  授權：CC0 1.0（作者頁面寫明 "released under CC0 (Public Domain)"）
+  神的第一人稱雙手。只放了 arms_rig.glb（貼圖 arms_rig_arms_01.png 是 Godot 匯入時從 glb 裡拆出來的）；
+  材質換成 shaders/ghost_hand.gdshader 的半透明發光效果，見 god_hands.gd。
