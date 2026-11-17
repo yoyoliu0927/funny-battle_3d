@@ -1,9 +1,13 @@
 extends RefCounted
 ## 選關地圖上的森林島（chapter.gd 的 MAP_SCRIPT；由 scripts/level_select.gd 呼叫）。
-## 一座草地大島。目前只排第一關：木屋。
+## 一座長滿樹的森林島。目前只排第一關：木屋。
+## （合併進 develop 時改過：島的本體換成不規則海岸＋土崖的網格，樹換成整片樹林；天色和三個地標照原樣。）
 
+const Isle := preload("res://levels/ice/art/isle_builder.gd")
 const TOP := 1.5
 const BIRCH := "res://assets/nature/BirchTree.glb"
+const BUSH := "res://assets/nature/BushBerries.glb"
+const TEX := "res://assets/textures/"
 
 func mood(_k: int) -> Dictionary:
 	return {
@@ -15,33 +19,52 @@ func mood(_k: int) -> Dictionary:
 		"sea.horizon_c": Color(0.68, 0.86, 0.72),
 	}
 
-func ground_y(_x: float, _z: float) -> float:
-	return TOP
+## 島面高度：緩緩起伏的林地
+func ground_y(x: float, z: float) -> float:
+	return TOP + 0.14 * sin(x * 0.6 + 0.5) * cos(z * 0.5)
 
+## 蓋整座島（世界座標；y = 0 是海面）：不規則的海岸、一層一層的土崖，島上長滿了樹，只有路、站點和地標周圍是空地。
+## 島的網格借用冰雪島的 art/isle_builder.gd（只是算形狀的工具，跟冰雪無關）；樹和灌木是共用的 assets/nature。
 func build_island(root: Node3D, ctx: Dictionary) -> void:
 	var c: Vector2 = ctx.center
-	var radius := maxf(float(ctx.rx), float(ctx.rz))
-	# 島面要比站點低一點，圓點和路才不會跟草地貼在同一個高度上閃。
-	var grass_top := TOP - 0.14
-	var grass_h := 0.32
-	var cliff_top := grass_top - 0.06
-	var cliff_h := cliff_top + 0.55
-	_disc(root, c, radius * 0.78, cliff_top - cliff_h * 0.5, cliff_h, Color(0.42, 0.30, 0.18))
-	_disc(root, c, radius * 0.96, grass_top - grass_h * 0.5, grass_h, Color(0.36, 0.62, 0.28))
+	var o := {"c": c, "rx": float(ctx.rx), "rz": float(ctx.rz), "seed": 3.7, "pow": 2.4, "wob": 1.6, "depth": TOP + 1.4, "slope": 0.20, "lobe": 2.4,
+		"coves": [[0.6, 1.6, 0.20], [2.4, 1.8, 0.18], [4.3, 1.5, 0.16], [5.5, 1.3, 0.14]]}
+	var top := MeshInstance3D.new()
+	top.name = "Top"
+	top.mesh = Isle.build_top(o, ground_y, 112, 12, 0.4)
+	top.material_override = _tex_mat("grass_ground_diff_1k.jpg", Color(0.52, 1.05, 0.40), 0.2)
+	root.add_child(top)
+	var cliff := MeshInstance3D.new()
+	cliff.name = "Cliff"
+	cliff.mesh = Isle.build_cliff(o, func(a: float) -> float:
+		var p := Isle.rim_point(o, a)
+		return ground_y(p.x, p.y), 112, 6)
+	var cm := _tex_mat("forest_ground_04_diff_1k.jpg", Color(1.0, 0.78, 0.56), 0.16)
+	cm.vertex_color_use_as_albedo = true        # isle_builder 給每一層不同的明暗
+	cliff.material_override = cm
+	root.add_child(cliff)
+	# 樹林：能種的地方都種（樹和樹之間留一點距離），靠鏡頭那一側種矮一點；空隙補灌木
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 481516
-	var placed := 0
-	for i in 80:
-		if placed >= 16:
-			break
+	var trees: Array[Vector2] = []
+	for i in 1200:
 		var a := rng.randf() * TAU
-		var d := radius * rng.randf_range(0.28, 0.82)
+		var d := Isle.radius(o, a) * sqrt(rng.randf()) - 1.3
 		var x := c.x + cos(a) * d
-		var z := c.y + sin(a) * d * 0.72
-		if not _clear(ctx, x, z):
+		var z := c.y + sin(a) * d
+		if d < 0.0 or not _clear(ctx, x, z):
 			continue
-		_tree(root, Vector3(x, TOP, z), rng.randf() * TAU, rng.randf_range(2.4, 3.6))
-		placed += 1
+		var p := Vector2(x, z)
+		var near := INF
+		for q in trees:
+			near = minf(near, p.distance_to(q))
+		var g := Vector3(x, ground_y(x, z) - 0.05, z)
+		if near > 2.0:
+			var south := z > float(ctx.pads[0].z) + 2.0
+			_model(root, BIRCH, g, rng.randf() * TAU, rng.randf_range(2.0, 2.6) if south else rng.randf_range(2.8, 4.2))
+			trees.append(p)
+		elif near > 1.1 and rng.randf() < 0.35:
+			_model(root, BUSH, g, rng.randf() * TAU, rng.randf_range(0.6, 0.9))
 
 func build_spot(k: int, root: Node3D, _ctx: Dictionary) -> void:
 	match k:
@@ -90,7 +113,7 @@ func _clear(ctx: Dictionary, x: float, z: float) -> bool:
 		var a := Vector2(pad.x, pad.z)
 		if p.distance_to(a) < 3.6:
 			return false
-		if absf(x - a.x) < 3.4 and z > a.y and z - a.y < 7.0:
+		if absf(x - a.x) < 3.6 and z > a.y:        # 站點正前方（鏡頭那一邊）留空：樹才不會擋住家豪和旗子
 			return false
 		if k + 1 < pads.size():
 			var nxt: Vector3 = pads[k + 1]
@@ -102,8 +125,9 @@ func _clear(ctx: Dictionary, x: float, z: float) -> bool:
 			return false
 	return true
 
-func _tree(root: Node3D, pos: Vector3, yaw: float, height: float) -> void:
-	var ps := load(BIRCH) as PackedScene
+## 放一個模型，縮放到 height 公尺高，底部貼在 pos
+func _model(root: Node3D, path: String, pos: Vector3, yaw: float, height: float) -> void:
+	var ps := load(path) as PackedScene
 	if ps == null:
 		_cone(root, pos, height)
 		return
@@ -113,10 +137,20 @@ func _tree(root: Node3D, pos: Vector3, yaw: float, height: float) -> void:
 	if bb.size.y > 0.01:
 		var s := height / bb.size.y
 		n.scale = Vector3.ONE * s
-		n.position = pos - Vector3(bb.position.x * s, bb.position.y * s, bb.position.z * s)
+		n.position = pos - Vector3(bb.position.x + bb.size.x * 0.5, bb.position.y, bb.position.z + bb.size.z * 0.5) * s
 	else:
 		n.position = pos
 	n.rotation.y = yaw
+
+func _tex_mat(tex: String, tint: Color, scale: float) -> StandardMaterial3D:
+	var m := StandardMaterial3D.new()
+	m.albedo_texture = load(TEX + tex)
+	m.albedo_color = tint
+	m.uv1_triplanar = true
+	m.uv1_world_triplanar = true
+	m.uv1_scale = Vector3.ONE * scale
+	m.roughness = 1.0
+	return m
 
 func _bounds(n: Node3D) -> AABB:
 	return _bounds_xf(n, Transform3D.IDENTITY)
@@ -136,18 +170,6 @@ func _bounds_xf(n: Node, xf: Transform3D) -> AABB:
 		box = sub if not any else box.merge(sub)
 		any = true
 	return box
-
-func _disc(root: Node3D, c: Vector2, radius: float, y: float, height: float, col: Color) -> void:
-	var mesh := CylinderMesh.new()
-	mesh.top_radius = radius
-	mesh.bottom_radius = radius * 0.86
-	mesh.height = height
-	mesh.radial_segments = 64
-	var mi := MeshInstance3D.new()
-	mi.mesh = mesh
-	mi.position = Vector3(c.x, y, c.y)
-	mi.material_override = _mat(col)
-	root.add_child(mi)
 
 func _box(root: Node3D, size: Vector3, pos: Vector3, col: Color) -> MeshInstance3D:
 	var mesh := BoxMesh.new()
