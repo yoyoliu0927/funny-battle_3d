@@ -297,7 +297,8 @@ func _frame(shot: Dictionary) -> void:
 ## 擋在鏡頭和主角之間的樹冠鏤空（看得到主角）；amt = 0 就還原
 func _fade_trees(a: Vector3, b: Vector3, amt: float) -> void:
 	if _crown_mat == null:
-		var crowns := bt.world.get_node_or_null("ForestCrowns") as MeshInstance3D
+		# 森林切成很多塊，樹冠共用同一個材質，抓任一塊就好
+		var crowns := bt.world.find_child("ForestCrowns*", true, false) as GeometryInstance3D
 		if crowns == null:
 			return
 		_crown_mat = crowns.material_override as ShaderMaterial

@@ -504,6 +504,18 @@ func _spawn_grass(spots: Array[Vector3]) -> void:
 func _forest_rect() -> Rect2:
 	return Rect2(FARM_MIN - Vector2.ONE * FOREST_BAND, Vector2(FARM_MAX.x - FARM_MIN.x, YARD_MAX_Z - FARM_MIN.y) + Vector2.ONE * FOREST_BAND * 2.0)
 
+## 外圍森林分三層（離遊玩範圍由近到遠），越遠越省：
+##   前排：完整的樹（樹幹＋2～3 顆樹冠），會投影
+##   中排：樹幹＋2 顆樹冠，不投影（影子只會落在後面的樹上，看不出差別）
+##   後排：格子放寬、每棵只剩 1 顆大樹冠，不投影；鏡頭拉很遠時整塊隱藏
+## 整片森林切成一塊一塊（FOREST_CHUNK 公尺見方），鏡頭背後的區塊會被引擎自動略過不畫。
+const FOREST_NEAR_D := 3.0       # 離遊玩範圍這麼近以內是前排
+const FOREST_FAR_D := 6.5        # 超過這裡是後排
+const FOREST_STEP := 1.8         # 前、中排的種樹間距
+const FOREST_FAR_STEP := 2.7     # 後排的種樹間距（約少一半）
+const FOREST_CHUNK := 16.0
+const FOREST_FAR_HIDE := 120.0   # 後排區塊離鏡頭超過這麼遠就不畫
+
 func _build_farm_forest() -> void:
 	var r := RandomNumberGenerator.new()
 	r.seed = world_seed + 31
@@ -516,56 +528,83 @@ func _build_farm_forest() -> void:
 	trunk.height = 1.0
 	trunk.radial_segments = 6
 	trunk.rings = 1
-	var trunks: Array[Transform3D] = []
-	var crowns: Array[Transform3D] = []
-	var cols: Array[Color] = []
-	var step := 1.8
+	# 區塊 → {"trunks": [...], "crowns": [...], "cols": [...]}；key 是 (cx, cz, 層)
+	var chunks := {}
 	var fr := _forest_rect()
-	var x := fr.position.x
-	while x <= fr.end.x:
-		var z := fr.position.y
-		while z <= fr.end.y:
-			var px := x + r.randf_range(-0.7, 0.7)
-			var pz := z + r.randf_range(-0.7, 0.7)
-			var d := play_dist(px, pz)
-			if d > 0.4 and d < FOREST_BAND and r.randf() < 0.93:
-				var gy := height_at(px, pz)
-				var h := r.randf_range(3.6, 6.2) * (1.0 + clampf(d, 0.0, 8.0) * 0.04)
-				trunks.append(Transform3D(Basis(Vector3.UP, r.randf() * TAU).scaled(Vector3(1, h * 0.55, 1)), Vector3(px, gy + h * 0.27, pz)))
-				var green := Color(r.randf_range(0.22, 0.36), r.randf_range(0.42, 0.56), r.randf_range(0.2, 0.3))
-				for k in r.randi_range(2, 3):
-					var cr := h * (0.36 - k * 0.07)
-					var cb := Basis(Vector3.UP, r.randf() * TAU).scaled(Vector3(cr, cr * 0.85, cr))
-					crowns.append(Transform3D(cb, Vector3(px + r.randf_range(-0.2, 0.2), gy + h * (0.55 + k * 0.2), pz + r.randf_range(-0.2, 0.2))))
-					cols.append(green.lightened(k * 0.08))
-			z += step
-		x += step
-	var tm := MultiMesh.new()
-	tm.transform_format = MultiMesh.TRANSFORM_3D
-	tm.mesh = trunk
-	tm.instance_count = trunks.size()
-	for i in trunks.size():
-		tm.set_instance_transform(i, trunks[i])
-	var tmi := MultiMeshInstance3D.new()
-	tmi.name = "ForestTrunks"
-	tmi.multimesh = tm
-	tmi.material_override = _toon(Color(0.45, 0.32, 0.2))
-	add_child(tmi)
-	var cm := MultiMesh.new()
-	cm.transform_format = MultiMesh.TRANSFORM_3D
-	cm.use_colors = true
-	cm.mesh = blob
-	cm.instance_count = crowns.size()
-	for i in crowns.size():
-		cm.set_instance_transform(i, crowns[i])
-		cm.set_instance_color(i, cols[i])
-	var cmi := MultiMeshInstance3D.new()
-	cmi.name = "ForestCrowns"
-	cmi.multimesh = cm
+	for far in [false, true]:
+		var step: float = FOREST_FAR_STEP if far else FOREST_STEP
+		var jit: float = step * 0.39
+		var x := fr.position.x
+		while x <= fr.end.x:
+			var z := fr.position.y
+			while z <= fr.end.y:
+				var px := x + r.randf_range(-jit, jit)
+				var pz := z + r.randf_range(-jit, jit)
+				var d := play_dist(px, pz)
+				var in_tier: bool = (d >= FOREST_FAR_D) if far else (d > 0.4 and d < FOREST_FAR_D)
+				if in_tier and d < FOREST_BAND and r.randf() < 0.93:
+					var tier := 2 if far else (0 if d < FOREST_NEAR_D else 1)
+					var key := Vector3i(floori(px / FOREST_CHUNK), floori(pz / FOREST_CHUNK), tier)
+					if not chunks.has(key):
+						chunks[key] = {"trunks": [], "crowns": [], "cols": []}
+					var ch: Dictionary = chunks[key]
+					var gy := height_at(px, pz)
+					var h := r.randf_range(3.6, 6.2) * (1.0 + clampf(d, 0.0, 8.0) * 0.04)
+					ch.trunks.append(Transform3D(Basis(Vector3.UP, r.randf() * TAU).scaled(Vector3(1, h * 0.55, 1)), Vector3(px, gy + h * 0.27, pz)))
+					var green := Color(r.randf_range(0.22, 0.36), r.randf_range(0.42, 0.56), r.randf_range(0.2, 0.3))
+					if tier == 2:
+						# 一顆大樹冠頂替原本疊起來的 2～3 顆，輪廓高度差不多
+						var cr := h * 0.45
+						var cb := Basis(Vector3.UP, r.randf() * TAU).scaled(Vector3(cr, cr * 0.95, cr))
+						ch.crowns.append(Transform3D(cb, Vector3(px, gy + h * 0.66, pz)))
+						ch.cols.append(green.lightened(0.04))
+					else:
+						var n := r.randi_range(2, 3) if tier == 0 else 2
+						for k in n:
+							var cr := h * (0.36 - k * 0.07)
+							var cb := Basis(Vector3.UP, r.randf() * TAU).scaled(Vector3(cr, cr * 0.85, cr))
+							ch.crowns.append(Transform3D(cb, Vector3(px + r.randf_range(-0.2, 0.2), gy + h * (0.55 + k * 0.2), pz + r.randf_range(-0.2, 0.2))))
+							ch.cols.append(green.lightened(k * 0.08))
+				z += step
+			x += step
+	var trunk_mat := _toon(Color(0.45, 0.32, 0.2))
+	# 所有樹冠共用同一個材質：特寫鏡頭改一次鏤空參數，每一塊都會跟著變
 	var crown_mat := ShaderMaterial.new()
 	crown_mat.shader = load("res://shaders/forest_crown.gdshader")
-	cmi.material_override = crown_mat
-	add_child(cmi)
+	var forest := Node3D.new()
+	forest.name = "Forest"
+	add_child(forest)
+	var keys := chunks.keys()
+	keys.sort()   # 固定順序，每次載入節點都一樣
+	for key in keys:
+		var ch: Dictionary = chunks[key]
+		var tier: int = key.z
+		var tag := "%d_%d_%d" % [key.x, key.y, tier]
+		_add_forest_mm(forest, "ForestTrunks_" + tag, trunk, ch.trunks, [], trunk_mat, tier)
+		_add_forest_mm(forest, "ForestCrowns_" + tag, blob, ch.crowns, ch.cols, crown_mat, tier)
+
+func _add_forest_mm(parent: Node3D, nm: String, mesh: Mesh, xfs: Array, cols: Array, mat: Material, tier: int) -> void:
+	if xfs.is_empty():
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = not cols.is_empty()
+	mm.mesh = mesh
+	mm.instance_count = xfs.size()
+	for i in xfs.size():
+		mm.set_instance_transform(i, xfs[i])
+		if mm.use_colors:
+			mm.set_instance_color(i, cols[i])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.name = nm
+	mmi.multimesh = mm
+	mmi.material_override = mat
+	if tier > 0:
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	if tier == 2:
+		mmi.visibility_range_end = FOREST_FAR_HIDE
+		mmi.visibility_range_end_margin = 10.0
+	parent.add_child(mmi)
 
 # ---------------------------------------------------------------- 角色與玩家
 
