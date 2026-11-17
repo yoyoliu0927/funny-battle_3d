@@ -25,6 +25,8 @@ const TutArrow := preload("res://scripts/ui/tut_arrow.gd")
 const EnemyFace := preload("res://scripts/ui/enemy_face.gd")
 const PauseMenu := preload("res://scripts/ui/pause_menu.gd")
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術（手帳風格）
+const HeartBar := preload("res://scripts/ui/heart_bar.gd")
+const TutorialPopup := preload("res://scripts/ui/tutorial_popup.gd")
 const Progress := preload("res://scripts/progress.gd")
 const LEVEL_SELECT_SCENE := "res://scenes/level_select.tscn"
 
@@ -43,7 +45,8 @@ const FEED_EAT_TIME := 0.9
 const FEED_LINGER := 3.0       # 吃完飼料後，家豪會在原地東張西望這麼久才繼續衝
 const FEED_HEAL := 1.0         # 吃一把飼料回的血
 # 一般近戰敵人（農夫型）的預設值；每個敵人可以在 _enemy_specs() 個別改
-const ENEMY_MAX_HP := 8.0
+const ENEMY_MAX_HP := 4.0     # 家豪啄兩下就倒（PECK_DAMAGE 2.5）
+const HEART_HP := 2.0         # 一顆愛心 = 幾點血（家豪 10 點血 = 5 顆心）
 const ALERT_RADIUS := 11.0     # 打鬥聲傳得到的距離：哪裡有人挨打，這個距離內的敵人會趕過來
 const DEFEAT_ORIGIN := Vector3(600.0, 0.0, 600.0)
 const SIM_DT := 1.0 / 60.0
@@ -114,6 +117,13 @@ var _tut_arrow: TutArrow
 var _tut_panel: PanelContainer
 var _tut_label: Label
 var pause_menu: PauseMenu      # 暫停選單（Esc）。pause_menu.is_open＝現在暫停中
+# 統一介面（參照冰雪大關）：道具欄左下、家豪愛心在道具欄上方、開始鈕右下、不顯示血條
+var show_start_button := true  # 關卡自己畫了開始鈕就在 _level_setup() 設成 false
+var show_float_bars := false   # true：角色頭上照舊顯示血條
+var _hearts: HeartBar
+var _hero_card: Control
+var _start_btn: Control
+var help_popup: TutorialPopup  # 按 H 打開的教學彈窗（頁面來自 _tutorial_pages()）
 # 輸了的畫面
 var defeat_room: Node3D
 var defeat_shown := false
@@ -188,6 +198,27 @@ func _on_rock_rolling(_rock: Dictionary, _pos: Vector3, _speed: float) -> bool:
 func _update_highlights(_path: PackedVector3Array, _on: bool) -> void:
 	pass
 
+## 按 H 的教學彈窗要放哪些頁（格式見 scripts/ui/tutorial_popup.gd）。
+## 預設：操作方式 → 家豪會自己做什麼 → 每個道具一頁。關卡可以覆寫，例如改 _hero_logic_text() 或多加一頁機關說明。
+func _tutorial_pages() -> Array:
+	var ctl: Array = help_list().duplicate()
+	ctl.append(["H", "再看一次教學"])
+	var pages: Array = [
+		{"title": "操作方式", "controls": ctl,
+			"body": "你是飄在空中的神，只能從旁觀察、偷偷降下神蹟幫家豪。\n\n準備階段先把神蹟佈置好，再按 Enter 開打。"},
+		{"title": "家豪會自己行動", "icon": _load_tex("res://assets/ui/jiahao_portrait.png"), "body": _hero_logic_text()},
+	]
+	for i in items.size():
+		var it = items[i]
+		var tex: Texture2D = it.icon_tex if it.icon_tex else it.icon
+		pages.append({"title": it.name, "icon": tex, "item": it, "body": it.tutorial,
+			"keys": [[str(i + 1), "選擇"], ["LMB", "施放"]]})
+	return pages
+
+## 「家豪會自己行動」那一頁的說明：不放神蹟時家豪怎麼決定要去哪
+func _hero_logic_text() -> String:
+	return "不用畫路線，家豪會自己決定要去哪：\n\n・沒有飼料時，直接衝向最近的敵人開打，打完再找下一個。\n・附近有飼料，會先跑去吃（回一點血），東張西望一下再繼續。\n・被踢中會飛出去；遇到圍欄、水會飛過去。\n・從背後偷襲，敵人會嚇一跳愣住。\n\n你的工作是用神蹟安排他「先打誰、從哪裡打」。"
+
 ## 開場教學每一步的文字（預設用每個道具的 tutorial）
 func _tutorial_texts() -> Array:
 	var out: Array = []
@@ -244,8 +275,10 @@ func _ready() -> void:
 	_build_defeat()
 	_build_pause()
 	reset()
-	if show_tutorial and not "--autotest" in OS.get_cmdline_user_args():
-		start_tutorial()
+	# 開場教學：第一次進這個大關時自動打開教學彈窗（跟要塞一樣）；之後按 H 隨時再看。
+	# 自動測試、smoke test 不跳（彈窗會暫停整個遊戲）
+	if show_tutorial and not _automated_run():
+		_auto_help.call_deferred()
 
 func _ensure_actions() -> void:
 	var map := {"battle_start": [KEY_ENTER, KEY_KP_ENTER], "battle_reset": [KEY_R], "back_to_map": [KEY_M]}
@@ -1577,12 +1610,15 @@ func _build_hud() -> void:
 	_hotbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var hb := _hotbar.bar_size()
 	_hotbar.custom_minimum_size = hb
-	_hotbar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_hotbar.offset_left = -hb.x * 0.5
-	_hotbar.offset_right = hb.x * 0.5
-	_hotbar.offset_top = -hb.y - 22
-	_hotbar.offset_bottom = -22
+	# 統一介面：道具欄放左下（跟冰雪大關一樣）
+	_hotbar.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_hotbar.offset_left = 28
+	_hotbar.offset_right = 28 + hb.x
+	_hotbar.offset_top = -hb.y - 30
+	_hotbar.offset_bottom = -30
 	layer.add_child(_hotbar)
+	_build_hero_card(layer, hb)
+	_build_start_button(layer)
 	# 對話框：放在快捷欄上方
 	_dialog = DialogBox.new()
 	UIStyle.apply_theme(_dialog)
@@ -1646,6 +1682,7 @@ func _build_hud() -> void:
 		var bar := Control.new()
 		bar.custom_minimum_size = Vector2(170 if f.is_boss else 140, 14)
 		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		bar.visible = false   # 統一介面：不顯示敵人血量（節點留著，關卡程式還會讀 fill／chip）
 		info.add_child(bar)
 		var bg := ColorRect.new()
 		bg.color = Color(0.08, 0.06, 0.06, 0.8)
@@ -1692,6 +1729,90 @@ func _build_hud() -> void:
 	_summary_label.label_settings = ss
 	_summary_panel.add_child(_summary_label)
 	layer.add_child(_summary_panel)
+	_build_help_popup()
+
+## 家豪的愛心：道具欄上方一張小紙片（頭像＋名字＋愛心）
+func _build_hero_card(layer: CanvasLayer, hb: Vector2) -> void:
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", UIStyle.slip_box(Vector2(12, 6)))
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	card.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	card.offset_left = 28
+	card.offset_bottom = -hb.y - 30 - 34
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(row)
+	var face := TextureRect.new()
+	face.texture = _load_tex("res://assets/ui/jiahao_portrait.png")
+	face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	face.custom_minimum_size = Vector2(40, 40)
+	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(face)
+	_hearts = HeartBar.new()
+	_hearts.max_hp = bird.max_hp if bird else 10.0
+	_hearts.per_heart = HEART_HP
+	_hearts.hp = _hearts.max_hp
+	_hearts.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_hearts.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(_hearts)
+	layer.add_child(card)
+	_hero_card = card
+
+## 右下角「開始 ▶ [Enter]」（準備階段才顯示；點它也能開打）
+func _build_start_button(layer: CanvasLayer) -> void:
+	var p := PanelContainer.new()
+	var sb := UIStyle._box(UIStyle.GO, UIStyle.GO_EDGE, 22, 3)
+	sb.content_margin_left = 20
+	sb.content_margin_right = 14
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 8
+	p.add_theme_stylebox_override("panel", sb)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 10)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(h)
+	var t := Label.new()
+	t.text = "開始 ▶"
+	t.label_settings = UIStyle.ls(30, Color(1, 1, 1))
+	h.add_child(t)
+	h.add_child(UIStyle.keycap("Enter", 18))
+	p.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	p.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	p.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	p.offset_right = -36
+	p.offset_bottom = -40
+	p.mouse_filter = Control.MOUSE_FILTER_STOP
+	p.gui_input.connect(func(ev):
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT and phase == Phase.PREPARE:
+			start())
+	layer.add_child(p)
+	_start_btn = p
+
+func _automated_run() -> bool:
+	if "--autotest" in OS.get_cmdline_user_args():
+		return true
+	var args := OS.get_cmdline_args()
+	return "-s" in args or "--script" in args or DisplayServer.get_name() == "headless"
+
+## 每個大關第一次進來時打開一次教學彈窗（這次開遊戲期間記住）
+func _auto_help() -> void:
+	var key := "help_seen_" + (stage_id.get_slice("/", 0) if stage_id != "" else String(get_parent().scene_file_path))
+	if Engine.has_meta(key) or help_popup == null:
+		return
+	Engine.set_meta(key, true)
+	help_popup.open(0)
+
+## 按 H 的教學彈窗
+func _build_help_popup() -> void:
+	help_popup = TutorialPopup.new()
+	help_popup.name = "HelpPopup"
+	add_child(help_popup)
+	help_popup.set_pages(_tutorial_pages())
+	help_popup.hotkey_h = not "--autotest" in OS.get_cmdline_user_args()
+	help_popup.can_open = func() -> bool: return not (pause_menu and pause_menu.is_open) and not defeat_shown
 
 func _refresh_slots() -> void:
 	if _hotbar == null:
@@ -1704,9 +1825,14 @@ func _refresh_slots() -> void:
 	_hotbar.queue_redraw()
 
 func _update_bars(dt: float) -> void:
+	if _hearts and bird:
+		_hearts.max_hp = bird.max_hp
+		_hearts.hp = maxf(bird.hp, 0.0)
+	if _start_btn:
+		_start_btn.visible = show_start_button and phase == Phase.PREPARE and not defeat_shown
 	for f in all_fighters():
 		var head: Vector3 = f.pos + Vector3(0, f.air + f.bar_y, 0)
-		var show: bool = not camera.is_position_behind(head) and (f.alive() or phase == Phase.ENDED)
+		var show: bool = show_float_bars and not camera.is_position_behind(head) and (f.alive() or phase == Phase.ENDED)
 		f.bar.visible = show
 		if not show:
 			continue

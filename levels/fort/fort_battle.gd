@@ -26,7 +26,7 @@ signal phase_changed(phase: String)
 enum Phase { PREPARE, RUNNING, ENDED }
 
 const BIRD_MAX_HP := 10.0
-const FARMER_MAX_HP := 8.0
+const FARMER_MAX_HP := 4.0     # 統一規則：家豪啄兩下就倒
 const KICK_DAMAGE := 2.0
 const HEAVY_DAMAGE := 4.0
 const PECK_DAMAGE := 2.5
@@ -47,6 +47,8 @@ const FENCE_CLEAR := 1.0
 
 ## 神蹟設定
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術（手帳風格）
+const HeartBar := preload("res://scripts/ui/heart_bar.gd")
+const HEART_HP := 2.0          # 一顆愛心 = 幾點血（家豪 10 點血 = 5 顆心）
 const Progress := preload("res://scripts/progress.gd")          # 共用存檔：哪些小關過了
 const FortProgress := preload("res://levels/fort/fort_progress.gd")   # 要塞自己的存檔：教學看過了沒
 const PauseMenu := preload("res://scripts/ui/pause_menu.gd")    # 共用的暫停選單（Esc）
@@ -180,6 +182,8 @@ var _enemy_col: VBoxContainer
 var _crew_label: Label
 var _tower_label: Label
 var _bird_bar: PaperBar
+var _hearts: HeartBar          # 統一介面：家豪的血改用愛心顯示
+var _start_btn: Control        # 右下角「開始 ▶ Enter」
 var _edge_arrow: EdgeArrow
 var _first_hint: PanelContainer
 var _phase_retry_key: Control
@@ -197,6 +201,15 @@ const TUT_PAGES := [
 		"body": "你是一個飄在空中的幽靈，只能從旁觀察、偷偷降下神蹟幫家豪。
 
 準備階段先把神蹟佈置好，再按 Enter 開打。"},
+	{"title": "家豪會自己行動", "icon": preload("res://assets/ui/jiahao_portrait.png"),
+		"body": "不用畫路線，家豪會自己決定要去哪：
+
+・沒有飼料時，直接衝向最近的農夫開打，打完再找下一個。
+・附近有飼料，會先跑去吃（回一點血），東張西望一下再繼續。
+・掉進大砲會被射出去，可以飛上炮塔。
+・從背後偷襲，敵人會嚇一跳愣住。
+
+你的工作是用神蹟安排他「先打誰、從哪裡打」。"},
 	{"title": "飼料", "clip": "feed", "keys": [["1", "選擇"], ["LMB", "對準地面撒下"]],
 		"body": "撒在地上，家豪會忍不住跑過去吃，吃一把回一點血。
 
@@ -1578,6 +1591,10 @@ func _tick_hud_misc(dt: float) -> void:
 		_tower_label.text = "敵方炮塔 %d/%d" % [towers_left(), towers_total()]
 	if _bird_bar:
 		_bird_bar.set_values(bird.ratio() if bird.alive() else 0.0, bird.chip)
+	if _hearts:
+		_hearts.hp = maxf(bird.hp, 0.0)
+	if _start_btn:
+		_start_btn.visible = phase == Phase.PREPARE and _intro_i < 0
 	_update_edge_arrow()
 
 # ------------------------------------------------------------------ 農夫
@@ -3230,11 +3247,12 @@ func _build_hud() -> void:
 	_hotbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var hb := _hotbar.bar_size()
 	_hotbar.custom_minimum_size = hb
-	_hotbar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_hotbar.offset_left = -hb.x * 0.5
-	_hotbar.offset_right = hb.x * 0.5
-	_hotbar.offset_top = -hb.y - 22
-	_hotbar.offset_bottom = -22
+	# 統一介面：神蹟欄放左下（跟冰雪大關一樣），家豪的愛心在它上方
+	_hotbar.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_hotbar.offset_left = 28
+	_hotbar.offset_right = 28 + hb.x
+	_hotbar.offset_top = -hb.y - 30
+	_hotbar.offset_bottom = -30
 	layer.add_child(_hotbar)
 	# 對話框：放在快捷欄上方
 	_dialog = DialogBox.new()
@@ -3248,7 +3266,10 @@ func _build_hud() -> void:
 	layer.add_child(_dialog)
 	_napoleon_tex = _load_tex("res://assets/ui/napoleon.png")
 	_dialog.portrait = _load_tex("res://assets/ui/jiahao_portrait.png")
-	_tut = preload("res://levels/fort/tutorial_popup.gd").new()
+	# 教學彈窗改用共用版（scripts/ui/tutorial_popup.gd，從這裡的版本搬過去的），示範動畫還是讀要塞的影格表
+	_tut = preload("res://scripts/ui/tutorial_popup.gd").new()
+	_tut.clip_dir = "res://levels/fort/assets/tutorial"
+	_tut.kicker_text = "新手教學"
 	add_child(_tut)
 	_tut.set_pages(TUT_PAGES)
 	_tut.closed.connect(_on_tut_closed)
@@ -3291,6 +3312,7 @@ func _build_hud() -> void:
 		var bar := PaperBar.new()
 		bar.fill = Color("e2483d")
 		bar.custom_minimum_size = Vector2(170, 16)
+		bar.visible = false   # 統一介面：不顯示敵人血量
 		info.add_child(bar)
 		_enemy_rows.append({"fighter": f, "face": face, "bar": bar})
 	var crew: Array = farmers.filter(func(f): return not f.is_boss)
@@ -3328,8 +3350,8 @@ func _build_hud() -> void:
 	UIStyle.slip(me, Vector2(12, 8))
 	me.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	me.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	me.offset_left = 20
-	me.offset_bottom = -22
+	me.offset_left = 28
+	me.offset_bottom = -hb.y - 30 - 34
 	me.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	layer.add_child(me)
 	var mrow := HBoxContainer.new()
@@ -3338,7 +3360,7 @@ func _build_hud() -> void:
 	me.add_child(mrow)
 	var pic := Portrait.new()
 	pic.tex = _load_tex("res://assets/ui/jiahao_portrait.png")
-	pic.custom_minimum_size = Vector2(52, 52)
+	pic.custom_minimum_size = Vector2(40, 40)
 	pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	mrow.add_child(pic)
 	var minfo := VBoxContainer.new()
@@ -3352,7 +3374,15 @@ func _build_hud() -> void:
 	_bird_bar = PaperBar.new()
 	_bird_bar.fill = Color("58b85a")
 	_bird_bar.custom_minimum_size = Vector2(170, 16)
+	_bird_bar.visible = false
 	minfo.add_child(_bird_bar)
+	mn.visible = false
+	_hearts = HeartBar.new()
+	_hearts.max_hp = bird.max_hp
+	_hearts.per_heart = HEART_HP
+	_hearts.hp = bird.max_hp
+	_hearts.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	minfo.add_child(_hearts)
 	# 家豪跑出畫面時，畫面邊緣的箭頭指著他
 	_edge_arrow = EdgeArrow.new()
 	_edge_arrow.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -3395,6 +3425,8 @@ func _build_hud() -> void:
 	crow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	corner.add_child(crow)
 	crow.add_child(UIStyle.key_hint("H", "操作說明", 13))
+	_start_btn = _make_start_button()
+	layer.add_child(_start_btn)
 	crow.add_child(UIStyle.key_hint("R", "重試", 13))
 	crow.add_child(UIStyle.key_hint("M", "地圖", 13))
 	# 第一次玩：教學關掉後，在神蹟欄上方提示一次「先試著放一個」，放成功就收起來
@@ -3543,6 +3575,34 @@ func _update_phase_label() -> void:
 			_phase_label.text = "勝利！" if outcome == "win" else "落敗…"
 	_phase_start_key.visible = phase == Phase.PREPARE
 	_phase_retry_key.visible = phase == Phase.ENDED
+
+## 右下角「開始 ▶ [Enter]」（跟其他大關同一個樣子；點它也能開打）
+func _make_start_button() -> Control:
+	var p := PanelContainer.new()
+	var sb := UIStyle._box(UIStyle.GO, UIStyle.GO_EDGE, 22, 3)
+	sb.content_margin_left = 20
+	sb.content_margin_right = 14
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 8
+	p.add_theme_stylebox_override("panel", sb)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 10)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(h)
+	var t := Label.new()
+	t.text = "開始 ▶"
+	t.label_settings = UIStyle.ls(30, Color(1, 1, 1))
+	h.add_child(t)
+	h.add_child(UIStyle.keycap("Enter", 18))
+	p.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	p.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	p.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	p.offset_right = -36
+	p.offset_bottom = -76
+	p.gui_input.connect(func(ev):
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT and phase == Phase.PREPARE:
+			start())
+	return p
 
 func _build_notice(layer: CanvasLayer) -> void:
 	_notice = PanelContainer.new()

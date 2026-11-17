@@ -150,6 +150,7 @@ func _tutorial_texts() -> Array:
 func _level_setup() -> void:
 	super()
 	show_tutorial = false
+	show_start_button = false  # 這一系列自己畫了右下角的開始鈕
 	avoid_thin = true
 	thin_auto = false          # 薄冰在 _step_thin() 處理：踩到的人先定住 0.3 秒
 	path = _build_path(null)

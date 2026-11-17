@@ -735,7 +735,7 @@ func _hide_dead_bars() -> void:
 			f.data["bar_hidden"] = true
 		elif f.data.get("bar_hidden", false):
 			f.data.erase("bar_hidden")
-			f.bar.visible = true
+			f.bar.visible = show_float_bars   # 統一介面預設不顯示頭上血條
 
 # ---------------------------------------------------------------- 家豪和敵人互打：每一下扣得比較少
 
@@ -743,14 +743,7 @@ func _hide_dead_bars() -> void:
 ## 道具和機關（滾石、風車、倒樹、雷擊水池、岩漿、鐵桶）造成的傷害不受影響。
 const MELEE_SCALE := 0.6
 
-## 家豪啄中敵人
-func _hit_enemy(f: Fighter, dmg: float, from: Vector3) -> void:
-	super(f, dmg * MELEE_SCALE, from)
-
-## 家豪偷襲（共用程式裡直接扣固定的傷害，所以先把少扣的部分補回去）
-func _sneak(f: Fighter) -> void:
-	f.hp += PECK_DAMAGE * SNEAK_MULT * (1.0 - MELEE_SCALE)
-	super(f)
+## 家豪啄中敵人、偷襲：統一規則是敵人一到兩下就倒，所以不再打折（只有敵人踢家豪還是打折）
 
 ## 不播開場的黑框道具教學（一進場技能欄上面會浮現一行說明，就夠了）
 func _level_setup() -> void:
