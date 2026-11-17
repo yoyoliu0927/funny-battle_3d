@@ -39,7 +39,11 @@ const PLANE_SPEED := 11.0                # 飛機飛多快
 const PLANE_H := 13.0                    # 飛機比地面高多少（騎士從這個高度跳下來）
 const DROP_AT := 2.6                     # 飛機出現之後幾秒，騎士跳出來（這時候飛機剛好飛到落點上面）
 const DROP_FALL := 1.5                   # 騎士掉到地上要幾秒
+const WATER_REACH := 1.6                 # 岩漿球落點離湖岸這麼近也算碰到水（球本身半徑 1.25，擦到岸邊就算）
+const MARK_RED := Color(1.0, 0.35, 0.1, 0.28)      # 落點圈：底下什麼都沒有
+const MARK_GREEN := Color(0.3, 1.0, 0.4, 0.42)     # 落點圈：底下是湖水，或是有敵人
 const STONE_R := 2.6                     # 岩漿掉進湖裡凝固成的鵝卵石堆有多大（半徑）
+const LINK_GAP := 2.4                    # 石頭堆之間（或跟岸邊、小島之間）差這麼一點也算接得起來，中間自動補上小石頭
 const STONE_TOP := 0.22                  # 鵝卵石頂面比水面高多少
 const KNIGHT_SCALE := 1.25               # 騎士比一般農夫大多少
 const KNIGHT_SPEED := 1.7                # 騎士走多快（比家豪慢）
@@ -77,6 +81,7 @@ var _flee_dir := Vector3.ZERO             # 上一步往哪邊逃（下一步盡
 var _pecked := false                     # 這一趟啄過了
 var _kn_from := Vector3.ZERO
 var _kn_to := Vector3.ZERO
+var _fills: Array = []                   # 橋上補空隙的小石頭位置
 var _stones: Array = []                  # 湖裡的鵝卵石堆：{pos, node}
 var _bridge: Array[Vector3] = []         # 從岸邊踩著鵝卵石走到小島的路（空的 = 還沒接起來）
 var _helmets := {}                       # 騎士 → 他的頭盔節點
@@ -458,6 +463,7 @@ func _level_reset() -> void:
 	super()
 	_bombs.clear()        # 節點掛在 fx_root 底下，重試時會自動刪掉
 	_pools.clear()
+	_fills.clear()
 	_stones.clear()       # 鵝卵石也掛在 fx_root 底下
 	_bridge.clear()
 	_wind_t = 0.0
@@ -506,7 +512,7 @@ func on_thunder(p: Vector3) -> void:
 		var mm := StandardMaterial3D.new()
 		mm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		mm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		mm.albedo_color = Color(1.0, 0.35, 0.1, 0.28)
+		mm.albedo_color = MARK_RED
 		mark.material_override = mm
 		mark.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		fx_root.add_child(mark)
@@ -760,8 +766,8 @@ func _land(at: Vector3) -> void:
 	if bird.alive() and bird.air < 0.5 and flat_dist(bird.pos, at) <= BOMB_RADIUS:
 		log_event("岩漿燙到家豪")
 		hit_bird(minf(BOMB_BIRD_DAMAGE, maxf(bird.hp - 1.0, 0.0)), true, at)
-	if world.in_pool(3, at.x, at.z):
-		_make_stone(at)
+	if _over_water(at):
+		_make_stone(_into_water(at))
 		return
 	if n == 0:
 		log_event("岩漿落在地上，沒燙到人")
@@ -780,6 +786,31 @@ func _land(at: Vector3) -> void:
 	_pools.append({"t": 0.0, "node": pool, "mat": m})
 
 # ---------------------------------------------------------------- 湖裡的鵝卵石、第三顆星星
+
+## 岩漿球掉在這裡算不算碰到湖水：放寬到岸邊外面一點（球很大，擦到水就算），中間的小島周圍也算
+func _over_water(p: Vector3) -> bool:
+	return world.in_pool(3, p.x, p.z, WATER_REACH, true)
+
+## 落點在岸上但擦到水：把石頭堆的位置往湖心挪到水裡，才不會埋在岸邊的土裡
+func _into_water(p: Vector3) -> Vector3:
+	var c := _lake_center()
+	var q := p
+	for i in 24:
+		if world.in_pool(3, q.x, q.z, 0.0, true):
+			break
+		var d := c - q
+		d.y = 0.0
+		if d.length() < 0.1:
+			break
+		q += d.normalized() * 0.1
+	return q
+
+## 岩漿球現在掉下去會不會燙到敵人（正下方那一圈裡有沒有人）
+func _over_enemy(p: Vector3) -> bool:
+	for f in enemies:
+		if f.alive() and not f.data.get("hidden", false) and flat_dist(f.pos, p) <= BOMB_RADIUS:
+			return true
+	return false
 
 ## 湖面的高度
 func _lake_y() -> float:
@@ -844,14 +875,19 @@ func _find_bridge() -> void:
 	for st in _stones:
 		var p: Vector3 = st.pos
 		var sp = null
-		for i in 16:
-			var a := TAU * float(i) / 16.0
-			var q := Vector3(p.x + cos(a) * (STONE_R + 0.9), 0.0, p.z + sin(a) * (STONE_R + 0.9))
-			if not world.in_pool(3, q.x, q.z, 0.3, true) and world.walkable(q.x, q.z):
-				if sp == null or flat_dist(q, c) < flat_dist(sp, c):
-					sp = q
+		# 從石頭邊緣往外一圈一圈找岸：差一點點（LINK_GAP 以內）也算碰得到，挑最近的那一圈
+		for ring in 5:
+			var rr: float = STONE_R + 0.9 + LINK_GAP * float(ring) / 4.0
+			for i in 16:
+				var a := TAU * float(i) / 16.0
+				var q := Vector3(p.x + cos(a) * rr, 0.0, p.z + sin(a) * rr)
+				if not world.in_pool(3, q.x, q.z, 0.3, true) and world.walkable(q.x, q.z):
+					if sp == null or flat_dist(q, c) < flat_dist(sp, c):
+						sp = q
+			if sp != null:
+				break
 		shore.append(sp)
-		isle.append(flat_dist(p, c) - STONE_R <= isle_r + 0.35)
+		isle.append(flat_dist(p, c) - STONE_R <= isle_r + 0.35 + LINK_GAP)
 	# 從碰得到岸的石頭開始往外找，直到碰得到小島的石頭
 	var prev := {}
 	var todo: Array = []
@@ -866,7 +902,7 @@ func _find_bridge() -> void:
 			goal = i
 			break
 		for j in _stones.size():
-			if not prev.has(j) and flat_dist(_stones[i].pos, _stones[j].pos) <= STONE_R * 2.0 - 0.4:
+			if not prev.has(j) and flat_dist(_stones[i].pos, _stones[j].pos) <= STONE_R * 2.0 - 0.4 + LINK_GAP:
 				prev[j] = i
 				todo.append(j)
 	if goal < 0:
@@ -881,6 +917,46 @@ func _find_bridge() -> void:
 	for i in chain:
 		_bridge.append(_stones[i].pos)
 	_bridge.append(ground(c))
+	_fill_gaps()
+
+## 橋接起來了：路上還泡在水裡、沒有石頭的空隙補上小石頭，看起來是一整條連起來的路
+func _fill_gaps() -> void:
+	var top := _lake_y() + STONE_TOP
+	for i in _bridge.size() - 1:
+		var a: Vector3 = _bridge[i]
+		var b: Vector3 = _bridge[i + 1]
+		var steps := int(ceil(flat_dist(a, b) / 0.9))
+		for k in range(1, steps):
+			var q: Vector3 = a.lerp(b, float(k) / float(steps))
+			if not world.in_pool(3, q.x, q.z, 0.3):
+				continue        # 已經是岸上或小島上
+			var covered := false
+			for st in _stones:
+				if flat_dist(st.pos, q) <= STONE_R * 0.75:
+					covered = true
+			for fp in _fills:
+				if flat_dist(fp, q) <= 0.8:
+					covered = true
+			if covered:
+				continue
+			_fills.append(q)
+			var mi := MeshInstance3D.new()
+			var sm := SphereMesh.new()
+			sm.radius = 1.0
+			sm.height = 2.0
+			sm.radial_segments = 5
+			sm.rings = 2
+			mi.mesh = sm
+			var mat: ShaderMaterial = (world._cliff_material() as ShaderMaterial).duplicate()
+			for key in ["leaf_a", "leaf_b", "night_leaf_a", "night_leaf_b"]:
+				mat.set_shader_parameter(key, Color(0.40, 0.33, 0.35))
+			mi.material_override = mat
+			var r := RandomNumberGenerator.new()
+			r.seed = 7000 + _fills.size() * 17
+			var bs := Basis.from_euler(Vector3(r.randf_range(-0.2, 0.2), r.randf() * TAU, r.randf_range(-0.2, 0.2)))
+			mi.transform = Transform3D(bs.scaled(Vector3(r.randf_range(1.0, 1.3), r.randf_range(0.34, 0.46), r.randf_range(1.0, 1.3))), Vector3.ZERO)
+			fx_root.add_child(mi)
+			mi.global_position = Vector3(q.x, top - 0.22, q.z)
 
 ## 鵝卵石接到小島之後才拿得到星星
 func _star_ready() -> bool:
@@ -917,9 +993,13 @@ func _level_visuals() -> void:
 			(b.node as Node3D).global_position = p
 		if is_instance_valid(b.mark):
 			var my: float = world.height_at(p.x, p.z)
-			if world.in_pool(3, p.x, p.z):
-				my = _lake_y()
+			var wet := _over_water(p)
+			if wet:
+				my = maxf(my, _lake_y())
 			(b.mark as Node3D).global_position = Vector3(p.x, my + 0.15, p.z)
+			# 底下是湖水（會變成石頭）或是有敵人（會燙到）：圈變綠色，不然是紅色
+			var mat := (b.mark as MeshInstance3D).material_override as StandardMaterial3D
+			mat.albedo_color = MARK_GREEN if wet or _over_enemy(p) else MARK_RED
 	for pl in _pools:
 		(pl.mat as ShaderMaterial).set_shader_parameter("heat", clampf(1.0 - pl.t / POOL_TIME, 0.0, 1.0))
 	_tick_boss_cut()
