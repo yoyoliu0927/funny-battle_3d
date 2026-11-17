@@ -1,0 +1,5 @@
+levels/fort/assets/castle：Kenney「Castle Kit 2.0」(https://kenney.nl/assets/castle-kit)，CC0。
+levels/fort/assets/pirate：Kenney「Pirate Kit」(https://kenney.nl/assets/pirate-kit)，CC0（只取用到的模型）。
+levels/fort/assets/tdkit：Kenney「Tower Defense Kit」(https://kenney.nl/assets/tower-defense-kit)，CC0（只取用到的模型）。
+levels/fort/assets/tutorial：新手教學的示範動畫（影格表），用 fort_main.gd 的 --recordtut 從遊戲畫面錄出來的。
+（合併進 develop 時從共用的 assets/ 搬到這裡；各資料夾裡原本的 CREDITS.txt 也留著。）

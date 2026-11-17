@@ -289,6 +289,76 @@ static func draw_keycap(c: CanvasItem, pos: Vector2, key: String, size := 18.0) 
 	c.draw_string(f, Vector2(pos.x, base_y), key, HORIZONTAL_ALIGNMENT_CENTER, sz.x, fs, INK)
 	return sz
 
+## 滑鼠圖示（跟鍵帽同一套線條）：button = "left" / "right" / "wheel"，按的那一顆塗上主題色
+static func mouse_icon(button := "left", size := 18) -> Control:
+	var m := _Mouse.new()
+	m.button = button
+	m.acc = accent()
+	m.custom_minimum_size = Vector2(roundi(size * 1.25), roundi(size * 1.75))
+	m.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	m.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	return m
+
+## 「滑鼠圖示＋說明」排成一列（跟 key_hint 長得一樣）
+static func mouse_hint(button: String, text := "", size := 18, color := INK) -> HBoxContainer:
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", maxi(4, roundi(size * 0.3)))
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(mouse_icon(button, size))
+	if text != "":
+		var t := Label.new()
+		t.text = text
+		t.label_settings = ls(size + 2, color)
+		t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(t)
+	return row
+
+class _Mouse:
+	extends Control
+	var button := "left"
+	var acc := Color("e2483d")
+	func _draw() -> void:
+		var w := size.x
+		var h := size.y
+		var lw := maxf(2.0, w * 0.09)
+		var r := Rect2(Vector2(lw * 0.5, lw * 0.5), Vector2(w - lw, h - lw))
+		var body := StyleBoxFlat.new()
+		body.bg_color = Color(1, 1, 1)
+		body.border_color = INK
+		body.set_border_width_all(int(lw))
+		body.set_corner_radius_all(int(w * 0.5))
+		body.anti_aliasing = true
+		draw_style_box(body, r)
+		var split_y := r.position.y + r.size.y * 0.42
+		var cx := r.position.x + r.size.x * 0.5
+		var inset := lw
+		# 按下去的那一顆：塗主題色（左上 / 右上 / 中間滾輪）
+		if button == "left" or button == "right":
+			var pts := PackedVector2Array()
+			var rad := r.size.x * 0.5 - inset
+			var c := Vector2(cx, r.position.y + r.size.x * 0.5)
+			var a0 := PI if button == "left" else PI * 1.5
+			var steps := 10
+			if button == "left":
+				pts.append(Vector2(cx, split_y))
+				pts.append(Vector2(r.position.x + inset, split_y))
+				for k in steps + 1:
+					var a := a0 + PI * 0.5 * k / steps
+					pts.append(c + Vector2(cos(a), sin(a)) * rad)
+				pts.append(Vector2(cx, r.position.y + inset))
+			else:
+				pts.append(Vector2(cx, split_y))
+				pts.append(Vector2(cx, r.position.y + inset))
+				for k in steps + 1:
+					var a := a0 + PI * 0.5 * k / steps
+					pts.append(c + Vector2(cos(a), sin(a)) * rad)
+				pts.append(Vector2(r.end.x - inset, split_y))
+			draw_colored_polygon(pts, acc)
+		draw_line(Vector2(r.position.x, split_y), Vector2(r.end.x, split_y), INK, lw * 0.8)
+		draw_line(Vector2(cx, r.position.y), Vector2(cx, split_y), INK, lw * 0.8)
+		var wheel := Rect2(Vector2(cx - w * 0.09, r.position.y + r.size.y * 0.14), Vector2(w * 0.18, r.size.y * 0.18))
+		draw_rect(wheel, acc if button == "wheel" else INK)
+
 static func slip_box(pad := Vector2(14, 7), alpha := 0.96) -> StyleBoxFlat:
 	var s := _box(Color(PAPER, alpha), PAPER_EDGE, 7, 2)
 	s.border_width_bottom = 3
