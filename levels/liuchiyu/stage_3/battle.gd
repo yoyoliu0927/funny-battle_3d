@@ -67,6 +67,9 @@ var _boss_cut := -1.0                    # 騎士登場的特寫播了幾秒（<
 var _boss_line := 0                      # 台詞說到第幾句了
 var _boss_back := Transform3D.IDENTITY
 var _boss_head := 0.0
+var _boss_next := false                  # 玩家按了 Enter：換下一句
+var _boss_line_t := 0.0                  # 這一句已經出現幾秒了
+var _boss_hint: Label                    # 對話框右下角的「Enter ▶」
 var _kn_cd := 0.0                        # 騎士還要等多久才能再打
 var _bird_mode := 0                      # 家豪對騎士：0 衝過去啄、1 被打飛、2 逃開
 var _bird_t := 0.0
@@ -145,14 +148,16 @@ const BOSS_LINES := [
 	"我這身盔甲可是免疫大部分攻擊。",
 	"只是不通風很熱而已...",        # 提示玩家：他怕熱，要用岩漿
 ]
-const BOSS_LINE_TIME := 2.8      # 一句話停幾秒（對話框自己最多顯示 3.2 秒，下一句會直接接上去）
+const BOSS_MIN_LINE := 0.3       # 一句話至少出現幾秒才能按 Enter 換下一句（避免一下按太快跳過兩句）
 
 ## 騎士落地：鏡頭拉到他面前，他把話說完才開打（鏡頭原本的位置先記下來）
+## 台詞不會自己換：每一句都停在畫面上，按 Enter 才換下一句，最後一句再按 Enter 就開打
 func _start_boss_cut() -> void:
 	if player == null or _boss_cut >= 0.0:
 		return
 	_boss_cut = 0.0
 	_boss_line = 0
+	_boss_next = false
 	_boss_back = player.global_transform
 	var head := player.get_node_or_null("Head") as Node3D
 	_boss_head = head.rotation.x if head else 0.0
@@ -162,6 +167,11 @@ func _end_boss_cut() -> void:
 	if _boss_cut < 0.0:
 		return
 	_boss_cut = -1.0
+	_boss_next = false
+	if _boss_hint:
+		_boss_hint.visible = false
+	if _dialog and _dialog.t >= 0.0:
+		_dialog.t = maxf(_dialog.t, DialogBox.SHOW_TIME - 0.3)     # 最後一句滑下去收起來
 	if player:
 		player.global_transform = _boss_back
 		var head := player.get_node_or_null("Head") as Node3D
@@ -170,7 +180,7 @@ func _end_boss_cut() -> void:
 		player.set("velocity", Vector3.ZERO)
 		player.set_physics_process(true)
 
-## 每一畫面：鏡頭擺在騎士斜前方、比他矮一點往上看；台詞一句一句說，說完鏡頭還給玩家
+## 每一畫面：鏡頭擺在騎士斜前方、比他矮一點往上看；台詞一句一句說（按 Enter 換下一句），說完鏡頭還給玩家
 func _tick_boss_cut() -> void:
 	if _boss_cut < 0.0:
 		return
@@ -181,15 +191,56 @@ func _tick_boss_cut() -> void:
 	if knight == null or not knight.alive():
 		_end_boss_cut()
 		return
-	if _boss_line < BOSS_LINES.size() and _boss_cut >= float(_boss_line) * BOSS_LINE_TIME:
+	_boss_cut += 1.0 / 60.0
+	_boss_line_t += 1.0 / 60.0
+	var next := _boss_next and _boss_line_t >= BOSS_MIN_LINE
+	_boss_next = false          # 太早按的那一下不算，要等這一句出現夠久再按
+	if _boss_line == 0 or next:
+		if _boss_line >= BOSS_LINES.size():
+			_end_boss_cut()     # 最後一句也看完了：開打
+			return
 		say_as(knight, BOSS_LINES[_boss_line])
 		_boss_line += 1
-	_boss_cut += 1.0 / 60.0
+		_boss_line_t = 0.0
+	elif _dialog:
+		if _dialog.t < 0.0:
+			say_as(knight, BOSS_LINES[_boss_line - 1])     # 被別的東西收掉了：再顯示一次
+		else:
+			_dialog.t = minf(_dialog.t, 0.3)     # 對話框本來 3.2 秒會自己收：滑上來之後就一直停著，等玩家按 Enter
+	_tick_boss_hint()
 	var fwd := Vector3(sin(knight.yaw), 0.0, cos(knight.yaw))
 	var side := Vector3(fwd.z, 0.0, -fwd.x)
 	_aim_camera(knight.pos + fwd * 4.4 + side * 1.7 + Vector3(0.0, 1.7, 0.0), knight.pos + Vector3(0.0, 2.1, 0.0))
-	if _boss_cut >= float(BOSS_LINES.size()) * BOSS_LINE_TIME:
-		_end_boss_cut()
+
+## 對話框右下角一閃一閃的「Enter ▶」：告訴玩家要按 Enter 才會換下一句
+func _tick_boss_hint() -> void:
+	if _dialog == null:
+		return
+	if _boss_hint == null:
+		_boss_hint = Label.new()
+		_boss_hint.text = "Enter ▶"
+		_boss_hint.add_theme_font_size_override("font_size", 20)
+		_boss_hint.add_theme_color_override("font_color", Color(1.0, 0.95, 0.8))
+		_boss_hint.add_theme_color_override("font_outline_color", Color(0.1, 0.07, 0.03))
+		_boss_hint.add_theme_constant_override("outline_size", 6)
+		_boss_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_dialog.add_child(_boss_hint)
+	# 對話框畫在這個 Control 的正中間、上緣，寬 W 高 H（見 scripts/ui/dialog_box.gd）
+	_boss_hint.position = Vector2((_dialog.size.x + DialogBox.W) * 0.5 - 100.0, DialogBox.H - 34.0)
+	_boss_hint.visible = _boss_line_t >= BOSS_MIN_LINE
+	_boss_hint.modulate.a = 0.55 + 0.45 * sin(_boss_cut * 5.0)
+
+## 騎士登場的特寫也算鏡頭被借走：神的手收起來
+func _camera_borrowed() -> bool:
+	return _boss_cut >= 0.0 or super()
+
+## 騎士登場的特寫播放中：Enter 是「下一句」，不是共用的「開打」
+func _unhandled_input(event: InputEvent) -> void:
+	if _boss_cut >= 0.0 and event.is_action_pressed("battle_start") and not event.is_echo():
+		_boss_next = true
+		get_viewport().set_input_as_handled()
+		return
+	super(event)
 
 ## 劈火山的時候烏雲拉得很高（雷道具會問）：不然噴出來的岩漿球會被烏雲擋住
 func thunder_cloud_height(p: Vector3) -> float:

@@ -851,6 +851,10 @@ func try_cast() -> bool:
 		return super()
 	return cast(selected, p)
 
+## 鏡頭現在是不是被過場借走了（這時候神的手收起來）。小關有自己的過場就覆寫，記得 or super()
+func _camera_borrowed() -> bool:
+	return _cut_t > 0.0 or _follow_pos != null
+
 ## 道具真的放出去了，手就動一下（按住型的在 _hold_tick 裡處理）
 func cast(i: int, p: Vector3) -> bool:
 	var ok := super(i, p)
@@ -885,7 +889,7 @@ func _process(dt: float) -> void:
 	_tick_star_view(dt)
 	if hands:
 		# 鏡頭被借走（拿星星的小過場、跟著家豪走去下一關）的時候把手收起來
-		hands.show_hands(_cut_t <= 0.0 and _follow_pos == null)
+		hands.show_hands(not _camera_borrowed())
 	if _leaving or not _won() or _next_stage() <= 0 or not _can_leave():
 		return
 	if _walking_out():
