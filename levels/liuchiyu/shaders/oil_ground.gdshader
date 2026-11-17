@@ -65,18 +65,14 @@ void fragment() {
 	// 光斑：大範圍的亮區和暗區
 	float sun_patch = smoothstep(0.46, 0.64, vnoise(p * 0.13 + 3.0) * 0.75 + vnoise(p * 0.4) * 0.25);
 	vec3 col = sh5;
-	// 陰影的筆觸：三層不同大小，每一筆從陰影色裡挑一個
-	vec2 s = strokes(p, 1.0, 0.3, 0.85, 1.0);
-	col = mix(col, pick5(s.x, sh1, sh5, sh4, sh1, sh5), s.y);
-	s = strokes(p, 0.62, 1.1, 0.7, 2.0);
-	col = mix(col, pick5(s.x, sh1, sh2, sh3, sh4, sh5), s.y);
-	s = strokes(p, 0.42, -0.4, 0.45, 3.0);
-	col = mix(col, pick5(s.x, sh2, sh3, sh4, sh1, sh2), s.y);
-	// 光斑的筆觸：只出現在亮區，越靠近亮區中心越密
-	s = strokes(p, 0.70, 0.8, sun_patch * 0.85, 4.0);
-	col = mix(col, pick5(s.x, su1, su3, su4, su1, su3), s.y);
-	s = strokes(p, 0.46, 2.0, sun_patch * 0.7, 5.0);
-	col = mix(col, pick5(s.x, su1, su2, su3, su2, su5), s.y);
+	// 陰影的筆觸：兩層大筆觸，只用相近的紅棕色（原本三層、五種色相，地面太花）
+	vec2 s = strokes(p, 1.25, 0.3, 0.8, 1.0);
+	col = mix(col, pick5(s.x, sh1, sh5, sh4, sh1, sh5), s.y * 0.85);
+	s = strokes(p, 0.8, 1.1, 0.5, 2.0);
+	col = mix(col, pick5(s.x, sh1, sh4, sh5, sh4, sh2), s.y * 0.7);
+	// 光斑的筆觸：只出現在亮區，一層大筆觸
+	s = strokes(p, 0.95, 0.8, sun_patch * 0.8, 4.0);
+	col = mix(col, pick5(s.x, su1, su3, su4, su1, su3), s.y * 0.9);
 
 	// 陡坡畫成深色的岩石筆觸
 	float steep = smoothstep(0.3, 0.7, COLOR.b);

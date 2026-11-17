@@ -752,6 +752,7 @@ func _build_far_land() -> void:
 	mi.name = "FarLand"
 	mi.mesh = st.commit()
 	mi.material_override = gm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF      # 離這一關 60 公尺以外，已經超出陰影的範圍
 	add_child(mi)
 
 ## 第二小關通到高原的石階：一階一階的石板，鋪在切進岩壁的斜坡上
@@ -769,13 +770,23 @@ func _build_stairs() -> void:
 	var y1 := _land_h(b.x + dir.x * 0.5, b.y + dir.y * 0.5)
 	var r := RandomNumberGenerator.new()
 	r.seed = world_seed + 211
+	# 44 階合成一個網格：原本每一階是一個獨立的物件，光是石階每一幀就要多畫一百多次
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for k in STAIR_STEPS:
 		var top := y0 + (y1 - y0) * float(k + 1) / STAIR_STEPS
 		var c := a + dir * ((k + 0.5) * run)
 		# 每一階寬度、位置稍微不一樣，像一塊一塊鋪上去的石板。
 		# 每一塊都是一根很深的岩石柱，一路插到地底下：石階兩側和底下看到的都是岩石，不會懸空
 		var w := STAIR_W + r.randf_range(-0.3, 0.3)
-		_box(holder, Vector3(w, STAIR_DEPTH, run + 0.14), Vector3(c.x, top - STAIR_DEPTH * 0.5, c.y), mat, Vector3(0.0, yaw + r.randf_range(-0.03, 0.03), 0.0))
+		var bm := BoxMesh.new()
+		bm.size = Vector3(w, STAIR_DEPTH, run + 0.14)
+		st.append_from(bm, 0, Transform3D(Basis.from_euler(Vector3(0.0, yaw + r.randf_range(-0.03, 0.03), 0.0)), Vector3(c.x, top - STAIR_DEPTH * 0.5, c.y)))
+	var mi := MeshInstance3D.new()
+	mi.name = "Steps"
+	mi.mesh = st.commit()
+	mi.material_override = mat
+	holder.add_child(mi)
 
 ## 高原的岩壁上堆大石頭，看起來是一整塊岩石平台；石階兩側也堆一排
 func _build_plateau_rocks() -> void:
@@ -949,9 +960,9 @@ func _build_falls_mist(nm: String, foot: Vector3, half_w: float, k: float) -> vo
 	grow.add_point(Vector2(1.0, 1.0))
 	var specs := [
 		# [名字, 數量, 存活秒數, 粒子大小, 往上速度(最小,最大), 重力, 散開角度, 大小倍數(最小,最大), 透明度]
-		["Foam", 50, 2.2, 2.6, Vector2(0.6, 1.4), Vector3(0.0, -0.2, 0.0), 88.0, Vector2(0.9, 1.6), 0.85],      # 貼著水面往四周鋪開的一圈白泡泡
-		["Mist", 70, 3.6, 3.0, Vector2(0.8, 1.8), Vector3(0.0, 0.25, 0.0), 60.0, Vector2(0.8, 2.0), 0.6],       # 往上飄高的白霧，像一朵雲
-		["Spray", 70, 1.1, 0.5, Vector2(3.0, 5.2), Vector3(0.0, -7.0, 0.0), 38.0, Vector2(0.5, 1.2), 0.95],     # 往上噴再掉下去的小水花
+		["Foam", 30, 2.2, 2.6, Vector2(0.6, 1.4), Vector3(0.0, -0.2, 0.0), 88.0, Vector2(0.9, 1.6), 0.85],      # 貼著水面往四周鋪開的一圈白泡泡
+		["Mist", 40, 3.6, 3.0, Vector2(0.8, 1.8), Vector3(0.0, 0.25, 0.0), 60.0, Vector2(0.8, 2.0), 0.6],       # 往上飄高的白霧，像一朵雲
+		["Spray", 36, 1.1, 0.5, Vector2(3.0, 5.2), Vector3(0.0, -7.0, 0.0), 38.0, Vector2(0.5, 1.2), 0.95],     # 往上噴再掉下去的小水花
 	]
 	for s in specs:
 		var p := CPUParticles3D.new()
@@ -1052,7 +1063,7 @@ func _build_banks() -> void:
 	mi.multimesh = mm
 	mi.material_override = _cliff_material()
 	add_child(mi)
-	_leaf_multimesh("BankReeds", xf, cols)
+	_leaf_multimesh("BankReeds", xf, cols, null, false)
 
 # ---------------------------------------------------------------- 枯樹橋
 

@@ -83,7 +83,7 @@ func _apply_time() -> void:
 		_grass_mat.set_shader_parameter("tip_color", Color(0.62, 0.86, 0.88) if night else Color(0.74, 0.60, 0.22))
 
 func _init() -> void:
-	grass_count = 420
+	grass_count = 220        # 草少一點，地面比較乾淨
 	ground_a = Color(0.62, 0.30, 0.08)
 	ground_b = Color(0.40, 0.17, 0.08)
 	dirt_color = Color(0.30, 0.12, 0.08)
@@ -159,6 +159,8 @@ func _apply_look() -> void:
 		env.fog_sun_scatter = 0.12
 		env.fog_sky_affect = 0.0
 		env.volumetric_fog_enabled = false
+		env.ssao_enabled = false        # 過了油畫濾鏡幾乎看不出來，省下來
+		env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED      # 材質都不反光，不用每一幀更新天空的反射圖
 		env.glow_enabled = true
 		env.glow_intensity = 0.12
 		env.glow_bloom = 0.0
@@ -175,9 +177,33 @@ func _apply_look() -> void:
 		sun.light_energy = 2.2
 		sun.shadow_enabled = true
 		sun.shadow_blur = 0.6
-		sun.directional_shadow_max_distance = 110.0
+		# 陰影是最花的一項：只分兩層、只畫到 80 公尺（再遠的被薄霧蓋住，看不出來）
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+		sun.directional_shadow_split_1 = 0.28
+		sun.directional_shadow_blend_splits = true
+		sun.directional_shadow_max_distance = 80.0
 		_sun = sun
 	_apply_time()
+	_lighten_viewport()
+
+## 整個畫面最後都會過油畫濾鏡（邊緣本來就糊成一筆一筆的），不需要 4 倍的多重取樣反鋸齒：
+## 在這個大關裡改用便宜的 FXAA，離開關卡時還原成專案原本的設定（不影響別人的大關）
+var _vp_saved := {}
+
+func _lighten_viewport() -> void:
+	var vp := get_viewport()
+	if vp == null or not _vp_saved.is_empty():
+		return
+	_vp_saved = {"msaa": vp.msaa_3d, "ssaa": vp.screen_space_aa}
+	vp.msaa_3d = Viewport.MSAA_DISABLED
+	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
+
+func _exit_tree() -> void:
+	var vp := get_viewport()
+	if vp != null and not _vp_saved.is_empty():
+		vp.msaa_3d = _vp_saved["msaa"]
+		vp.screen_space_aa = _vp_saved["ssaa"]
+	_vp_saved = {}
 
 ## 油畫濾鏡：一片貼在鏡頭前面的全螢幕面。介面（CanvasLayer）不受影響。
 func _build_filter() -> void:
@@ -479,7 +505,7 @@ func _build_ground_leaves() -> void:
 	for area in _leaf_areas():
 		var rect: Rect2 = area[0]
 		r.seed = world_seed + 61 + int(area[1]) * 1000
-		for k in 3200:
+		for k in 1300:        # 落葉少一點：地面不會那麼花，也少畫很多小面片
 			# 每一輪固定抽一樣多個亂數（不管這一片要不要），這樣同一個範圍每次撒出來都一樣
 			var x := rect.position.x - 8.0 + r.randf() * (rect.size.x + 16.0)
 			var z := rect.position.y - 8.0 + r.randf() * (rect.size.y + 16.0)
@@ -501,7 +527,7 @@ func _build_ground_leaves() -> void:
 	var lm := ShaderMaterial.new()
 	lm.shader = LEAF_LIT_SHADER
 	_leaf_mats.append(lm)
-	_leaf_multimesh("GroundLeaves", xf, cols, lm)
+	_leaf_multimesh("GroundLeaves", xf, cols, lm, false)
 	_build_tufts()
 
 ## 地上一叢一叢尖尖的葉子（黃、綠、橘），每叢是幾筆往外斜的長筆觸
@@ -512,7 +538,7 @@ func _build_tufts() -> void:
 	var cols: Array[Color] = []
 	for area in _leaf_areas():
 		var rect: Rect2 = area[0]
-		for k in 260:
+		for k in 110:
 			# 每一叢用自己的亂數種子，這樣同一個範圍每次長出來都一樣
 			r.seed = world_seed + 77 + int(area[1]) * 1000 + k
 			var x := rect.position.x - 10.0 + r.randf() * (rect.size.x + 20.0)
@@ -520,7 +546,7 @@ func _build_tufts() -> void:
 			if in_water(x, z) or _on_cliff_face(x, z):
 				continue
 			_one_tuft(r, x, z, tuft_cols, xf, cols)
-	_leaf_multimesh("Tufts", xf, cols)
+	_leaf_multimesh("Tufts", xf, cols, null, false)
 
 func _one_tuft(r: RandomNumberGenerator, x: float, z: float, tuft_cols: Array, xf: Array[Transform3D], cols: Array[Color]) -> void:
 	if true:
@@ -538,7 +564,8 @@ func _one_tuft(r: RandomNumberGenerator, x: float, z: float, tuft_cols: Array, x
 			var v := r.randf_range(0.6, 0.85)
 			cols.append(Color(c.r * v, c.g * v, c.b * v))
 
-func _leaf_multimesh(node_name: String, xf: Array[Transform3D], cols: Array[Color], mat: ShaderMaterial = null) -> void:
+## shadow = false：貼在地上的小東西不投影子（影子看不出來，卻要多畫好幾次）
+func _leaf_multimesh(node_name: String, xf: Array[Transform3D], cols: Array[Color], mat: ShaderMaterial = null, shadow := true) -> void:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
@@ -553,6 +580,8 @@ func _leaf_multimesh(node_name: String, xf: Array[Transform3D], cols: Array[Colo
 	mi.name = node_name
 	mi.multimesh = mm
 	mi.material_override = mat if mat else _leaf_material()
+	if not shadow:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
 
 ## 慢慢飄下來的葉子
@@ -561,7 +590,7 @@ func _build_falling_leaves() -> void:
 	var size := play_max - play_min
 	var p := CPUParticles3D.new()
 	p.name = "FallingLeaves"
-	p.amount = 170
+	p.amount = 70
 	p.lifetime = 11.0
 	p.preprocess = 11.0
 	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
@@ -636,7 +665,7 @@ func _leaf_clump(r: RandomNumberGenerator, c: Vector3, rc: float, n: int, tint: 
 		var o := Vector3(r.randf_range(-1.0, 1.0), r.randf_range(-0.6, 0.75), r.randf_range(-1.0, 1.0))
 		if o.length() > 1.0:
 			o = o.normalized() * r.randf_range(0.5, 1.0)
-		var s := r.randf_range(0.6, 1.25)
+		var s := r.randf_range(0.85, 1.6)        # 葉子的筆觸少一點、大一點：樹冠是幾大塊顏色，不是一堆碎片
 		var b := Basis.from_euler(Vector3(r.randf_range(-1.2, 1.2), r.randf() * TAU, r.randf_range(-0.8, 0.8))).scaled(Vector3(s, s * 0.6, s))
 		_leaf_xf.append(Transform3D(b, c + o * rc))
 		var col := _leaf_color(r)
@@ -658,10 +687,10 @@ func _limb(r: RandomNumberGenerator, a: Vector3, dir: Vector3, l: float, rad: fl
 	_seg(a, mid + dir * 0.04, rad, col)
 	_seg(mid, b, rad * 0.78, col)
 	if depth <= 0 or rad < 0.03:
-		_leaf_clump(r, b, clampf(l * 0.8, 1.0, 1.9), 8, tint)
+		_leaf_clump(r, b, clampf(l * 0.8, 1.0, 1.9), 5, tint)
 		return
 	if depth == 1:
-		_leaf_clump(r, b, 1.0, 3, tint)
+		_leaf_clump(r, b, 1.0, 2, tint)
 	var n := 2 + (1 if r.randf() < 0.45 else 0)
 	var az0 := r.randf() * TAU
 	for k in n:
@@ -745,8 +774,11 @@ func _build_arena_forest() -> void:
 	cm.top_radius = 0.78
 	cm.bottom_radius = 1.0
 	cm.height = 1.0
-	cm.radial_segments = 6
-	cm.rings = 1
+	# 樹枝是一段一段接起來的，頭尾都埋在別段或葉子裡：不用蓋子、不用中間那一圈，面數少七成
+	cm.radial_segments = 5
+	cm.rings = 0
+	cm.cap_top = false
+	cm.cap_bottom = false
 	var tm := MultiMesh.new()
 	tm.transform_format = MultiMesh.TRANSFORM_3D
 	tm.use_colors = true
