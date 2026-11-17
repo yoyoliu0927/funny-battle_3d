@@ -514,6 +514,7 @@ func _build_distant_layers() -> void:
 		{"r": 330.0, "count": 26, "w": Vector2(50, 90), "h": Vector2(100, 210)},
 	]
 	# 坡頂正後方的巨大岩山（參考圖中被霧籠罩的主峰）
+	var parts: Array = []      # [網格, Transform3D]，最後合併成一個網格
 	var mr := RandomNumberGenerator.new()
 	mr.seed = world_seed + 7
 	for k in 70:
@@ -522,12 +523,8 @@ func _build_distant_layers() -> void:
 		var spread := (1.0 - t * 0.6) * 90.0
 		var pos := Vector3(mr.randf_range(-spread, spread) - 10.0, -40.0 + hgt, -300.0 + mr.randf_range(-40.0, 40.0))
 		var sc := Vector3.ONE * mr.randf_range(28.0, 55.0) * Vector3(1.0, mr.randf_range(0.7, 1.2), 1.0)
-		var mi := MeshInstance3D.new()
-		mi.mesh = _rock_meshes[mr.randi() % _rock_meshes.size()]
-		mi.material_override = _far_rock_material
-		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		mi.transform = Transform3D(Basis(Vector3.UP, mr.randf() * TAU).scaled_local(sc), pos)
-		node.add_child(mi)
+		var mesh: Mesh = _rock_meshes[mr.randi() % _rock_meshes.size()]
+		parts.append([mesh, Transform3D(Basis(Vector3.UP, mr.randf() * TAU).scaled_local(sc), pos)])
 	for layer in layers:
 		for k in layer.count:
 			var ang: float = (k + _rng.randf_range(-0.35, 0.35)) * TAU / float(layer.count)
@@ -536,12 +533,44 @@ func _build_distant_layers() -> void:
 			var w := _rng.randf_range(layer.w.x, layer.w.y)
 			var s := Vector3(w, _rng.randf_range(layer.h.x, layer.h.y), w * _rng.randf_range(0.6, 1.0))
 			var k2 := _rng.randi() % _rock_meshes.size()
-			var mi := MeshInstance3D.new()
-			mi.mesh = (_column_meshes if k2 % 2 == 0 else _rock_meshes)[k2 % 12]
-			mi.material_override = _far_rock_material
-			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-			mi.transform = Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled_local(s), pos)
-			node.add_child(mi)
+			var mesh: Mesh = (_column_meshes if k2 % 2 == 0 else _rock_meshes)[k2 % 12]
+			parts.append([mesh, Transform3D(Basis(Vector3.UP, _rng.randf() * TAU).scaled_local(s), pos)])
+	# 一百多座石山合併成一個網格：原本每座各畫一次（一百多次），現在一次畫完
+	var mi := MeshInstance3D.new()
+	mi.name = "Mountains"
+	mi.mesh = merge_meshes(parts)
+	mi.material_override = _far_rock_material
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	node.add_child(mi)
+
+## 把很多個 [網格, Transform3D] 合併成一個網格（只取每個網格的第一個面，頂點、法線、顏色）。
+## 給不會動、材質相同的一大堆東西用（遠景石山之類），可以把好幾百次繪製變成一次。
+func merge_meshes(parts: Array) -> ArrayMesh:
+	var pos := PackedVector3Array()
+	var nor := PackedVector3Array()
+	var col := PackedColorArray()
+	for pt in parts:
+		var m: Mesh = pt[0]
+		var xf: Transform3D = pt[1]
+		var nb := xf.basis.inverse().transposed()     # 法線要用反轉置，壓扁、拉長的石頭光線才對
+		var a := m.surface_get_arrays(0)
+		var v: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
+		var n: PackedVector3Array = a[Mesh.ARRAY_NORMAL]
+		var c = a[Mesh.ARRAY_COLOR]
+		var idx = a[Mesh.ARRAY_INDEX]
+		var order: PackedInt32Array = idx if idx != null and idx.size() > 0 else PackedInt32Array(range(v.size()))
+		for i in order:
+			pos.append(xf * v[i])
+			nor.append((nb * n[i]).normalized())
+			col.append(c[i] if c != null and c.size() > i else Color.WHITE)
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = pos
+	arrays[Mesh.ARRAY_NORMAL] = nor
+	arrays[Mesh.ARRAY_COLOR] = col
+	var out := ArrayMesh.new()
+	out.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return out
 
 # ---------------------------------------------------------------- 植被
 

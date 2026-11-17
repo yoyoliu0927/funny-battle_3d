@@ -375,28 +375,97 @@ func _build_arena_grass() -> void:
 			spots.append([x, z, sc, yaw, tall, v, green])
 	if spots.is_empty():
 		return
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.use_colors = true
-	mm.mesh = _make_grass_mesh()
-	mm.instance_count = spots.size()
+	var xfs: Array[Transform3D] = []
+	var cols: Array[Color] = []
 	for i in spots.size():
 		var sp: Array = spots[i]
 		var s: float = sp[2] * 0.8
 		var bb := Basis(Vector3.UP, sp[3]).scaled(Vector3(s, s * float(sp[4]), s))
-		mm.set_instance_transform(i, Transform3D(bb, Vector3(sp[0], _land_h(sp[0], sp[1]) - 0.04, sp[1])))
+		xfs.append(Transform3D(bb, Vector3(sp[0], _land_h(sp[0], sp[1]) - 0.04, sp[1])))
 		var v: float = sp[5]
-		mm.set_instance_color(i, Color(0.62 * v, 0.95 * v, 0.5 * v) if sp[6] else Color(v, v, v * 0.95))
-	var grass := MultiMeshInstance3D.new()
-	grass.name = "Grass"
-	grass.multimesh = mm
+		cols.append(Color(0.62 * v, 0.95 * v, 0.5 * v) if sp[6] else Color(v, v, v * 0.95))
 	var gm := ShaderMaterial.new()
 	gm.shader = load("res://shaders/grass.gdshader")
-	grass.material_override = gm
-	grass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(grass)
+	# 切成小塊（共用場地的 _spawn_grass_chunks）：別的小關空地上的草離得遠，引擎會自動不畫
+	_spawn_grass_chunks(xfs, cols, gm)
 	_grass_mat = gm
 	_apply_time()
+
+# ---------------------------------------------------------------- 外圍樹林切塊、分層
+
+## 樹林本身在 oil_world.gd 種（每棵樹由很多段樹枝、很多片葉子組成）。這裡記下每一段樹枝、每一片葉子
+## 是哪一棵樹的（樹根位置），種完之後依樹根切成 ISLE_FOREST_CHUNK 公尺見方的小塊，再分兩層：
+##   靠近這一關遊玩範圍的樹：會投影
+##   其他的樹：不投影（離遊玩範圍遠，影子落在別的樹上或根本在畫面外）
+## 鏡頭背後的小塊引擎會自動略過不畫；原本一整片是一個網格，只要看到一點點就整片都要畫。
+const ISLE_FOREST_CHUNK := 16.0
+const ISLE_SHADOW_D := 6.0       # 樹根離這一關遊玩範圍這麼近以內才投影
+var _trunk_base: Array[Vector2] = []
+var _leaf_base: Array[Vector2] = []
+
+func _tag_tree(t0: int, l0: int, base: Vector3) -> void:
+	for i in _trunk_xf.size() - t0:
+		_trunk_base.append(Vector2(base.x, base.z))
+	for i in _leaf_xf.size() - l0:
+		_leaf_base.append(Vector2(base.x, base.z))
+
+func _oil_tree(r: RandomNumberGenerator, base: Vector3, h: float, rad: float, birch: bool, depth: int) -> void:
+	var t0 := _trunk_xf.size()
+	var l0 := _leaf_xf.size()
+	super(r, base, h, rad, birch, depth)
+	_tag_tree(t0, l0, base)
+
+func _sapling(r: RandomNumberGenerator, base: Vector3) -> void:
+	var t0 := _trunk_xf.size()
+	var l0 := _leaf_xf.size()
+	super(r, base)
+	_tag_tree(t0, l0, base)
+
+func _build_arena_forest() -> void:
+	_trunk_base.clear()
+	_leaf_base.clear()
+	super()
+	var tn := get_node_or_null("ForestTrunks") as MultiMeshInstance3D
+	var ln := get_node_or_null("ForestLeaves") as MultiMeshInstance3D
+	if tn == null or ln == null or _trunk_base.size() != _trunk_xf.size() or _leaf_base.size() != _leaf_xf.size():
+		return        # 對不起來（oil_world 改了種樹的方式）就維持原本一整片
+	var forest := Node3D.new()
+	forest.name = "Forest"
+	add_child(forest)
+	_split_forest(forest, "ForestTrunks", tn, _trunk_xf, _trunk_col, _trunk_base)
+	_split_forest(forest, "ForestLeaves", ln, _leaf_xf, _leaf_col, _leaf_base)
+	tn.free()
+	ln.free()
+
+func _split_forest(parent: Node3D, prefix: String, src: MultiMeshInstance3D, xfs: Array[Transform3D], cols: Array[Color], bases: Array[Vector2]) -> void:
+	var groups := {}
+	for i in xfs.size():
+		var b := bases[i]
+		var tier := 0 if play_dist(b.x, b.y) < ISLE_SHADOW_D else 1
+		var key := Vector3i(floori(b.x / ISLE_FOREST_CHUNK), floori(b.y / ISLE_FOREST_CHUNK), tier)
+		if not groups.has(key):
+			groups[key] = []
+		groups[key].append(i)
+	var keys := groups.keys()
+	keys.sort()   # 固定順序，每次載入節點都一樣
+	for key in keys:
+		var ids: Array = groups[key]
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.mesh = src.multimesh.mesh
+		mm.instance_count = ids.size()
+		for j in ids.size():
+			mm.set_instance_transform(j, xfs[ids[j]])
+			mm.set_instance_color(j, cols[ids[j]])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "%s_%d_%d_%d" % [prefix, key.x, key.y, key.z]
+		mmi.multimesh = mm
+		mmi.material_override = src.material_override       # 同一個材質：晚上、下雨改一次全部跟著變
+		mmi.material_overlay = src.material_overlay
+		if key.z > 0:
+			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(mmi)
 
 func _gy(x: float, z: float) -> float:
 	return _land_h(x, z) + cliff_h(x, z)
@@ -754,6 +823,7 @@ func _build_far_land() -> void:
 	mi.name = "FarLand"
 	mi.mesh = st.commit()
 	mi.material_override = gm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF     # 地面不用投影（省一次陰影繪製）
 	add_child(mi)
 
 ## 第二小關通到高原的石階：一階一階的石板，鋪在切進岩壁的斜坡上

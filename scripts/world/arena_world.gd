@@ -28,6 +28,8 @@ var ground_a := Color(0.52, 0.70, 0.26)  # 地面顏色
 var ground_b := Color(0.42, 0.64, 0.22)
 var dirt_color := Color(0.82, 0.56, 0.32)
 var tree_green := Color(0.29, 0.49, 0.25)
+## 太陽陰影涵蓋到離鏡頭多遠（公尺）；0 = 照遊玩範圍大小自動算
+var shadow_distance := 0.0
 ## 擺設：[{"model": glb 路徑, "pos": Vector3, "yaw": 0.0, "scale": 1.0, "block": 擋路半徑（0 = 不擋）}]
 var props: Array = []
 ## 矮圍欄（家豪飛得過去、敵人要繞）：[[Vector2 起點, Vector2 終點], ...]
@@ -83,6 +85,24 @@ func _ready() -> void:
 	_build_arena_grass()
 	_build_arena_forest()
 	_place_player()
+	_tune_shadows()
+
+## 太陽的陰影只要涵蓋遊玩範圍：分兩層就好（原本四層，每一層都要把會投影的東西再畫一次），
+## 距離照「鏡頭起點到遊玩範圍最遠的角」算。各關在 _configure() 設 shadow_distance 可以自己指定。
+func _tune_shadows() -> void:
+	var sun := get_parent().get_node_or_null("Sun") as DirectionalLight3D if get_parent() else null
+	if sun == null or not sun.shadow_enabled:
+		return
+	var dist := shadow_distance
+	if dist <= 0.0:
+		var cam := Vector2(camera_start.x, camera_start.z)
+		var far := 0.0
+		for c in [play_min, play_max, Vector2(play_min.x, play_max.y), Vector2(play_max.x, play_min.y)]:
+			far = maxf(far, cam.distance_to(c))
+		dist = clampf(far + 15.0, 45.0, 80.0)
+	sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	sun.directional_shadow_max_distance = dist
+	sun.directional_shadow_split_1 = 0.25
 
 # ---------------------------------------------------------------- 地形
 
@@ -296,26 +316,76 @@ func _build_arena_grass() -> void:
 		spots.append(Vector3(p.x, p.y, _rng.randf_range(0.7, 1.15)))
 	if size.x <= 0.0 or spots.is_empty():
 		return
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.use_colors = true
-	mm.mesh = _make_grass_mesh()
-	mm.instance_count = spots.size()
+	var xfs: Array[Transform3D] = []
+	var cols: Array[Color] = []
 	for k in spots.size():
 		var sp := spots[k]
 		var s := sp.z * 0.8
 		var bb := Basis(Vector3.UP, _rng.randf() * TAU).scaled(Vector3(s, s * _rng.randf_range(0.8, 1.2), s))
-		mm.set_instance_transform(k, Transform3D(bb, Vector3(sp.x, height_at(sp.x, sp.y) - 0.04, sp.y)))
+		xfs.append(Transform3D(bb, Vector3(sp.x, height_at(sp.x, sp.y) - 0.04, sp.y)))
 		var v := _rng.randf_range(0.85, 1.05)
-		mm.set_instance_color(k, Color(0.62 * v, 0.95 * v, 0.5 * v) if _rng.randf() < 0.55 else Color(v, v, v * 0.95))
-	var grass := MultiMeshInstance3D.new()
-	grass.name = "Grass"
-	grass.multimesh = mm
+		cols.append(Color(0.62 * v, 0.95 * v, 0.5 * v) if _rng.randf() < 0.55 else Color(v, v, v * 0.95))
 	var gm := ShaderMaterial.new()
 	gm.shader = load("res://shaders/grass.gdshader")
-	grass.material_override = gm
-	grass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(grass)
+	_spawn_grass_chunks(xfs, cols, gm)
+
+## 草叢切成 GRASS_CHUNK 公尺見方的小塊：鏡頭背後、太遠的小塊引擎會自動略過不畫。
+## 第一塊叫 "Grass"，其他塊都是它的子節點，而且共用同一個材質——
+## 所以各關用 get_node("Grass") 改材質、或把 "Grass" 藏起來，整片草都會跟著變。
+const GRASS_CHUNK := 8.0
+const GRASS_HIDE := 50.0      # 草的小塊離鏡頭超過這麼遠就不畫（草很小，這麼遠本來就看不太到）
+
+func _spawn_grass_chunks(xfs: Array[Transform3D], cols: Array[Color], mat: Material) -> MultiMeshInstance3D:
+	if xfs.is_empty():
+		return null
+	var groups := {}
+	for i in xfs.size():
+		var o := xfs[i].origin
+		var key := Vector2i(floori(o.x / GRASS_CHUNK), floori(o.z / GRASS_CHUNK))
+		if not groups.has(key):
+			groups[key] = []
+		groups[key].append(i)
+	var keys := groups.keys()
+	keys.sort()   # 固定順序，每次載入都一樣
+	var mesh := _make_grass_mesh()
+	var root: MultiMeshInstance3D = null
+	for key in keys:
+		var ids: Array = groups[key]
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.mesh = mesh
+		mm.instance_count = ids.size()
+		for j in ids.size():
+			mm.set_instance_transform(j, xfs[ids[j]])
+			mm.set_instance_color(j, cols[ids[j]])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.material_override = mat
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.visibility_range_end = GRASS_HIDE
+		mmi.visibility_range_end_margin = 5.0
+		if root == null:
+			mmi.name = "Grass"
+			add_child(mmi)
+			root = mmi
+		else:
+			mmi.name = "Grass_%d_%d" % [key.x, key.y]
+			root.add_child(mmi)
+	return root
+
+## 外圍森林分三層（離遊玩範圍由近到遠），越遠越省：
+##   前排：完整的樹（樹幹＋2～3 顆樹冠），會投影
+##   中排：樹幹＋2 顆樹冠，不投影（影子只會落在後面的樹上，看不出差別）
+##   後排：格子放寬、每棵只剩 1 顆大樹冠，不投影；鏡頭拉很遠時整塊隱藏
+## 整片森林切成一塊一塊（FOREST_CHUNK 公尺見方），全部放在 "Forest" 節點底下；
+## 節點名稱是 ForestTrunks_x_z_層、ForestCrowns_x_z_層，要找樹冠用 find_child("ForestCrowns*")。
+const FOREST_NEAR_D := 3.0       # 離遊玩範圍這麼近以內是前排
+const FOREST_FAR_D := 6.5        # 超過這裡是後排
+const FOREST_STEP := 1.8         # 前、中排的種樹間距
+const FOREST_FAR_STEP := 2.7     # 後排的種樹間距（約少一半）
+const FOREST_CHUNK := 16.0
+const FOREST_FAR_HIDE := 120.0   # 後排區塊離鏡頭超過這麼遠就不畫
 
 func _build_arena_forest() -> void:
 	var r := RandomNumberGenerator.new()
@@ -329,57 +399,84 @@ func _build_arena_forest() -> void:
 	trunk.height = 1.0
 	trunk.radial_segments = 6
 	trunk.rings = 1
-	var trunks: Array[Transform3D] = []
-	var crowns: Array[Transform3D] = []
-	var cols: Array[Color] = []
-	var step := 1.8
-	var x := play_min.x - forest_band
-	while x <= play_max.x + forest_band:
-		var z := play_min.y - forest_band
-		while z <= play_max.y + forest_band:
-			var px := x + r.randf_range(-0.7, 0.7)
-			var pz := z + r.randf_range(-0.7, 0.7)
-			var d := play_dist(px, pz)
-			# 神（玩家）一開始站的地方附近不種樹，免得一進關卡鏡頭卡在樹裡
-			var near_cam := Vector2(px - camera_start.x, pz - camera_start.z).length() < 6.0
-			if d > 0.4 and d < forest_band and not near_cam and r.randf() < 0.93:
-				var gy := height_at(px, pz)
-				var h := r.randf_range(3.6, 6.2) * (1.0 + clampf(d, 0.0, 8.0) * 0.04)
-				trunks.append(Transform3D(Basis(Vector3.UP, r.randf() * TAU).scaled(Vector3(1, h * 0.55, 1)), Vector3(px, gy + h * 0.27, pz)))
-				var green := Color(tree_green.r + r.randf_range(-0.07, 0.07), tree_green.g + r.randf_range(-0.07, 0.07), tree_green.b + r.randf_range(-0.05, 0.05))
-				for k in r.randi_range(2, 3):
-					var cr := h * (0.36 - k * 0.07)
-					var cb := Basis(Vector3.UP, r.randf() * TAU).scaled(Vector3(cr, cr * 0.85, cr))
-					crowns.append(Transform3D(cb, Vector3(px + r.randf_range(-0.2, 0.2), gy + h * (0.55 + k * 0.2), pz + r.randf_range(-0.2, 0.2))))
-					cols.append(green.lightened(k * 0.08))
-			z += step
-		x += step
-	var tm := MultiMesh.new()
-	tm.transform_format = MultiMesh.TRANSFORM_3D
-	tm.mesh = trunk
-	tm.instance_count = trunks.size()
-	for i in trunks.size():
-		tm.set_instance_transform(i, trunks[i])
-	var tmi := MultiMeshInstance3D.new()
-	tmi.name = "ForestTrunks"
-	tmi.multimesh = tm
-	tmi.material_override = _toon(Color(0.45, 0.32, 0.2))
-	add_child(tmi)
-	var cm := MultiMesh.new()
-	cm.transform_format = MultiMesh.TRANSFORM_3D
-	cm.use_colors = true
-	cm.mesh = blob
-	cm.instance_count = crowns.size()
-	for i in crowns.size():
-		cm.set_instance_transform(i, crowns[i])
-		cm.set_instance_color(i, cols[i])
-	var cmi := MultiMeshInstance3D.new()
-	cmi.name = "ForestCrowns"
-	cmi.multimesh = cm
+	# 區塊 → {"trunks": [...], "crowns": [...], "cols": [...]}；key 是 (cx, cz, 層)
+	var chunks := {}
+	for far in [false, true]:
+		var step: float = FOREST_FAR_STEP if far else FOREST_STEP
+		var jit: float = step * 0.39
+		var x := play_min.x - forest_band
+		while x <= play_max.x + forest_band:
+			var z := play_min.y - forest_band
+			while z <= play_max.y + forest_band:
+				var px := x + r.randf_range(-jit, jit)
+				var pz := z + r.randf_range(-jit, jit)
+				var d := play_dist(px, pz)
+				# 神（玩家）一開始站的地方附近不種樹，免得一進關卡鏡頭卡在樹裡
+				var near_cam := Vector2(px - camera_start.x, pz - camera_start.z).length() < 6.0
+				var in_tier: bool = (d >= FOREST_FAR_D) if far else (d > 0.4 and d < FOREST_FAR_D)
+				if in_tier and d < forest_band and not near_cam and r.randf() < 0.93:
+					var tier := 2 if far else (0 if d < FOREST_NEAR_D else 1)
+					var key := Vector3i(floori(px / FOREST_CHUNK), floori(pz / FOREST_CHUNK), tier)
+					if not chunks.has(key):
+						chunks[key] = {"trunks": [], "crowns": [], "cols": []}
+					var ch: Dictionary = chunks[key]
+					var gy := height_at(px, pz)
+					var h := r.randf_range(3.6, 6.2) * (1.0 + clampf(d, 0.0, 8.0) * 0.04)
+					ch.trunks.append(Transform3D(Basis(Vector3.UP, r.randf() * TAU).scaled(Vector3(1, h * 0.55, 1)), Vector3(px, gy + h * 0.27, pz)))
+					var green := Color(tree_green.r + r.randf_range(-0.07, 0.07), tree_green.g + r.randf_range(-0.07, 0.07), tree_green.b + r.randf_range(-0.05, 0.05))
+					if tier == 2:
+						# 一顆大樹冠頂替原本疊起來的 2～3 顆，輪廓高度差不多
+						var cr := h * 0.45
+						var cb := Basis(Vector3.UP, r.randf() * TAU).scaled(Vector3(cr, cr * 0.95, cr))
+						ch.crowns.append(Transform3D(cb, Vector3(px, gy + h * 0.66, pz)))
+						ch.cols.append(green.lightened(0.04))
+					else:
+						var n := r.randi_range(2, 3) if tier == 0 else 2
+						for k in n:
+							var cr := h * (0.36 - k * 0.07)
+							var cb := Basis(Vector3.UP, r.randf() * TAU).scaled(Vector3(cr, cr * 0.85, cr))
+							ch.crowns.append(Transform3D(cb, Vector3(px + r.randf_range(-0.2, 0.2), gy + h * (0.55 + k * 0.2), pz + r.randf_range(-0.2, 0.2))))
+							ch.cols.append(green.lightened(k * 0.08))
+				z += step
+			x += step
+	var trunk_mat := _toon(Color(0.45, 0.32, 0.2))
+	# 所有樹冠共用同一個材質：改一次參數，每一塊都會跟著變
 	var crown_mat := ShaderMaterial.new()
 	crown_mat.shader = load("res://shaders/forest_crown.gdshader")
-	cmi.material_override = crown_mat
-	add_child(cmi)
+	var forest := Node3D.new()
+	forest.name = "Forest"
+	add_child(forest)
+	var keys := chunks.keys()
+	keys.sort()   # 固定順序，每次載入節點都一樣
+	for key in keys:
+		var ch: Dictionary = chunks[key]
+		var tier: int = key.z
+		var tag := "%d_%d_%d" % [key.x, key.y, tier]
+		_add_forest_mm(forest, "ForestTrunks_" + tag, trunk, ch.trunks, [], trunk_mat, tier)
+		_add_forest_mm(forest, "ForestCrowns_" + tag, blob, ch.crowns, ch.cols, crown_mat, tier)
+
+func _add_forest_mm(parent: Node3D, nm: String, mesh: Mesh, xfs: Array, cols: Array, mat: Material, tier: int) -> void:
+	if xfs.is_empty():
+		return
+	var mm := MultiMesh.new()
+	mm.transform_format = MultiMesh.TRANSFORM_3D
+	mm.use_colors = not cols.is_empty()
+	mm.mesh = mesh
+	mm.instance_count = xfs.size()
+	for i in xfs.size():
+		mm.set_instance_transform(i, xfs[i])
+		if mm.use_colors:
+			mm.set_instance_color(i, cols[i])
+	var mmi := MultiMeshInstance3D.new()
+	mmi.name = nm
+	mmi.multimesh = mm
+	mmi.material_override = mat
+	if tier > 0:
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	if tier == 2:
+		mmi.visibility_range_end = FOREST_FAR_HIDE
+		mmi.visibility_range_end_margin = 10.0
+	parent.add_child(mmi)
 
 func _place_player() -> void:
 	var player := get_node_or_null(player_path) as Node3D

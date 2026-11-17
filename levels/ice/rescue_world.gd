@@ -12,6 +12,7 @@ const UISkin := preload("res://scripts/ui/ui_style.gd")
 
 var _cage_root: Node3D
 var _cage_label: Label3D
+var _cage_plate: Sprite3D
 const LABEL_SIZE := 32         # 「救我！」的字級（泡泡會跟著字的大小畫）
 const LABEL_PIXEL := 0.00076   # 字在螢幕上的大小：主鏡頭（視角 45 度）下大約 24 px 高。_process 會照現在鏡頭的視角換算，特寫、結算也差不多這麼大
 var _front_bars: Array = []    # （舊版用方塊拼的欄杆；現在籠子是模型，這個陣列是空的）
@@ -152,9 +153,10 @@ func _process(_dt: float) -> void:
 		# 標籤在螢幕上維持差不多的大小：視角越寬（特寫、結算鏡頭）字會被畫得越小，照視角補回來
 		var ps := LABEL_PIXEL * tan(deg_to_rad(cam.fov * 0.5)) / tan(deg_to_rad(22.5))
 		_cage_label.pixel_size = ps
-		var plate := _cage_label.get_node_or_null("Plate") as Sprite3D
-		if plate:
-			plate.pixel_size = ps
+		if _cage_plate == null:
+			_cage_plate = _cage_label.get_node_or_null("Plate") as Sprite3D     # 只找一次，之後每一畫面直接用
+		if _cage_plate:
+			_cage_plate.pixel_size = ps
 	UISkin.refresh(_cage_label)          # 字變了泡泡要重畫
 	if not _freed:
 		_cage_label.position = _cage_root.position + Vector3(0, 3.75 + sin(now * 0.004) * 0.12, 0)
