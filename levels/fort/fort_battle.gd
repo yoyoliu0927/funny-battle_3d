@@ -238,6 +238,15 @@ const DEFEAT_ORIGIN := Vector3(600.0, 0.0, 600.0)
 var defeat_room: Node3D
 var defeat_shown := false
 var _defeat_delay := -1.0
+# 過關後開門、走進下一小關（2-1、2-2）：見 _tick_exit()
+const EXIT_WAIT := 2.4         # 過關後先歡呼這麼久，再開始開門
+var _exit_delay := -1.0
+var _exit_t := -1.0            # -1 = 沒在播
+var _exit_cam: Camera3D
+var _exit_fade: ColorRect
+var _exit_from := Vector3.ZERO
+var _exit_fly := 1.0           # 飛到門口要幾秒
+var _exit_cam_from := Vector3.ZERO
 var _defeat_layer: CanvasLayer
 var _defeat_label: Label
 var _defeat_detail: Label
@@ -958,9 +967,12 @@ func _end(result: String) -> void:
 			if st != null:
 				Progress.mark_cleared("fort/%d" % int(st))   # 選關地圖：這一小關過了（旗子變綠、下一小關解鎖）
 				FortProgress.mark_fort_stage(int(st))
-				_toast("第 %d 小關過關！按 M 回地圖，下一關開放了" % st if st < 3 else "第 3 小關過關！要塞攻下了", 3.0)
+				_toast("第 %d 小關過關！通往下一關的門打開了" % st if st < 3 else "第 3 小關過關！要塞攻下了", 3.0)
 		bird.set_state("cheer")
 		bird.air = 0.0
+		# 2-1、2-2：歡呼一下之後開門，家豪走進下一小關（自動驗收不播，除非帶 --doortest）
+		if world.get("next_door") != null and (not _auto_run() or "--doortest" in OS.get_cmdline_user_args()):
+			_exit_delay = EXIT_WAIT
 	else:
 		for f in farmers:
 			if f.alive():
@@ -976,6 +988,98 @@ func _end(result: String) -> void:
 		_defeat_delay = 1.6   # 先看家豪倒下，再切到晚餐畫面
 	_update_phase_label()
 	phase_changed.emit("ended")
+
+# ------------------------------------------------------------------ 過關後走進下一小關
+
+## 時間軸（秒）：0 鏡頭轉到門前、門開始開 → 0.7 家豪飛到門口 → 落地後走進門 → 轉黑 → 載入下一小關
+const EXIT_OPEN := 1.1
+const EXIT_FLY_AT := 0.7
+const EXIT_WALK := 1.0
+const EXIT_FADE := 0.6
+var EXIT_FADE_AT: float:
+	get:
+		return EXIT_FLY_AT + _exit_fly + EXIT_WALK * 0.5
+
+func _start_exit() -> void:
+	var door: Node3D = world.next_door
+	_exit_t = 0.0
+	_summary_panel.visible = false
+	if _hud_layer:
+		_hud_layer.visible = false
+	var hud := get_node_or_null("../HUD")   # 準心、操作提示也收起來
+	if hud and "visible" in hud:
+		hud.visible = false
+	_exit_from = bird.pos
+	var front: Vector3 = door.front_point()
+	_exit_fly = clampf(Vector2(front.x - bird.pos.x, front.z - bird.pos.z).length() / 9.0, 0.8, 1.8)
+	# 鏡頭：站在院子裡、斜對著門，慢慢往前推
+	var side: Vector3 = (door.inward as Vector3).cross(Vector3.UP).normalized()
+	_exit_cam_from = door.front_point(10.0) + side * 3.5 + Vector3(0, 4.5, 0)
+	_exit_cam = Camera3D.new()
+	_exit_cam.fov = camera.fov
+	_exit_cam.far = camera.far
+	add_child(_exit_cam)
+	_exit_cam.global_position = _exit_cam_from
+	_exit_cam.look_at(door.global_position + Vector3(0, 1.6, 0), Vector3.UP)
+	_exit_cam.make_current()
+	# 轉場用的黑幕
+	var layer := CanvasLayer.new()
+	layer.layer = 30
+	add_child(layer)
+	_exit_fade = ColorRect.new()
+	_exit_fade.color = Color(0, 0, 0, 0)
+	_exit_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_exit_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(_exit_fade)
+	bird.set_state("cheer")
+	bird.air = 0.0
+
+func _tick_exit(dt: float) -> void:
+	var door: Node3D = world.next_door
+	_exit_t += dt
+	var e := _exit_t
+	door.set_open(e / EXIT_OPEN)
+	var look_at_pt: Vector3 = door.global_position + Vector3(0, 1.6, 0)
+	var push := clampf(e / 4.0, 0.0, 1.0)
+	_exit_cam.global_position = _exit_cam_from.lerp(door.front_point(6.0) + Vector3(0, 3.2, 0), push * push * (3.0 - 2.0 * push))
+	_exit_cam.look_at(look_at_pt, Vector3.UP)
+	var front: Vector3 = door.front_point()
+	if e >= EXIT_FLY_AT and e < EXIT_FLY_AT + _exit_fly:
+		# 飛到門口：拋物線，越遠飛越高
+		var k := (e - EXIT_FLY_AT) / _exit_fly
+		var dist := Vector2(front.x - _exit_from.x, front.z - _exit_from.z).length()
+		if bird.state != "fly":
+			bird.set_state("fly")
+			bird.fly_from = _exit_from
+			bird.fly_to = front
+			bird.fly_dur = _exit_fly
+		bird.pos = _ground(_exit_from.lerp(front, k))
+		bird.air = sin(k * PI) * clampf(dist * 0.22, 1.5, 4.0)
+		bird.yaw = atan2(front.x - _exit_from.x, front.z - _exit_from.z)
+	elif e >= EXIT_FLY_AT + _exit_fly:
+		# 落地後走進門裡
+		var k := clampf((e - EXIT_FLY_AT - _exit_fly) / EXIT_WALK, 0.0, 1.0)
+		if bird.state != "charge":
+			bird.set_state("charge")
+			_anim(bird, "Run")
+		var inside: Vector3 = door.inside_point()
+		bird.pos = front.lerp(inside, k)
+		bird.pos.y = front.y
+		bird.air = 0.0
+		bird.yaw = atan2(inside.x - front.x, inside.z - front.z)
+	var fade := clampf((e - EXIT_FADE_AT) / EXIT_FADE, 0.0, 1.0)
+	_exit_fade.color.a = fade
+	if fade >= 1.0:
+		_go_next_stage()
+
+func _go_next_stage() -> void:
+	var n: int = int(world.get("stage")) + 1
+	_exit_t = -1.0
+	Engine.set_meta("fort_stage", n)
+	Engine.set_meta("stage_id", "fort/%d" % n)
+	Engine.set_meta("fort_from_door", true)   # 下一小關可以知道是從門走進來的
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://levels/fort/stage_%d/stage.tscn" % n)
 
 # ------------------------------------------------------------------ 輸入與神蹟
 
@@ -994,6 +1098,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			_end_intro()
 		get_viewport().set_input_as_handled()
 		return
+	# 正在（或準備）走進下一關：空白／Enter／點一下 直接跳到轉場；R 不接（要重玩就回地圖）
+	if _exit_t >= 0.0 or _exit_delay > 0.0:
+		var skip: bool = (event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_SPACE, KEY_ENTER, KEY_KP_ENTER]) 			or (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT)
+		if skip:
+			if _exit_t < 0.0:
+				_exit_delay = -1.0
+				_start_exit()
+			_exit_t = maxf(_exit_t, EXIT_FADE_AT)
+			get_viewport().set_input_as_handled()
+			return
+		if event.is_action_pressed("battle_reset"):
+			get_viewport().set_input_as_handled()
+			return
 	if event.is_action_pressed("battle_start"):
 		start()
 	elif event.is_action_pressed("battle_reset"):
@@ -1488,6 +1605,13 @@ func _process(dt: float) -> void:
 	if _intro_i >= 0:
 		_tick_intro(dt)
 		_fade_near_camera(dt)
+		return
+	if _exit_delay > 0.0:
+		_exit_delay -= dt
+		if _exit_delay <= 0.0:
+			_start_exit()
+	if _exit_t >= 0.0:
+		_tick_exit(dt)
 		return
 	for r in rocks:
 		if r.done and not r.get("rested", false):
