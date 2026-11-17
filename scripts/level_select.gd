@@ -29,6 +29,8 @@ extends Node3D
 ##
 ## 操作：← → 沿著路走到前一關／下一關、↑ ↓ 換大關、數字鍵直接走到那一關、Enter 開始、Esc 回到開場；
 ##       V 開關聲音；滑鼠點站點就走過去，點泡泡上的「開始」（或再點一次所在的站點）就開始。
+##   - 商店小島在每座大島第 1 關的西邊：站在第 1 關按 ← 就跳過去（或滑鼠點它），按 Enter 進商店、按 → 跳回來；
+##     按 B 或右上角的衣架按鈕則是不用跳、直接進商店。從商店回到地圖時，家豪還站在商店小島上。
 ## 音效：全部用程式即時合成（不用音效檔，跟冰雪島關卡同一種做法），音色統一用音樂盒／木琴那種圓圓的鈴聲。
 ##       右上角的喇叭按鈕（或按 V）開關聲音；關掉的是整個遊戲的聲音（Master），設定存在 user://settings.cfg，下次開遊戲還記得。
 ## 開發用：命令列加 -- --mapshots=<資料夾>，會把第一個大關的每一小關各截一張圖然後關掉。
@@ -145,7 +147,8 @@ var _snd_rect := Rect2()     # 右上角喇叭按鈕在畫面上的位置
 var _shop_rect := Rect2()    # 右上角商店按鈕在畫面上的位置
 var _ledger := {}            # 關卡場景路徑 -> 存檔裡拿過最多幾顆星（重開遊戲星星還在）
 var _wallet := 0             # 還能在商店花的星星
-var _shop_spots: Array = []  # 每座商店小島招牌的位置（滑鼠點得到）
+var _shop_spots: Array = []  # 每座商店小島 {"pos": 招牌的位置（滑鼠點得到）, "e": 第幾排}
+var _at_shop := false        # 家豪現在站在 selected 那一排的商店小島上（不是在路上的站點）
 var _snd_pop := 0.0          # 喇叭按鈕剛被按：彈一下還剩幾秒
 var _hop_i := 0              # 走路時已經跳了幾下（每落地一次響一聲）
 var _flags: Array = []       # 會飄的旗子 {node, phase}
@@ -169,6 +172,14 @@ func _ready() -> void:
 	_build_audio()
 	selected = -1
 	select(_first_selection())
+	if Engine.has_meta("map_shop_world"):
+		var back := String(Engine.get_meta("map_shop_world"))
+		Engine.remove_meta("map_shop_world")
+		for e in entries.size():
+			if String(entries[e].ch.get("id", "")) == back and worlds[e].has("shop"):
+				select(e)
+				_at_shop = true
+				_place_hero(true)
 	if "--autotest" in OS.get_cmdline_user_args():
 		_autotest.call_deferred()
 	for a in OS.get_cmdline_user_args():
@@ -403,11 +414,13 @@ func _build_world(e: int) -> Dictionary:
 		else:
 			_default_spot(ir, e, k)
 	if playable and not ent.example:
-		_build_shop_isle(root, (w.pads[0] as Vector3) + Vector3(-13.0, 0, -9.5), e)
+		w["shop"] = _build_shop_isle(root, (w.pads[0] as Vector3) + Vector3(-13.0, 0, -9.5), e)
+		w["shop_pad"] = _build_pad(root, w.shop, Color("e8483a"), 0.62)
 	return w
 
-## 商店小島：每座大島第 1 關的西邊海上，一間小店＋招牌。點它（或按 B）進商店。
-func _build_shop_isle(root: Node3D, at: Vector3, e: int) -> void:
+## 商店小島：每座大島第 1 關的西邊海上，一間小店＋招牌。家豪可以跳過來（第 1 關按 ←、或點它），再按 Enter 進商店。
+## 回傳家豪在小島上站的位置（店門口的小站點）。
+func _build_shop_isle(root: Node3D, at: Vector3, e: int) -> Vector3:
 	var isle := Node3D.new()
 	isle.name = "ShopIsle"
 	isle.position = Vector3(at.x, 0, at.z)
@@ -432,17 +445,18 @@ func _build_shop_isle(root: Node3D, at: Vector3, e: int) -> void:
 	sign.position = Vector3(0, TOP_Y + 3.6, 0)
 	sign.alpha_cut = Label3D.ALPHA_CUT_OPAQUE_PREPASS   # 海面是半透明的：招牌要寫進深度，不然會被海蓋掉
 	isle.add_child(sign)
-	_shop_spots.append(Vector3(at.x, TOP_Y + 2.2, at.z))
+	_shop_spots.append({"pos": Vector3(at.x, TOP_Y + 2.2, at.z), "e": e})
+	return Vector3(at.x + 0.4, TOP_Y, at.z + 1.6)
 
 ## 站點：路上的圓墊（白邊＋主色）
-func _build_pad(parent: Node3D, pos: Vector3, col: Color) -> Node3D:
+func _build_pad(parent: Node3D, pos: Vector3, col: Color, size := 1.0) -> Node3D:
 	var node := Node3D.new()
 	node.position = pos
 	parent.add_child(node)
 	for spec in [[1.62, 0.30, PATH_EDGE, 0.0], [1.46, 0.36, Color(1, 1, 1), 0.0], [1.18, 0.42, col, 0.0]]:
 		var cyl := CylinderMesh.new()
-		cyl.top_radius = spec[0]
-		cyl.bottom_radius = float(spec[0]) * 0.94
+		cyl.top_radius = float(spec[0]) * size
+		cyl.bottom_radius = float(spec[0]) * 0.94 * size
 		cyl.height = spec[1]
 		cyl.radial_segments = 40
 		var mi := MeshInstance3D.new()
@@ -694,6 +708,12 @@ func _build_hero() -> void:
 ## 家豪站在站點上的位置
 func _stand(e: int, k: int) -> Vector3:
 	return (worlds[e].pads[k] as Vector3) + Vector3(0, 0.3, 0)
+
+## 家豪現在該站在哪（在商店小島上就是店門口）
+func _stand_now() -> Vector3:
+	if _at_shop and worlds[selected].has("shop"):
+		return (worlds[selected].shop as Vector3) + Vector3(0, 0.3, 0)
+	return _stand(selected, stage_sel)
 
 # ================================================================== 音效（程式合成）
 
@@ -1004,6 +1024,8 @@ func open_shop() -> void:
 		return
 	_starting = true
 	_play_detached("start")
+	if _at_shop:
+		Engine.set_meta("map_shop_world", String(_cur().get("id", "")))   # 從商店回來還站在這座商店小島上
 	get_tree().change_scene_to_file(SHOP_SCENE)
 
 # ================================================================== 畫圖工具
@@ -1209,7 +1231,7 @@ func _paint_nodes(c: Control, u: float) -> void:
 		var playable := _playable(ch)
 		var w: Dictionary = worlds[e]
 		for k in int(w.n):
-			if e == selected and k == stage_sel and not busy:
+			if e == selected and k == stage_sel and not busy and not _at_shop:
 				continue
 			if e != selected and k > 0:
 				continue            # 別的大關只標第一個站點（遠遠的一排小徽章很亂）
@@ -1250,6 +1272,9 @@ func _paint_nodes(c: Control, u: float) -> void:
 func _paint_bubble(c: Control, u: float) -> void:
 	_start_rect = Rect2()
 	if _bubble_a <= 0.02 or _busy():
+		return
+	if _at_shop:
+		_paint_shop_bubble(c, u)
 		return
 	var w: Dictionary = worlds[selected]
 	var ir: Node3D = w.isle_roots[stage_sel]
@@ -1316,6 +1341,45 @@ func _paint_bubble(c: Control, u: float) -> void:
 		var ks := UIStyle.keycap_size("Enter", 14 * u)
 		UIStyle.draw_keycap(c, Vector2(bb.end.x - 12 * u - ks.x, bb.get_center().y - ks.y * 0.5), "Enter", 14 * u)
 		_start_rect = bb
+
+## 家豪站在商店小島上時的泡泡：商店、手上有幾顆星、「進去」按鈕
+func _paint_shop_bubble(c: Control, u: float) -> void:
+	var wp: Vector3 = (worlds[selected].shop as Vector3) + Vector3(-0.4, 5.4, -1.6)
+	if _cam.is_position_behind(wp):
+		return
+	u *= 0.6 + 0.4 * (1.0 - pow(1.0 - _bubble_a, 3.0))
+	var bw := 360.0 * u
+	var bh := 132.0 * u
+	var tail := 24.0 * u
+	var anchor := _cam.unproject_position(wp)
+	anchor.y = maxf(anchor.y, bh + tail + 20.0 * u) + sin(_t * 2.2) * 3.0 * u
+	var vw := get_viewport().get_visible_rect().size.x
+	var r := Rect2(Vector2(clampf(anchor.x - bw * 0.5, 16.0 * u, vw - bw - 16.0 * u), anchor.y - bh - tail), Vector2(bw, bh))
+	c.draw_style_box(_box(PAPER, PAPER_EDGE, 26 * u, 3.0), r)
+	var tx := clampf(anchor.x, r.position.x + 40 * u, r.end.x - 40 * u)
+	var ty := anchor.y - tail
+	c.draw_colored_polygon(PackedVector2Array([Vector2(tx - 17 * u, ty - 4.0), Vector2(tx + 17 * u, ty - 4.0), Vector2(tx, anchor.y)]), PAPER)
+	c.draw_polyline(PackedVector2Array([Vector2(tx - 17 * u, ty - 1.0), Vector2(tx, anchor.y), Vector2(tx + 17 * u, ty - 1.0)]), PAPER_EDGE, 3.0, true)
+	var o := r.position
+	var red := Color("e8483a")
+	var bc := o + Vector2(50 * u, 46 * u)
+	c.draw_circle(bc + Vector2(0, 3 * u), 31 * u, red.darkened(0.3))
+	c.draw_circle(bc, 31 * u, Color(1, 1, 1))
+	c.draw_circle(bc, 27 * u, red)
+	_text(c, bc + Vector2(-27 * u, 11 * u), "店", 30 * u, Color(1, 1, 1), 54 * u, HORIZONTAL_ALIGNMENT_CENTER)
+	var text_x := o.x + 92 * u
+	_text(c, Vector2(text_x, o.y + 58 * u), "商店", 32 * u, INK)
+	var row_y := o.y + 96 * u
+	_star(c, Vector2(text_x + 14 * u, row_y), 14 * u, GOLD, Color("8a6410"))
+	_text(c, Vector2(text_x + 36 * u, row_y + 9 * u), str(_wallet), 24 * u, INK)
+	var br := Rect2(Vector2(r.end.x - 176 * u, row_y - 24 * u), Vector2(158 * u, 48 * u))
+	var pulse := 1.0 + sin(_t * 4.0) * 0.03
+	var bb := Rect2(br.get_center() - br.size * 0.5 * pulse, br.size * pulse)
+	c.draw_style_box(_box(red, Color("8f231c"), 22 * u, 3.0, false), bb)
+	_text(c, Vector2(bb.position.x + 16 * u, bb.get_center().y + 9 * u), "進去", 25 * u, Color(1, 1, 1))
+	var ks := UIStyle.keycap_size("Enter", 14 * u)
+	UIStyle.draw_keycap(c, Vector2(bb.end.x - 12 * u - ks.x, bb.get_center().y - ks.y * 0.5), "Enter", 14 * u)
+	_start_rect = bb
 
 ## 左上角：WORLD 幾、大關的名字、總星數
 func _paint_hud(c: Control, u: float) -> void:
@@ -1443,6 +1507,7 @@ func select(i: int) -> void:
 		stage_sel = _first_open_stage()
 	if not _playable(_cur()):
 		_shake_t = SHAKE_TIME            # 還沒做好的島：鎖頭抖一下
+	_at_shop = false
 	_place_hero()
 
 ## 直接站到目前大關的第 n 小關（0 開始；不走路）
@@ -1450,17 +1515,19 @@ func select_stage(n: int) -> void:
 	if entries.is_empty():
 		return
 	stage_sel = clampi(n, 0, int(worlds[selected].n) - 1)
+	_at_shop = false
 	_place_hero()
 
-func _place_hero() -> void:
+## 把家豪直接放到現在該站的位置。snap：鏡頭和泡泡也直接到位（不慢慢跟）
+func _place_hero(snap := false) -> void:
 	_walk = {}
 	_jump = {}
 	_queued = 0
-	_hero.position = _stand(selected, stage_sel)
+	_hero.position = _stand_now()
 	_hero.rotation.y = 0.0
 	_hero_body.position = Vector3.ZERO
 	_hero_body.rotation = Vector3.ZERO
-	var first := _t <= 0.0
+	var first := _t <= 0.0 or snap
 	if first:
 		_focus = Vector3(_hero.position.x, _hero.position.y - 0.3, _hero.position.z)
 		_bubble_a = 1.0
@@ -1469,6 +1536,19 @@ func _place_hero() -> void:
 ## 沿著路走到目前大關的第 k 小關（0 開始）。中間有還沒解鎖的站點就停在它前面。
 func walk_to(k: int) -> void:
 	if _busy() or _starting:
+		return
+	if _at_shop:
+		# 在商店小島上：往西沒路了；其他的都是跳回大島（→ 回第 1 關，數字鍵到那一關，還沒解鎖就到第一個能玩的）
+		if k < 0:
+			_bump(Vector3(-1, 0, 0))
+			return
+		var to_k := clampi(k, 0, int(worlds[selected].n) - 1)
+		if to_k > 0 and not _dev() and not _unlocked_ch(_cur(), to_k + 1):
+			to_k = 0
+		_jump_to(selected, to_k)
+		return
+	if k == -1 and stage_sel == 0 and worlds[selected].has("shop"):
+		_jump_shop(selected)             # 第 1 關再往西：跳到商店小島
 		return
 	var w: Dictionary = worlds[selected]
 	var d := signi(k - stage_sel)
@@ -1517,7 +1597,21 @@ func _move_world(d: int) -> void:
 func _jump_to(e: int, k: int) -> void:
 	if _busy() or _starting:
 		return
-	_jump = {"from": _hero.position, "to": _stand(e, k), "t": 0.0, "e": e, "k": k}
+	_jump = {"from": _hero.position, "to": _stand(e, k), "t": 0.0, "e": e, "k": k, "h": 3.4 if e == selected else 7.0}
+	_play("fly")
+	_bubble_a = 0.0
+	_set_mood(e, k)
+
+## 跳到第 e 排的商店小島（從哪裡都可以跳；已經站在那裡就進商店）
+func _jump_shop(e: int) -> void:
+	if _busy() or _starting or e < 0 or e >= worlds.size() or not worlds[e].has("shop"):
+		return
+	if _at_shop and e == selected:
+		open_shop()
+		return
+	var k := stage_sel if e == selected else _first_open_stage_of(e)
+	_jump = {"from": _hero.position, "to": (worlds[e].shop as Vector3) + Vector3(0, 0.3, 0), "t": 0.0, "e": e, "k": k, "shop": true,
+		"h": 3.4 if e == selected else 7.0}
 	_play("fly")
 	_bubble_a = 0.0
 	_set_mood(e, k)
@@ -1531,6 +1625,9 @@ func _bump(dir: Vector3) -> void:
 func start_selected() -> bool:
 	if _starting or entries.is_empty() or _busy():
 		return false
+	if _at_shop:
+		open_shop()
+		return _starting
 	var ch := _cur()
 	if ch.is_empty() or ch.stages.is_empty() or String(ch.stages[stage_sel].scene) == "":
 		_shake_t = SHAKE_TIME           # 還沒做好的島：不跳字，鎖頭抖一下就好
@@ -1580,17 +1677,18 @@ func _unhandled_input(ev: InputEvent) -> void:
 		if _shop_rect.has_point(ev.position):
 			open_shop()
 			return
-		for sp in _shop_spots:
-			if not _cam.is_position_behind(sp) and _cam.unproject_position(sp).distance_to(ev.position) < 110.0 * _u():
-				open_shop()
-				return
 		if _start_rect.has_point(ev.position):
 			start_selected()
 			return
+		for sp in _shop_spots:
+			var sp_pos: Vector3 = sp.pos
+			if not _cam.is_position_behind(sp_pos) and _cam.unproject_position(sp_pos).distance_to(ev.position) < 110.0 * _u():
+				_jump_shop(int(sp.e))        # 點商店小島：跳過去（已經站在上面就進商店）
+				return
 		var hit := _node_at(ev.position)
 		if hit[0] < 0:
 			return
-		if hit[0] == selected and hit[1] == stage_sel:
+		if hit[0] == selected and hit[1] == stage_sel and not _at_shop:
 			start_selected()
 		elif hit[0] == selected:
 			walk_to(hit[1])
@@ -1626,6 +1724,8 @@ func _unhandled_input(ev: InputEvent) -> void:
 func _step(d: int) -> void:
 	if not _walk.is_empty():
 		_queued = d
+	elif _at_shop:
+		walk_to(0 if d > 0 else -1)      # 在商店小島上：→ 跳回第 1 關，← 沒路了
 	else:
 		walk_to(stage_sel + d)
 
@@ -1651,8 +1751,11 @@ func _process(dt: float) -> void:
 	for e in worlds.size():
 		var pn: Array = worlds[e].pad_nodes
 		for k in pn.size():
-			var on := e == selected and k == stage_sel and not _busy()
+			var on := e == selected and k == stage_sel and not _busy() and not _at_shop
 			(pn[k] as Node3D).scale = Vector3.ONE * ((1.06 + sin(_t * 4.0) * 0.04) if on else 1.0)
+		if worlds[e].has("shop_pad"):
+			var on_shop := e == selected and _at_shop and not _busy()
+			(worlds[e].shop_pad as Node3D).scale = Vector3.ONE * ((1.06 + sin(_t * 4.0) * 0.04) if on_shop else 1.0)
 	if _shake_t > 0.0:
 		_shake_t = maxf(_shake_t - dt, 0.0)
 	_snd_pop = maxf(_snd_pop - dt, 0.0)
@@ -1704,12 +1807,13 @@ func _tick_hero(dt: float) -> void:
 		var a: Vector3 = _jump.from
 		var b: Vector3 = _jump.to
 		_hero.position = a.lerp(b, e)
-		_hero_body.position.y = sin(k * PI) * 7.0
+		_hero_body.position.y = sin(k * PI) * float(_jump.get("h", 7.0))
 		_hero_body.rotation.x = e * TAU * signf(a.z - b.z)       # 翻一個筋斗
 		_hero.rotation.y = lerp_angle(_hero.rotation.y, atan2(b.x - a.x, b.z - a.z), 1.0 - exp(-dt * 14.0))
 		if k >= 1.0:
 			selected = _jump.e
 			stage_sel = _jump.k
+			_at_shop = bool(_jump.get("shop", false))
 			_jump = {}
 			_hero_body.position.y = 0.0
 			_hero_body.rotation = Vector3.ZERO
@@ -1720,7 +1824,7 @@ func _tick_hero(dt: float) -> void:
 	# 待機：轉回來面對鏡頭、輕輕彈；被擋住時往那邊頂一下
 	_hero.rotation.y = lerp_angle(_hero.rotation.y, 0.0, 1.0 - exp(-dt * 8.0))
 	_hero_body.position.y = absf(sin(_t * 3.2)) * 0.08
-	var base := _stand(selected, stage_sel)
+	var base := _stand_now()
 	if _bump_t > 0.0:
 		_bump_t = maxf(_bump_t - dt, 0.0)
 		base += _bump_dir * sin(_bump_t / 0.25 * PI) * 0.6
@@ -1822,6 +1926,24 @@ func _autotest() -> void:
 			checks.append(["還沒過第 1 小關，走不到第 2 小關", _walk.is_empty() and stage_sel == 0])
 			select_stage(1)
 			checks.append(["還沒過第 1 小關，第 2 小關進不去", not start_selected()])
+			break
+	# 商店小島：站在第 1 小關按 ← 跳過去，再按 → 跳回第 1 小關
+	for k in entries.size():
+		if worlds[k].has("shop"):
+			select(k)
+			select_stage(0)
+			var lf := InputEventKey.new()
+			lf.keycode = KEY_LEFT
+			lf.pressed = true
+			Input.parse_input_event(lf)
+			await get_tree().create_timer(JUMP_TIME + 0.4).timeout
+			var there := _at_shop and not _busy() and _hero.position.distance_to((worlds[k].shop as Vector3) + Vector3(0, 0.3, 0)) < 0.8
+			var rt := InputEventKey.new()
+			rt.keycode = KEY_RIGHT
+			rt.pressed = true
+			Input.parse_input_event(rt)
+			await get_tree().create_timer(JUMP_TIME + 0.4).timeout
+			checks.append(["第 1 小關按 ← 跳到商店小島，按 → 跳回來", there and not _at_shop and stage_sel == 0 and selected == k])
 			break
 	# 聲音開關：按 V 切換、再按一次切回來（測完恢復原本的設定）
 	var was_muted := sound_muted()
