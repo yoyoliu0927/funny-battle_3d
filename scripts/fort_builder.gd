@@ -34,42 +34,67 @@ const WALL_SEGMENTS := 40
 const WALL_H := 4.2               # 城牆高度
 const WALL_T := 2.0               # 城牆厚度
 const OUTER_YARD := Rect2(-9.5, 9.0, 11.0, 9.5)   # 城門外的空地（x, z, w, h）
-const PLATFORM_C := Vector2(10.5, -9.0)
+var PLATFORM_C := Vector2(31.0, -12.0)   # 指揮官高台（只有 2-3 有，在東邊的第二個院子）
 const PLATFORM_R := 3.6
 const PLATFORM_H := 5.0
-const TOWER_A := Vector2(-1.0, -11.0)
-const TOWER_B := Vector2(6.5, -0.5)
-const CANNON_POS := Vector2(-9.5, -1.0)
+## 2-3 東邊的第二個院子（橢圓），和要塞之間隔一道牆，南邊留一條通道
+const R2_C := Vector2(27.0, -5.0)
+const R2_RX := 13.0
+const R2_RZ := 14.0
+const R2_NATURE_FROM := deg_to_rad(-160.0)   # 第二個院子北邊是天然山坡
+const R2_NATURE_TO := deg_to_rad(-20.0)
+const DIVIDER_FROM := deg_to_rad(-30.0)      # 要塞東邊這一段弧變成隔牆（2-3）
+const DIVIDER_TO := deg_to_rad(4.4)
+const PASS_A := Vector2(11.0, 1.0)           # 兩個院子之間的通道（線段）
+const PASS_B := Vector2(21.0, -0.5)
+const PASS_HALF_W := 2.2
+const PASS_L := Vector3(13.5, 0, 0.0)        # 通道兩頭的路點（左院／右院）
+const PASS_R := Vector3(19.5, 0, -0.5)
+## 每個小關的擺設：炮塔、我方大砲（aim = 一開始砲口對著哪裡）、寶箱、守衛路線
+const STAGES := {
+	1: {"towers": [Vector2(0.0, -4.0)],
+		"cannons": [{"pos": Vector2(-9.0, 3.0), "aim": Vector2(0.0, -4.0)}],
+		"chests": [],
+		"routes": [
+			{"route": [Vector3(-8.0, 0, -3.5), Vector3(-5.5, 0, -7.0)], "loop": false, "pause": 1.4},
+			{"route": [Vector3(5.5, 0, -7.0), Vector3(8.0, 0, -3.5)], "loop": false, "pause": 1.4}]},
+	2: {"towers": [Vector2(3.0, -11.0), Vector2(0.0, -3.0), Vector2(-10.0, -2.0)],
+		"cannons": [{"pos": Vector2(7.0, 5.0), "aim": Vector2(0.0, -3.0)}],
+		"chests": [Vector2(-3.0, -8.0), Vector2(11.0, -2.0)],
+		"routes": []},
+	3: {"towers": [Vector2(7.0, -8.0), Vector2(33.0, 3.0)],
+		"cannons": [{"pos": Vector2(-11.0, -6.0), "aim": Vector2(7.0, -8.0)},
+			{"pos": Vector2(6.0, 5.0), "aim": Vector2(31.0, -12.0)}],
+		"chests": [Vector2(-2.0, -11.0), Vector2(37.0, -2.0)],
+		"routes": [
+			{"route": [Vector3(-8.0, 0, 2.0), Vector3(-4.0, 0, 4.5)], "loop": false, "pause": 1.3},
+			{"route": [Vector3(19.0, 0, -6.0), Vector3(20.0, 0, 0.0)], "loop": false, "pause": 1.2}]},
+}
 const FUSE_TIME := 4.0            # 引信從點燃到發射的秒數（= 瞄準時間）
 const FORT_HERO_START := Vector3(-5.0, 0.0, 15.5)
-## 守衛的巡邏路線（格式同第一關）
-const FORT_ROUTES := [
-	# 城門內側：左右來回
-	{"route": [Vector3(-7.0, 0, 4.0), Vector3(-1.5, 0, 5.0)], "loop": false, "pause": 1.5},
-	# 中庭：繞一圈，會經過炮塔 B 前面
-	{"route": [Vector3(-3.0, 0, -1.0), Vector3(0.5, 0, -6.5), Vector3(4.5, 0, -4.0), Vector3(3.5, 0, 2.0)], "loop": true, "pause": 0.9},
-	# 西北角：在大砲和炮塔 A 之間來回
-	{"route": [Vector3(-7.0, 0, -4.5), Vector3(-4.0, 0, -8.5), Vector3(1.5, 0, -8.0)], "loop": false, "pause": 1.2},
-]
 const M_CASTLE := "res://assets/castle/"
 const M_PIRATE := "res://assets/pirate/"
 const M_TD := "res://assets/tdkit/"
 
 var stage := 3                    # 現在是第幾個小關（1~3）
+var east := false                 # 有沒有東邊的第二個院子（2-3）
+var stage_name := ""              # 進場鏡頭和介面上顯示的小關名稱
+var stage_goal := ""
 
-## 這個小關有哪幾組守衛（2-1 只留中庭那一個，路過炮塔 B 前面）
+## 這個小關有哪幾組守衛
 func stage_routes(s: int) -> Array:
-	if s <= 1:
-		return [FORT_ROUTES[1]]
-	return FORT_ROUTES
+	return STAGES[s].routes
 
 var gate_pos := Vector2.ZERO     # 城門中心（牆線上）
 var gate_dir := Vector2.ZERO      # 從要塞中心指向城門（往外）
 var fort_towers: Array = []       # [{node, pos, radius, height}]
-var cannon_node: Node3D
+var cannon_node: Node3D           # 現在作用中的那門大砲（家豪鑽進哪一門就是哪一門）
 var fuse_pts: Array[Vector3] = []   # 引信的點（世界座標），第 0 點在砲尾的點火孔
 var fuse_segs: Array[MeshInstance3D] = []
 var fuse_spark: Node3D
+var cannons: Array = []           # 每一門大砲 {node, segs, spark, yaw0}
+var cannon_nodes: Array = []
+var chests: Array = []            # 寶箱 {pos, node, yaw}
 const CANNON_SCALE := 1.9
 const CANNON_YAW0 := PI * 0.5     # 一開始砲口朝東
 
@@ -81,10 +106,15 @@ func _ready() -> void:
 	# 小關：2-1 只有一個農夫；2-2 三個農夫；2-3 三個農夫加指揮官（共用同一張場地）
 	# 平常照存檔從還沒過的小關開始；--fortstage=N 可指定（自動測試用）
 	stage = clampi(preload("res://scripts/progress.gd").fort_stages() + 1, 1, 3)
+	if Engine.has_meta("fort_stage"):   # 地圖上選的小關（或在要塞裡按 F1~F3 切換）
+		stage = clampi(int(Engine.get_meta("fort_stage")), 1, 3)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--fortstage="):
 			stage = clampi(int(a.substr(12)), 1, 3)
 	farmer_routes = stage_routes(stage)
+	east = stage >= 3
+	stage_name = ["", "2-1 學大砲", "2-2 三座炮塔", "2-3 指揮官的院子"][stage]
+	stage_goal = ["", "目標：佔領炮塔、打倒兩個農夫", "目標：拿下三座炮塔（撞倒或佔領）", "目標：拿下炮塔、打倒農夫和指揮官"][stage]
 	demo_rock_start = null      # 這關沒有示範石頭
 	tower_chain = false         # 炮塔不是骨牌：被巨石撞到就順著巨石的方向倒
 	_rng.seed = world_seed
@@ -107,8 +137,10 @@ func _ready() -> void:
 	_build_gate()
 	_build_towers()
 	_build_cannon()
-	_build_platform()
+	if east:
+		_build_platform()
 	_build_props()
+	_build_chests()
 	_build_fort_grass()
 	_build_farm_forest()
 	_build_fort_characters()
@@ -122,9 +154,27 @@ func _ellipse(theta: float) -> Vector2:
 func _gate_theta() -> float:
 	return acos(clampf(GATE_X / FORT_RX, -1.0, 1.0))   # sin > 0：南邊
 
-## 橢圓的「半徑比例」：中心 0、牆線 1
+## 橢圓的「半徑比例」：中心 0、牆線 1（2-3 是兩個院子取比較近的那個）
 func fort_e(x: float, z: float) -> float:
+	var e := e1(x, z)
+	return minf(e, e2(x, z)) if east else e
+
+func e1(x: float, z: float) -> float:
 	return Vector2((x - FORT_C.x) / FORT_RX, (z - FORT_C.y) / FORT_RZ).length()
+
+func e2(x: float, z: float) -> float:
+	return Vector2((x - R2_C.x) / R2_RX, (z - R2_C.y) / R2_RZ).length()
+
+func _ellipse2(theta: float) -> Vector2:
+	return R2_C + Vector2(R2_RX * cos(theta), R2_RZ * sin(theta))
+
+## 在第二個院子（隔牆東邊）嗎
+func in_east(x: float, z: float) -> bool:
+	return east and e1(x, z) >= 1.0 and e2(x, z) < 1.0
+
+func _pass_dist(p: Vector2) -> float:
+	var t := clampf((p - PASS_A).dot(PASS_B - PASS_A) / (PASS_B - PASS_A).length_squared(), 0.0, 1.0)
+	return p.distance_to(PASS_A.lerp(PASS_B, t))
 
 ## 離城門通道（從門外 6m 穿到門內 6m 的線段）多遠
 func _gate_dist(p: Vector2) -> float:
@@ -135,15 +185,29 @@ func _gate_dist(p: Vector2) -> float:
 
 ## 這一點屬於天然山坡的程度（0 = 城牆那邊、1 = 山坡那邊）
 func nature_w(x: float, z: float) -> float:
+	if east and e2(x, z) < e1(x, z):
+		var th2 := atan2((z - R2_C.y) / R2_RZ, (x - R2_C.x) / R2_RX)
+		return _soft_range(th2, R2_NATURE_FROM, R2_NATURE_TO)
 	var th := atan2((z - FORT_C.y) / FORT_RZ, (x - FORT_C.x) / FORT_RX)
-	var mid := (NATURE_FROM + NATURE_TO) * 0.5
-	var half := (NATURE_TO - NATURE_FROM) * 0.5
+	return _soft_range(th, NATURE_FROM, _nature_to())
+
+## 2-3 要塞東邊那段山坡改成隔牆，山坡只到隔牆北端
+func _nature_to() -> float:
+	return DIVIDER_FROM if east else NATURE_TO
+
+func _soft_range(th: float, from: float, to: float) -> float:
+	var mid := (from + to) * 0.5
+	var half := (to - from) * 0.5
 	var off := absf(wrapf(th - mid, -PI, PI))
 	return 1.0 - sstep(half - NATURE_SOFT, half + NATURE_SOFT, off)
 
 func _theta_is_nature(th: float) -> bool:
-	var mid := (NATURE_FROM + NATURE_TO) * 0.5
-	return absf(wrapf(th - mid, -PI, PI)) < (NATURE_TO - NATURE_FROM) * 0.5
+	var mid := (NATURE_FROM + _nature_to()) * 0.5
+	return absf(wrapf(th - mid, -PI, PI)) < (_nature_to() - NATURE_FROM) * 0.5
+
+func _theta2_is_nature(th: float) -> bool:
+	var mid := (R2_NATURE_FROM + R2_NATURE_TO) * 0.5
+	return absf(wrapf(th - mid, -PI, PI)) < (R2_NATURE_TO - R2_NATURE_FROM) * 0.5
 
 ## 城牆腳的小土堤／天然山坡 + 指揮官高台的高度（走不上去的部分）
 func hill_bump(x: float, z: float) -> float:
@@ -153,6 +217,9 @@ func hill_bump(x: float, z: float) -> float:
 	ridge += _detail.get_noise_2d(x * 0.35, z * 0.35) * 0.8 * sstep(0.7, 1.0, e)
 	var rim := lerpf(berm, ridge, nature_w(x, z))
 	rim *= sstep(GATE_HALF_W + 0.4, GATE_HALF_W + 2.2, _gate_dist(Vector2(x, z)))   # 城門通道挖平
+	if not east:
+		return rim
+	rim *= sstep(PASS_HALF_W + 0.4, PASS_HALF_W + 2.2, _pass_dist(Vector2(x, z)))   # 兩個院子之間的通道挖平
 	var d := Vector2(x, z).distance_to(PLATFORM_C) + _detail.get_noise_2d(x * 0.8, z * 0.8) * 0.3
 	var plat := PLATFORM_H * (1.0 - sstep(PLATFORM_R, PLATFORM_R + 1.1, d))
 	return maxf(rim, plat)
@@ -195,6 +262,8 @@ func _inside(p: Vector3) -> bool:
 func route_point(from: Vector3, to: Vector3) -> Vector3:
 	var a := _inside(from)
 	var b := _inside(to)
+	if a and b and east:
+		return _pass_route(from, to)
 	if a == b:
 		return to
 	var g_in := gate_pos - gate_dir * 2.6
@@ -209,14 +278,31 @@ func route_point(from: Vector3, to: Vector3) -> Vector3:
 		return gout if lateral > 1.0 or depth > 2.4 else gin
 	return gin if lateral > 1.0 or depth < -2.8 else gout
 
+## 2-3：兩個院子之間要走南邊的通道
+func _pass_route(from: Vector3, to: Vector3) -> Vector3:
+	var sa := in_east(from.x, from.z)
+	var sb := in_east(to.x, to.z)
+	if sa == sb:
+		return to
+	var near_l := Vector2(from.x - PASS_L.x, from.z - PASS_L.z).length() < 1.2 or (from.x > 13.0 and from.z > -2.5 and from.z < 3.0)
+	var near_r := Vector2(from.x - PASS_R.x, from.z - PASS_R.z).length() < 1.2 or (from.x < 19.5 and from.z > -2.5 and from.z < 3.0)
+	if not sa:
+		return PASS_R if near_l else PASS_L
+	return PASS_L if near_r else PASS_R
+
 ## 把點拉回遊玩範圍內（城牆裡或門外空地），並推離土坡和高台
 func clamp_play(p: Vector3) -> Vector3:
 	var q := p
 	if not in_play(q.x, q.z):
 		# 拉回橢圓內
 		var d := Vector2(q.x - FORT_C.x, q.z - FORT_C.y)
-		var e := fort_e(q.x, q.z)
+		var e := e1(q.x, q.z)
 		var a := FORT_C + d / maxf(e, 0.001) * 0.97
+		if east:
+			var d2 := Vector2(q.x - R2_C.x, q.z - R2_C.y)
+			var a2 := R2_C + d2 / maxf(e2(q.x, q.z), 0.001) * 0.97
+			if a2.distance_to(Vector2(p.x, p.z)) < a.distance_to(Vector2(p.x, p.z)):
+				a = a2
 		var r := OUTER_YARD
 		var b := Vector2(clampf(q.x, r.position.x, r.end.x), clampf(q.z, r.position.y, r.end.y))
 		var c := a if a.distance_to(Vector2(p.x, p.z)) <= b.distance_to(Vector2(p.x, p.z)) else b
@@ -239,10 +325,13 @@ func _build_fort_characters() -> void:
 		posts.append(r.route[0])
 	if stage >= 3:
 		posts.append(boss_post)   # 最後一個是指揮官（暫時沿用第一關老闆的模型和行為）
-	chars.setup_multi(self, FORT_HERO_START, posts, true)
+	chars.setup_multi(self, FORT_HERO_START, posts, stage >= 3)
 
 func _forest_rect() -> Rect2:
-	return Rect2(FORT_C.x - FORT_RX - 9.0, FORT_C.y - FORT_RZ - 9.0, FORT_RX * 2.0 + 18.0, FORT_RZ * 2.0 + 30.0)
+	var r := Rect2(FORT_C.x - FORT_RX - 9.0, FORT_C.y - FORT_RZ - 9.0, FORT_RX * 2.0 + 18.0, FORT_RZ * 2.0 + 30.0)
+	if east:
+		r = r.merge(Rect2(R2_C.x - R2_RX - 9.0, R2_C.y - R2_RZ - 9.0, R2_RX * 2.0 + 18.0, R2_RZ * 2.0 + 18.0))
+	return r
 
 func _road_dist(p: Vector2) -> float:
 	# 從門外一路到中庭的土路
@@ -289,22 +378,44 @@ func _build_walls() -> void:
 			continue
 		if _theta_is_nature(th):
 			continue
-		var w := _model(M_CASTLE + "wall.glb")
-		if w == null:
+		var divider := false
+		if east and e2(p.x, p.y) < 1.0:
+			# 伸進第二個院子的這段：北半段是隔牆，南半段空出來當通道
+			var off := wrapf(th, -PI, PI)
+			if off < DIVIDER_FROM or off > DIVIDER_TO:
+				continue
+			divider = true
+		var end_cap := _theta_is_nature(TAU * (i + 1.5) / n) or _theta_is_nature(TAU * (i - 0.5) / n) or divider
+		_wall_piece(node, p, tan, seg_len, _ellipse(TAU * i / n), _ellipse(TAU * (i + 1) / n), i % 5 == 0 or end_cap)
+	if not east:
+		return
+	# 第二個院子：北邊是山坡，其他蓋牆；和要塞重疊的地方不蓋
+	for i in n:
+		var th := TAU * (i + 0.5) / n
+		var p := _ellipse2(th)
+		if e1(p.x, p.y) < 1.0 or _theta2_is_nature(th):
 			continue
-		w.position = Vector3(p.x, _wall_base(p), p.y)
-		w.rotation.y = atan2(-tan.y, tan.x)
-		w.scale = Vector3(seg_len * 1.12, WALL_H / 1.31, WALL_T)
-		node.add_child(w)
-		wall_segments.append([_ellipse(TAU * i / n), _ellipse(TAU * (i + 1) / n)])
-		# 每隔幾段立一根柱子
-		var end_cap := _theta_is_nature(TAU * (i + 1.5) / n) or _theta_is_nature(TAU * (i - 0.5) / n)
-		if i % 5 == 0 or end_cap:
-			var pl := _model(M_CASTLE + "wall-pillar.glb")
-			pl.position = w.position
-			pl.rotation.y = w.rotation.y
-			pl.scale = Vector3(2.4, (WALL_H + 0.6) / 1.31, 2.4)
-			node.add_child(pl)
+		var tan := Vector2(-R2_RX * sin(th), R2_RZ * cos(th))
+		var seg_len := tan.length() * TAU / n
+		var cap := i % 5 == 0 or _theta2_is_nature(TAU * (i + 1.5) / n) or _theta2_is_nature(TAU * (i - 0.5) / n)
+		_wall_piece(node, p, tan, seg_len, _ellipse2(TAU * i / n), _ellipse2(TAU * (i + 1) / n), cap)
+
+func _wall_piece(node: Node3D, p: Vector2, tan: Vector2, seg_len: float, a: Vector2, b: Vector2, pillar: bool) -> void:
+	var w := _model(M_CASTLE + "wall.glb")
+	if w == null:
+		return
+	w.position = Vector3(p.x, _wall_base(p), p.y)
+	w.rotation.y = atan2(-tan.y, tan.x)
+	w.scale = Vector3(seg_len * 1.12, WALL_H / 1.31, WALL_T)
+	node.add_child(w)
+	wall_segments.append([a, b])
+	# 每隔幾段立一根柱子
+	if pillar:
+		var pl := _model(M_CASTLE + "wall-pillar.glb")
+		pl.position = w.position
+		pl.rotation.y = w.rotation.y
+		pl.scale = Vector3(2.4, (WALL_H + 0.6) / 1.31, 2.4)
+		node.add_child(pl)
 
 ## 牆腳最低點（牆放在土坡頂上，不要懸空）
 func _wall_base(p: Vector2) -> float:
@@ -367,10 +478,11 @@ func _build_towers() -> void:
 	var node := Node3D.new()
 	node.name = "CannonTowers"
 	add_child(node)
-	for i in 2:
-		var tp: Vector2 = [TOWER_A, TOWER_B][i]
+	var list: Array = STAGES[stage].towers
+	for i in list.size():
+		var tp: Vector2 = list[i]
 		var holder := Node3D.new()
-		holder.name = "CannonTower%s" % ["A", "B"][i]
+		holder.name = "CannonTower%s" % "ABCDEFG"[i]
 		holder.position = Vector3(tp.x, height_at(tp.x, tp.y) - 0.1, tp.y)
 		node.add_child(holder)
 		var s := 2.6
@@ -385,7 +497,7 @@ func _build_towers() -> void:
 		var gun := _model(M_TD + "weapon-cannon.glb")
 		gun.position.y = y - 0.3 * s + 0.4
 		gun.scale = Vector3.ONE * 3.2
-		var to_c := FORT_C - tp
+		var to_c := (R2_C if in_east(tp.x, tp.y) else FORT_C) - tp
 		gun.rotation.y = atan2(to_c.x, to_c.y)
 		holder.add_child(gun)
 		# 塔頂的砲手（家豪爬上去會把他踢下去）
@@ -431,8 +543,44 @@ func _build_cannon() -> void:
 	var node := Node3D.new()
 	node.name = "Cannon"
 	add_child(node)
-	cannon_node = _place_model(node, M_PIRATE + "cannon.glb", Vector3(CANNON_POS.x, 0, CANNON_POS.y), CANNON_YAW0, CANNON_SCALE, 1.6)
-	cannon_node.name = "BigCannon"
+	var list: Array = STAGES[stage].cannons
+	for i in list.size():
+		var c: Dictionary = list[i]
+		var cp: Vector2 = c.pos
+		var d: Vector2 = c.aim - cp
+		var yaw := atan2(d.x, d.y)
+		fuse_segs = []
+		cannon_node = _place_model(node, M_PIRATE + "cannon.glb", Vector3(cp.x, 0, cp.y), yaw, CANNON_SCALE, 1.6)
+		cannon_node.name = "BigCannon%d" % (i + 1)
+		_build_fuse(node)
+		cannons.append({"node": cannon_node, "segs": fuse_segs, "spark": fuse_spark, "yaw0": yaw})
+		cannon_nodes.append(cannon_node)
+		_place_fuse()
+	select_cannon(0)
+
+## 換成第 i 門大砲（之後 cannon_muzzle() 等介面都是指這一門）
+func select_cannon(i: int) -> void:
+	var c: Dictionary = cannons[i]
+	cannon_node = c.node
+	fuse_segs = c.segs
+	fuse_spark = c.spark
+	_place_fuse()
+
+func cannon_count() -> int:
+	return cannons.size()
+
+## 第 i 門大砲的砲口前方地面
+func cannon_bait_spot_of(i: int) -> Vector3:
+	var keep := 0
+	for k in cannons.size():
+		if cannons[k].node == cannon_node:
+			keep = k
+	select_cannon(i)
+	var p := cannon_bait_spot()
+	select_cannon(keep)
+	return p
+
+func _build_fuse(node: Node3D) -> void:
 	# 砲尾的點火孔往後上方翹出一小段彎彎的引信（跟著砲身轉）
 	var fuse_mat := _toon(Color(0.3, 0.24, 0.16))
 	for k in 10:
@@ -467,7 +615,6 @@ func _build_cannon() -> void:
 	lamp.omni_range = 2.2
 	fuse_spark.add_child(lamp)
 	node.add_child(fuse_spark)
-	_place_fuse()
 
 ## 依砲身目前的方向重新擺引信
 func _place_fuse() -> void:
@@ -535,13 +682,16 @@ func set_fuse(f: float) -> void:
 		fuse_segs[k].visible = k < ceili(x)
 
 func reset_cannon() -> void:
-	cannon_node.rotation.y = CANNON_YAW0
-	_place_fuse()
-	set_fuse(-1.0)
+	for i in cannons.size():
+		select_cannon(i)
+		cannon_node.rotation.y = cannons[i].yaw0
+		_place_fuse()
+		set_fuse(-1.0)
+	select_cannon(0)
 
 ## 落在指揮官高台上嗎
 func on_boss_platform(p: Vector3) -> bool:
-	return Vector2(p.x, p.z).distance_to(PLATFORM_C) < PLATFORM_R + 0.4
+	return east and Vector2(p.x, p.z).distance_to(PLATFORM_C) < PLATFORM_R + 0.4
 
 # ---------------------------------------------------------------- 指揮官高台
 
@@ -554,7 +704,7 @@ func _build_platform() -> void:
 	# 指揮官自己的大砲（第二階段推出來）、旗子、帳篷頂
 	var big := _model(M_PIRATE + "cannon-mobile.glb")
 	big.position = Vector3(c.x - 1.0, y - 0.05, c.y + 0.6)
-	big.rotation.y = atan2(FORT_C.x - c.x, FORT_C.y - c.y)
+	big.rotation.y = atan2(R2_C.x - c.x, R2_C.y - c.y)
 	big.scale = Vector3.ONE * 1.5
 	node.add_child(big)
 	var fl := _model(M_CASTLE + "flag-wide.glb")
@@ -572,6 +722,19 @@ func _build_platform() -> void:
 	post.name = "BossPost"
 	boss_post = Vector3(c.x + 0.4, 0, c.y - 0.4)
 
+# ---------------------------------------------------------------- 寶箱
+
+## 家豪走到寶箱旁邊就會打開（戰鬥那邊判斷：補滿血、神蹟冷卻清空）
+func _build_chests() -> void:
+	var node := Node3D.new()
+	node.name = "Chests"
+	add_child(node)
+	for cp in STAGES[stage].chests:
+		var to_c: Vector2 = (R2_C if in_east(cp.x, cp.y) else FORT_C) - cp
+		var yaw := atan2(to_c.x, to_c.y)
+		var ch := _place_model(node, M_PIRATE + "chest.glb", Vector3(cp.x, 0, cp.y), yaw, 1.6, 0.6)
+		chests.append({"pos": cp, "node": ch, "yaw": yaw})
+
 # ---------------------------------------------------------------- 雜物
 
 func _build_props() -> void:
@@ -580,6 +743,8 @@ func _build_props() -> void:
 	add_child(node)
 	# 中庭的木箱、砲彈堆
 	var crates := [Vector3(-3.5, 0, 2.5), Vector3(-2.6, 0, 3.4), Vector3(3.0, 0, -6.0), Vector3(-7.0, 0, -7.5)]
+	if east:
+		crates += [Vector3(24.0, 0, 4.0), Vector3(24.8, 0, 4.9), Vector3(35.0, 0, -6.0)]
 	for i in crates.size():
 		_place_model(node, M_PIRATE + "crate.glb", crates[i], i * 0.9, 1.0, 0.7)
 	var balls := [Vector3(-8.2, 0, 0.6), Vector3(-8.0, 0, 1.1), Vector3(-8.6, 0, 1.0)]
@@ -598,8 +763,9 @@ func _build_fort_grass() -> void:
 			var ang := _rng.randf() * TAU
 			var p := c + Vector2(cos(ang), sin(ang)) * r * _rng.randf_range(0.9, 1.3)
 			spots.append(Vector3(p.x, p.y, _rng.randf_range(0.8, 1.3)))
-	for k in 3000:
-		var p := Vector2(_rng.randf_range(-24.0, 24.0), _rng.randf_range(-22.0, 22.0))
+	var fr := _forest_rect()
+	for k in (3000 if not east else 4800):
+		var p := Vector2(_rng.randf_range(fr.position.x + 2.0, fr.end.x - 2.0), _rng.randf_range(-22.0, 22.0))
 		var e := fort_e(p.x, p.y)
 		# 中庭踩硬了不長草；土坡、牆外、門外比較多
 		if _road_dist(p) < 2.0 or (e < 0.55 and _rng.randf() < 0.85) or play_dist(p.x, p.y) > 0.5:
@@ -615,6 +781,8 @@ func _place_player() -> void:
 	var player := get_node_or_null(player_path) as Node3D
 	if player == null:
 		return
+	if east and "bounds_max" in player:
+		player.bounds_max.x = 46.0
 	var p := Vector3(-2.0, 0, 19.0)
 	player.global_position = Vector3(p.x, height_at(p.x, p.z) + 6.0, p.z)
 	var target := Vector3(0.0, 0.0, -3.0)
@@ -623,3 +791,25 @@ func _place_player() -> void:
 	var head := player.get_node_or_null("Head") as Node3D
 	if head:
 		head.rotation.x = deg_to_rad(-20.0)
+
+# ---------------------------------------------------------------- 進場鏡頭
+
+## 進場的三個鏡頭（battle.gd 播）：入口推進 → 西南邊俯瞰 → 東北邊俯瞰
+func intro_shots() -> Array:
+	var c := Vector3(12.0, 0.0, -5.0) if east else Vector3(0.0, 0.0, -3.0)
+	var hint: String = ["", "提示：在大砲口前撒飼料，把家豪射上炮塔", "提示：三座炮塔各有不同的拆法", "提示：兩個院子靠南邊的通道相連；指揮官的高台要用大砲射上去"][stage]
+	var g := Vector3(gate_pos.x, 0, gate_pos.y)
+	var out := Vector3(gate_dir.x, 0, gate_dir.y)
+	var sw := Vector3(-26, 24, 20) if not east else Vector3(-22, 32, 26)
+	var ne := Vector3(22, 26, -24) if not east else Vector3(46, 32, -30)
+	return [
+		{"from": g + out * 14.0 + Vector3(-1.5, 2.4, 0), "to": g + out * 5.5 + Vector3(-0.5, 2.8, 0),
+			"look_from": g + Vector3(0, 3.5, 0), "look_to": g - out * 4.0 + Vector3(0, 2.0, 0),
+			"dur": 3.0, "title": stage_name, "body": "人類要塞"},
+		{"from": sw, "to": sw + Vector3(8, 2, 4),
+			"look_from": c, "look_to": c + Vector3(1, 0, 0),
+			"dur": 3.2, "title": stage_name, "body": stage_goal},
+		{"from": ne, "to": ne + Vector3(-10, 2, -4),
+			"look_from": c, "look_to": c + Vector3(-1, 0, 0),
+			"dur": 3.2, "title": stage_name, "body": hint},
+	]

@@ -14,7 +14,7 @@ const TEX := "res://assets/textures/"
 ## 關卡：位置（地圖座標）、名稱、場景（還沒做的關卡沒有場景）
 const LEVELS := [
 	{"pos": Vector2(12.6, 6.8), "city": "高雄", "title": "農場大門", "desc": "家豪的起義從這座人類農場開始。", "scene": "res://scenes/main.tscn"},
-	{"pos": Vector2(8.7, 8.8), "city": "台南", "title": "人類要塞", "desc": "城牆裡有兩座炮塔和一門大砲，指揮官站在高台上。（場地草稿）", "scene": "res://scenes/fort.tscn"},
+	{"pos": Vector2(8.7, 8.8), "city": "台南", "title": "人類要塞", "desc": "三個小關：2-1 學大砲、2-2 三座炮塔、2-3 指揮官的院子。", "scene": "res://scenes/fort.tscn"},
 	{"pos": Vector2(-5.6, 7.0), "city": "台中", "title": "？？？", "desc": "攻下前一關後開放", "scene": ""},
 	{"pos": Vector2(-13.6, 4.4), "city": "新竹", "title": "？？？", "desc": "攻下前一關後開放", "scene": ""},
 	{"pos": Vector2(-17.9, -0.1), "city": "台北", "title": "？？？", "desc": "攻下前一關後開放", "scene": ""},
@@ -53,12 +53,16 @@ var _hint: Label
 var _toast: Label
 var _toast_t := 0.0
 var _starting := false
+const FORT_LEVEL := 1             # LEVELS 裡要塞是第幾個（從 0 算）
+const FORT_STAGES := ["2-1 學大砲", "2-2 三座炮塔", "2-3 指揮官的院子"]
+var fort_pick := 1                # 要塞選了哪個小關（1~3）
 
 func _ready() -> void:
 	_noise.seed = 1624
 	_noise.frequency = 0.12
 	_noise.fractal_octaves = 3
 	cleared = Progress.cleared()
+	fort_pick = clampi(Progress.fort_stages() + 1, 1, 3)   # 預設停在還沒過的那個小關
 	_cam = get_node("../Camera3D")
 	_cam_base = _cam.position
 	_build_island()
@@ -421,6 +425,11 @@ func select(i: int) -> void:
 	var lv: Dictionary = LEVELS[selected]
 	var state := "已攻下" if selected < cleared else ("" if unlocked(selected) else "尚未開放")
 	_info.text = "第 %d 關　%s・%s%s\n%s" % [selected + 1, lv.city, lv.title, ("　（%s）" % state) if state != "" else "", lv.desc]
+	if selected == FORT_LEVEL:
+		var done := preload("res://scripts/progress.gd").fort_stages()
+		var mark := "（已過）" if fort_pick <= done else ""
+		_info.text += "\n小關：%s%s　（↑ ↓ 切換）" % [FORT_STAGES[fort_pick - 1], mark]
+	_hint.text = "← → 選擇關卡　｜　↑ ↓ 選小關　｜　Enter 開始　｜　滑鼠點旗子也可以" if selected == FORT_LEVEL else "← → 選擇關卡　｜　Enter 開始　｜　滑鼠點旗子也可以"
 	for k in _markers.size():
 		_markers[k].ring.visible = k == selected
 
@@ -431,6 +440,8 @@ func start_selected() -> bool:
 		_show_toast("第 %d 關還沒開放，先攻下前面的關卡吧" % (selected + 1))
 		return false
 	_starting = true
+	if selected == FORT_LEVEL:
+		Engine.set_meta("fort_stage", fort_pick)   # fort_builder.gd 會讀這個決定進哪個小關
 	Engine.set_meta("next_scene", LEVELS[selected].scene)
 	get_tree().change_scene_to_file("res://scenes/loading.tscn")   # 先進載入畫面
 	return true
@@ -446,6 +457,14 @@ func _unhandled_input(e: InputEvent) -> void:
 				select(selected - 1)   # 往南（回到前面的關卡）
 			KEY_RIGHT, KEY_D:
 				select(selected + 1)
+			KEY_UP, KEY_W:
+				if selected == FORT_LEVEL:
+					fort_pick = wrapi(fort_pick - 2, 0, 3) + 1
+					select(selected)
+			KEY_DOWN, KEY_S:
+				if selected == FORT_LEVEL:
+					fort_pick = wrapi(fort_pick, 0, 3) + 1
+					select(selected)
 			KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
 				start_selected()
 	elif e is InputEventMouseMotion:

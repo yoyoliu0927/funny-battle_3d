@@ -73,7 +73,7 @@ const FEED_HEAL := 1.0         # 吃一把飼料回的血
 const CANNON_LURE := 1.6       # 飼料離砲口前方這麼近，家豪就會鑽進砲管
 const CANNON_FUSE := 4.0       # 引信燒完的秒數（= 瞄準時間）
 const CANNON_MIN_FIRE := 0.6   # 卡進去至少這麼久之後才能按左鍵提早發射
-const CANNON_RANGE := 24.0     # 最遠射多遠
+const CANNON_RANGE := 34.0     # 最遠射多遠（2-3 要從要塞射到東邊院子的指揮官高台）
 const CANNON_SPLASH := 1.7     # 落地時這個距離內的人會被砸倒
 const CANNON_HIT_FARMER := 6.0
 ## 炮塔（關卡的 towers 有 gun 才會開砲）：塔頂砲手瞄準一下就開砲，砲彈飛一段時間才落地，
@@ -86,7 +86,9 @@ const SHOW_EDGE_ARROW := false   # 家豪跑出畫面時的邊緣箭頭（先關
 const TURRET_TURN := 1.8        # 炮塔轉向的速度（弧度/秒）：先看到砲管轉過來，才開始瞄準
 const TURRET_FACE := 0.12       # 砲管對準到這個角度以內才開始瞄準（紅圈出現）
 const TURRET_RECOIL := 0.35     # 開砲後座力的時間
-const CANNON_SNAP := 2.2        # 大砲落點離指揮官高台邊緣這麼近，就自動吸到高台中間
+const CANNON_SNAP := 2.2        # 大砲落點離指揮官高台（或炮塔）邊緣這麼近，就自動吸過去
+const CHEST_OPEN := 1.3         # 家豪走到寶箱這麼近就會打開
+const GOAL_STANDOFF := 4.5      # 沒有農夫可打時，家豪走到離最近的炮塔這麼遠就停下來（叫囂）
 const TURRET_FIRST := 2.5      # 開打後第一砲要等多久（第二座再晚一點）
 const SHELL_TIME := 1.0        # 砲彈飛行時間
 const SHELL_PEAK := 3.0
@@ -169,6 +171,7 @@ var _phase_label: Label
 var _phase_start_key: Control
 var _enemy_col: VBoxContainer
 var _crew_label: Label
+var _tower_label: Label
 var _bird_bar: PaperBar
 var _edge_arrow: EdgeArrow
 var _first_hint: PanelContainer
@@ -642,7 +645,9 @@ func _ready() -> void:
 	_build_defeat()
 	add_child(preload("res://scripts/closeup_cam.gd").new())   # 搞笑特寫鏡頭（射出去、落水）
 	reset()
-	if not "--autotest" in OS.get_cmdline_user_args():
+	if _want_intro():
+		_start_intro()
+	elif not "--autotest" in OS.get_cmdline_user_args():
 		start_tutorial()
 
 func _ensure_actions() -> void:
@@ -845,6 +850,7 @@ func reset() -> void:
 		world.reset_cannon()
 		cannon_target = _default_cannon_target()
 	_fx_timed.clear()
+	_reset_chests()
 	for f in [bird] + farmers:
 		f.hp = f.max_hp
 		f.chip = 1.0
@@ -927,6 +933,19 @@ func _end(result: String) -> void:
 # ------------------------------------------------------------------ 輸入與神蹟
 
 func _unhandled_input(event: InputEvent) -> void:
+	# 測試用：在要塞裡按 F1 / F2 / F3 直接重新載入 2-1 / 2-2 / 2-3
+	if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_F1, KEY_F2, KEY_F3] and "stage" in world:
+		Engine.set_meta("fort_stage", [KEY_F1, KEY_F2, KEY_F3].find(event.keycode) + 1)
+		get_tree().paused = false
+		get_tree().reload_current_scene()
+		return
+	if _intro_i >= 0:
+		var skip: bool = (event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_SPACE, KEY_ENTER, KEY_KP_ENTER, KEY_ESCAPE]) \
+			or (event is InputEventMouseButton and event.pressed)
+		if skip:
+			_end_intro()
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("battle_start"):
 		start()
 	elif event.is_action_pressed("battle_reset"):
@@ -1408,7 +1427,8 @@ func _step(dt: float) -> void:
 		_tick_bird(dt)
 		_tick_miracles(dt)
 		_tick_peels()
-		if farmers.all(func(f): return not f.alive()):
+		_tick_chests()
+		if farmers.all(func(f): return not f.alive()) and towers_left() == 0:
 			_end("win")
 		elif not bird.alive():
 			_end("lose")
@@ -1417,6 +1437,10 @@ func _step(dt: float) -> void:
 		_tick_towers(dt)   # 勝負已分，但正在倒的水塔和穀倉要照樣倒完
 
 func _process(dt: float) -> void:
+	if _intro_i >= 0:
+		_tick_intro(dt)
+		_fade_near_camera(dt)
+		return
 	for r in rocks:
 		if r.done and not r.get("rested", false):
 			_rest_rock(r)
@@ -1515,6 +1539,8 @@ func _tick_hud_misc(dt: float) -> void:
 			face.queue_redraw()
 	if _crew_label:
 		_crew_label.text = "農夫 %d/%d" % [up, crew]
+	if _tower_label:
+		_tower_label.text = "敵方炮塔 %d/%d" % [towers_left(), towers_total()]
 	if _bird_bar:
 		_bird_bar.set_values(bird.ratio() if bird.alive() else 0.0, bird.chip)
 	_update_edge_arrow()
@@ -1894,7 +1920,8 @@ func _make_cone() -> MeshInstance3D:
 	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.cull_mode = BaseMaterial3D.CULL_DISABLED
 	m.vertex_color_use_as_albedo = true
-	m.render_priority = 1
+	# 排在變半透明的建築前面畫：建築擋在前面時，扇形會被建築蓋住（不會穿過建築浮在最上面）
+	m.render_priority = -1
 	mi.material_override = m
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	world.add_child(mi)
@@ -1960,6 +1987,13 @@ func _draw_cone(f: Fighter, focus := true) -> void:
 func enemies_left() -> int:
 	return farmers.filter(func(f): return f.alive()).size()
 
+## 還沒拿下的敵方炮塔（被撞倒或被佔領都算拿下）；第一關的水塔沒有砲，不算
+func towers_left() -> int:
+	return towers.filter(func(t): return t.gun != null and t.state == "stand" and t.side == "enemy").size()
+
+func towers_total() -> int:
+	return towers.filter(func(t): return t.gun != null).size()
+
 func _farmer_attack(f: Fighter) -> void:
 	f.heavy = f.attack_n % 3 == 2
 	f.attack_n += 1
@@ -2011,9 +2045,12 @@ func _tick_bird(dt: float) -> void:
 	if not b.state in ["fly", "cannon", "launch", "climb"]:
 		_apply_knockback(b, dt)
 	var tgt := _nearest_farmer(b.pos)
+	if tgt == null:
+		tgt = _tower_goal(b.pos)   # 農夫都倒了（或這關沒有農夫）：走去最近的炮塔前面叫囂
 	b.target = tgt
 	if tgt == null:
 		return
+	var goal := tgt == _goal
 	var dist := _flat_dist(b.pos, tgt.pos)
 	# 飼料優先：不在出招、挨打、飛行中時，聞到飼料就跑去吃
 	if b.state in ["charge", "return", "feed", "linger"]:
@@ -2025,9 +2062,14 @@ func _tick_bird(dt: float) -> void:
 			b.state = "feed"
 	match b.state:
 		"charge":
-			_bird_walk(tgt.pos, b.speed * (1.35 if tgt.state == "down" else 1.0), dt, "charge")
-			if dist <= b.reach:
-				b.set_state("windup")
+			if goal:
+				_bird_walk(tgt.pos, b.speed * 0.8, dt, "charge")
+				if dist < 0.6:
+					b.set_state("linger")
+			else:
+				_bird_walk(tgt.pos, b.speed * (1.35 if tgt.state == "down" else 1.0), dt, "charge")
+				if dist <= b.reach:
+					b.set_state("windup")
 		"feed":
 			if b.feed_target < 0 or b.feed_target >= feeds.size():
 				b.set_state("charge")
@@ -2035,7 +2077,9 @@ func _tick_bird(dt: float) -> void:
 				var fp: Vector3 = feeds[b.feed_target].pos
 				_bird_walk(fp, b.speed * 0.85, dt, "feed")
 				if _flat_dist(b.pos, fp) < 0.35:
-					if has_cannon and _flat_dist(fp, world.cannon_bait_spot()) < CANNON_LURE:
+					if has_cannon and _cannon_at(fp) >= 0:
+						world.select_cannon(_cannon_at(fp))
+						cannon_target = _default_cannon_target()
 						(feeds[b.feed_target].node as Node3D).queue_free()
 						feeds.remove_at(b.feed_target)
 						_enter_cannon()
@@ -2109,11 +2153,82 @@ func _tick_bird(dt: float) -> void:
 				_land_cannon()
 		"return":
 			_bird_walk(tgt.pos, b.speed * 0.75, dt, "return")
-			if _farmer_open(tgt) and dist < 6.5:
+			if goal:
+				if dist < 0.6:
+					b.set_state("linger")
+			elif _farmer_open(tgt) and dist < 6.5:
 				_log("家豪看到%s的破綻，提前反擊" % tgt.name)
 				b.set_state("charge")
 			elif dist <= tgt.reach + 0.5:
 				b.set_state("charge")
+
+## 沒有農夫可打時的目標：最近一座還沒拿下的炮塔前方（假的 Fighter，只用到位置）
+var _goal := Fighter.new()
+func _tower_goal(from: Vector3) -> Fighter:
+	var best := -1
+	var bd := INF
+	for k in towers.size():
+		var t: Dictionary = towers[k]
+		if t.gun == null or t.state != "stand" or t.side != "enemy":
+			continue
+		var d := Vector2(from.x - t.pos.x, from.z - t.pos.y).length()
+		if d < bd:
+			bd = d
+			best = k
+	if best < 0:
+		return null
+	var tp: Vector2 = towers[best].pos
+	var away := Vector2(from.x - tp.x, from.z - tp.y)
+	away = away.normalized() if away.length() > 0.01 else Vector2(0, 1)
+	var spot := tp + away * GOAL_STANDOFF
+	_goal.name = "炮塔" + _tower_name(best)
+	_goal.hp = 1.0
+	_goal.state = "idle"
+	_goal.pos = _ground(world.clamp_play(Vector3(spot.x, 0, spot.y)))
+	return _goal
+
+## 寶箱：家豪走過去就打開，補滿血、神蹟冷卻清空
+var _chests_open: Array = []
+func _tick_chests() -> void:
+	var list = world.get("chests")
+	if list == null:
+		return
+	if _chests_open.size() != list.size():
+		_chests_open.resize(list.size())
+		_chests_open.fill(false)
+	for i in list.size():
+		if _chests_open[i] or not bird.alive() or bird.air > 0.5:
+			continue
+		var cp: Vector2 = list[i].pos
+		if Vector2(bird.pos.x - cp.x, bird.pos.z - cp.y).length() < CHEST_OPEN:
+			_chests_open[i] = true
+			var node := list[i].node as Node3D
+			if node:
+				var ap := node.find_child("AnimationPlayer", true, false) as AnimationPlayer
+				if ap and ap.has_animation("open"):
+					ap.play("open")
+				_puff(node.global_position + Vector3.UP * 0.8, Color(1.0, 0.85, 0.35, 0.8), 8, 0.5)
+			# 開打後神蹟不限次數、只有冷卻，所以寶箱給的是：家豪補滿血＋冷卻全部清空
+			bird.hp = bird.max_hp
+			for k in cooldowns.size():
+				cooldowns[k] = 0.0
+			_refresh_slots()
+			_log("家豪打開了寶箱（補滿血、神蹟冷卻清空）")
+			_toast("打開寶箱！家豪補滿血、神蹟冷卻清空", 2.2)
+
+func _reset_chests() -> void:
+	_chests_open.clear()
+	var list = world.get("chests")
+	if list == null:
+		return
+	for c in list:
+		var node := c.node as Node3D
+		if node:
+			var ap := node.find_child("AnimationPlayer", true, false) as AnimationPlayer
+			if ap and ap.has_animation("open"):
+				ap.play("open")
+				ap.seek(0.0, true)
+				ap.stop()
 
 ## 雞走路：遇到圍欄就拍翅小跳過去
 func _bird_walk(target: Vector3, spd: float, dt: float, resume: String) -> void:
@@ -2165,16 +2280,40 @@ func _default_cannon_target() -> Vector3:
 var cannon_locked := false
 func _snap_cannon_target(p: Vector3) -> Vector3:
 	var lock := false
+	var what := ""
+	var m: Vector3 = world.cannon_muzzle()
 	if world.has_method("on_boss_platform") and boss and boss.alive() and "PLATFORM_C" in world:
 		var c: Vector2 = world.PLATFORM_C
-		var m: Vector3 = world.cannon_muzzle()
-		if Vector2(p.x, p.z).distance_to(c) < world.PLATFORM_R + CANNON_SNAP 				and Vector2(c.x - m.x, c.y - m.z).length() <= CANNON_RANGE + 0.5:
+		if Vector2(p.x, p.z).distance_to(c) < world.PLATFORM_R + CANNON_SNAP \
+				and Vector2(c.x - m.x, c.y - m.z).length() <= CANNON_RANGE + 0.5:
 			p = _ground(Vector3(c.x, 0, c.y))
 			lock = true
+			what = "指揮官"
+	if not lock:
+		# 敵方炮塔：落點吸到塔頂，家豪會直接站上去把砲手踢下去
+		for k in towers.size():
+			var t: Dictionary = towers[k]
+			if t.gun == null or t.state != "stand" or t.side != "enemy":
+				continue
+			var tp: Vector2 = t.pos
+			if Vector2(p.x, p.z).distance_to(tp) < t.radius + CANNON_SNAP:
+				p = _ground(Vector3(tp.x, 0, tp.y))
+				lock = true
+				what = "炮塔" + _tower_name(k)
+				break
 	if lock and not cannon_locked:
-		_toast("鎖定指揮官！左鍵發射", 1.2)
+		_toast("鎖定%s！左鍵發射" % what, 1.2)
 	cannon_locked = lock
 	return p
+
+## 落點在哪一座敵方炮塔上（沒有 = -1）
+func _tower_top_at(p: Vector3) -> int:
+	for k in towers.size():
+		var t: Dictionary = towers[k]
+		if t.gun != null and t.state == "stand" and t.side == "enemy" and t.ladder != null:
+			if Vector2(p.x, p.z).distance_to(t.pos) < t.radius + 0.6:
+				return k
+	return -1
 
 ## 把準心指的點收進射程內
 func _clamp_cannon_target(p: Vector3) -> Vector3:
@@ -2183,6 +2322,15 @@ func _clamp_cannon_target(p: Vector3) -> Vector3:
 	if d.length() > CANNON_RANGE:
 		d = d.normalized() * CANNON_RANGE
 	return _ground(m + d)
+
+## 飼料撒在哪一門大砲的砲口前（沒有 = -1）
+func _cannon_at(p: Vector3) -> int:
+	var n: int = world.cannon_count() if world.has_method("cannon_count") else 1
+	for i in n:
+		var spot: Vector3 = world.cannon_bait_spot_of(i) if world.has_method("cannon_bait_spot_of") else world.cannon_bait_spot()
+		if _flat_dist(p, spot) < CANNON_LURE:
+			return i
+	return -1
 
 func _enter_cannon() -> void:
 	var b := bird
@@ -2251,6 +2399,15 @@ func _land_cannon() -> void:
 			_toast("正中%s！" % boss.name, 2.0)
 		b.set_state("land")
 		return
+	# 落在敵方炮塔頂上：直接站上去，把砲手踢下去
+	var tk := _tower_top_at(p)
+	if tk >= 0:
+		climb_k = tk
+		b.set_state("climb")
+		b.t = CLIMB_TIME + TOP_STEP   # 跳過爬梯子那段，直接在塔頂站好
+		_log("家豪從天而降，落在炮塔%s頂上" % _tower_name(tk))
+		_tick_climb(0.0)
+		return
 	# 落在別的地方：砸倒旁邊的人，自己也摔一下
 	var hit_any := false
 	for f in farmers:
@@ -2278,7 +2435,8 @@ func _make_warn_ring() -> MeshInstance3D:
 		_warn_mat = StandardMaterial3D.new()
 		_warn_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		_warn_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-		_warn_mat.no_depth_test = true
+		_warn_mat.no_depth_test = false   # 被建築、山坡擋住的部分看不到
+		_warn_mat.render_priority = -1
 		_warn_mat.albedo_color = Color(1.0, 0.2, 0.15, 0.85)
 	var mi := MeshInstance3D.new()
 	var tm := TorusMesh.new()
@@ -3121,6 +3279,15 @@ func _build_hud() -> void:
 			face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			row.add_child(face)
 			_enemy_rows.append({"fighter": f, "face": face, "bar": null})
+	if towers_total() > 0:
+		var tcard := PanelContainer.new()
+		UIStyle.slip(tcard, Vector2(12, 8))
+		tcard.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tcard.size_flags_horizontal = Control.SIZE_SHRINK_END
+		col.add_child(tcard)
+		_tower_label = Label.new()
+		_tower_label.label_settings = UIStyle.ls(17, UIStyle.INK)
+		tcard.add_child(_tower_label)
 	# 左下角：家豪的頭像＋血條（頭上不再疊血條）
 	var me := PanelContainer.new()
 	UIStyle.slip(me, Vector2(12, 8))
@@ -3511,6 +3678,11 @@ func _ink_interactables() -> void:
 	for t in towers:
 		if t.node:
 			_ink(t.node)
+	for c in world.get("cannon_nodes") if world.get("cannon_nodes") != null else []:
+		_ink(c)
+	for c in world.get("chests") if world.get("chests") != null else []:
+		if c.node:
+			_ink(c.node)
 	var cn = world.get("cannon_node")
 	if cn is Node3D:
 		_ink(cn)
@@ -3620,8 +3792,6 @@ func _fade_near_camera(dt: float) -> void:
 		return
 	var cp := cam.global_position
 	var k := clampf(dt * 8.0, 0.0, 1.0)
-	# 準心看的那一點：擋在鏡頭和那一點中間的建築也要變透明
-	var look_at: Vector3 = aim_point if aim_point != null else cp - cam.global_basis.z * 15.0
 	for m in _fade_list:
 		if not is_instance_valid(m):
 			continue
@@ -3634,11 +3804,140 @@ func _fade_near_camera(dt: float) -> void:
 		var lp := xf.affine_inverse() * cp
 		var q: Vector3 = xf * lp.clamp(box.position, box.end)
 		var d := cp.distance_to(q)
+		# 只有貼近鏡頭才變透明；擋在準心前面的不弄透明（瞄準的東西本身才不會跟著淡掉）
 		var want := FADE_MAX * (1.0 - clampf((d - FADE_NEAR) / (FADE_FAR - FADE_NEAR), 0.0, 1.0))
-		if want < FADE_MAX and d < 14.0:
-			var la := xf.affine_inverse() * look_at
-			# 終點往回縮一點，目標本身（例如被瞄準的塔）不會被弄透明
-			if box.intersects_segment(lp, lp.lerp(la, 0.92)) != null:
-				want = FADE_MAX
 		if absf(mi.transparency - want) > 0.005:
 			mi.transparency = lerpf(mi.transparency, want, k)
+
+# ------------------------------------------------------------------ 進場鏡頭
+
+## 一進場先播三個鏡頭（入口 → 兩個角度的俯瞰），再回到幽靈原本的位置；
+## 鏡頭內容由關卡的 intro_shots() 提供：[{from, to, look_from, look_to, dur, title, body}]
+const INTRO_RETURN := 1.1        # 最後一個鏡頭飛回幽靈視角的時間
+var _intro_cam: Camera3D
+var _intro_shots: Array = []
+var _intro_i := -1               # 現在播第幾個鏡頭（-1 = 沒在播；= 鏡頭數 → 正在飛回去）
+var _intro_t := 0.0
+var _intro_from_xf: Transform3D
+var _intro_layer: CanvasLayer
+var _intro_title: Label
+var _intro_body: Label
+
+func _want_intro() -> bool:
+	if not world.has_method("intro_shots"):
+		return false
+	for a in OS.get_cmdline_user_args():
+		if a in ["--autotest", "--nointro"] or a.begins_with("--fortshots=") or a.begins_with("--recordtut="):
+			return false
+	return true
+
+func _start_intro() -> void:
+	_intro_shots = world.intro_shots()
+	if _intro_shots.is_empty():
+		start_tutorial()
+		return
+	_intro_cam = Camera3D.new()
+	_intro_cam.fov = camera.fov
+	_intro_cam.far = camera.far
+	add_child(_intro_cam)
+	_intro_cam.make_current()
+	player.set_physics_process(false)
+	player.set_process_unhandled_input(false)
+	_hud_layer.visible = false
+	if crosshair:
+		crosshair.visible = false
+	_preview.visible = false
+	_build_intro_caption()
+	_intro_i = 0
+	_intro_t = 0.0
+	_show_intro_caption()
+	_tick_intro(0.0)
+
+func _build_intro_caption() -> void:
+	_intro_layer = CanvasLayer.new()
+	_intro_layer.layer = 6
+	add_child(_intro_layer)
+	var card := PanelContainer.new()
+	UIStyle.slip(card, Vector2(22, 12))
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
+	card.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	card.offset_top = 28
+	_intro_layer.add_child(card)
+	var box := VBoxContainer.new()
+	box.alignment = BoxContainer.ALIGNMENT_CENTER
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(box)
+	_intro_title = Label.new()
+	_intro_title.label_settings = UIStyle.ls(26, UIStyle.INK)
+	_intro_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(_intro_title)
+	_intro_body = Label.new()
+	_intro_body.label_settings = UIStyle.ls(17, UIStyle.INK)
+	_intro_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(_intro_body)
+	var hint := UIStyle.key_hint("Space", "跳過")
+	hint.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	hint.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	hint.offset_right = -24
+	hint.offset_bottom = -22
+	_intro_layer.add_child(hint)
+
+func _show_intro_caption() -> void:
+	if _intro_i < 0 or _intro_i >= _intro_shots.size():
+		return
+	var sh: Dictionary = _intro_shots[_intro_i]
+	_intro_title.text = sh.get("title", "")
+	_intro_body.text = sh.get("body", "")
+	_intro_body.visible = _intro_body.text != ""
+
+func _tick_intro(dt: float) -> void:
+	_intro_t += dt
+	if _intro_i < _intro_shots.size():
+		var sh: Dictionary = _intro_shots[_intro_i]
+		var u := clampf(_intro_t / float(sh.dur), 0.0, 1.0)
+		var k := u * u * (3.0 - 2.0 * u)
+		var pos: Vector3 = (sh.from as Vector3).lerp(sh.to, k)
+		var look: Vector3 = (sh.look_from as Vector3).lerp(sh.look_to, k)
+		_intro_cam.global_transform = Transform3D(Basis(), pos).looking_at(look, Vector3.UP)
+		if u >= 1.0:
+			_intro_i += 1
+			_intro_t = 0.0
+			_intro_from_xf = _intro_cam.global_transform
+			_show_intro_caption()
+			if _intro_i >= _intro_shots.size():
+				_intro_layer.visible = false
+		return
+	# 飛回幽靈原本的位置
+	var u2 := clampf(_intro_t / INTRO_RETURN, 0.0, 1.0)
+	var k2 := u2 * u2 * (3.0 - 2.0 * u2)
+	var to := camera.global_transform
+	var q := _intro_from_xf.basis.get_rotation_quaternion().slerp(to.basis.get_rotation_quaternion(), k2)
+	_intro_cam.global_transform = Transform3D(Basis(q), _intro_from_xf.origin.lerp(to.origin, k2))
+	if u2 >= 1.0:
+		_end_intro()
+
+## 播完（或按 Space 跳過）：回到幽靈視角，接著開教學
+func _end_intro() -> void:
+	if _intro_i < 0:
+		return
+	_intro_i = -1
+	camera.make_current()
+	if _intro_cam:
+		_intro_cam.queue_free()
+		_intro_cam = null
+	if _intro_layer:
+		_intro_layer.queue_free()
+		_intro_layer = null
+	player.set_physics_process(true)
+	player.set_process_unhandled_input(true)
+	_hud_layer.visible = true
+	if crosshair:
+		crosshair.visible = true
+	if not "--autotest" in OS.get_cmdline_user_args():
+		start_tutorial()
+
+## 自動測試用：直接跳過進場鏡頭
+func skip_intro() -> void:
+	_end_intro()
