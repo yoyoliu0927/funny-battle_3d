@@ -802,6 +802,85 @@ func _build_river() -> void:
 	mi.material_override = m
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
+	# 瀑布底下濺起來的白色水霧：大瀑布衝進水潭那裡一大團，流進海裡的小瀑布底下小一團
+	var foot := Vector3(RIVER_FOOT + _off.x, pool, _river_z(RIVER_FOOT) + _off.y)
+	_build_falls_mist("FallsMist", foot, 2.2, 1.0)
+	_build_falls_mist("SeaFallsMist", c3[c3.size() - 1], RIVER_W * 0.5 + 1.4, 0.7)
+
+## 一團邊緣軟軟的白色圓點（水霧、水花共用）
+func _soft_dot() -> GradientTexture2D:
+	var g := Gradient.new()
+	g.set_color(0, Color(1, 1, 1, 1))
+	g.set_color(1, Color(1, 1, 1, 0))
+	g.add_point(0.45, Color(1, 1, 1, 0.75))
+	var tex := GradientTexture2D.new()
+	tex.fill = GradientTexture2D.FILL_RADIAL
+	tex.fill_from = Vector2(0.5, 0.5)
+	tex.fill_to = Vector2(0.5, 0.0)
+	tex.width = 64
+	tex.height = 64
+	tex.gradient = g
+	return tex
+
+## 瀑布衝下去的地方：一層慢慢往上飄、往外散開的白霧（像雲），加一些往上噴再掉回去的小水花。
+## foot 是水落下來那一點，half_w 是瀑布在那裡的半寬，k 是整體大小
+func _build_falls_mist(nm: String, foot: Vector3, half_w: float, k: float) -> void:
+	var tint := Color(0.62, 0.66, 0.78) if night else Color(1.0, 1.0, 1.0)
+	var holder := Node3D.new()
+	holder.name = nm
+	holder.position = foot
+	add_child(holder)
+	# 漸漸變淡、漸漸變大
+	var fade := Gradient.new()
+	fade.set_color(0, Color(1, 1, 1, 0.0))
+	fade.set_color(1, Color(1, 1, 1, 0.0))
+	fade.add_point(0.15, Color(1, 1, 1, 0.85))
+	fade.add_point(0.6, Color(1, 1, 1, 0.55))
+	var grow := Curve.new()
+	grow.add_point(Vector2(0.0, 0.45))
+	grow.add_point(Vector2(1.0, 1.0))
+	var specs := [
+		# [名字, 數量, 存活秒數, 粒子大小, 往上速度(最小,最大), 重力, 散開角度, 大小倍數(最小,最大), 透明度]
+		["Foam", 50, 2.2, 2.6, Vector2(0.6, 1.4), Vector3(0.0, -0.2, 0.0), 88.0, Vector2(0.9, 1.6), 0.85],      # 貼著水面往四周鋪開的一圈白泡泡
+		["Mist", 70, 3.6, 3.0, Vector2(0.8, 1.8), Vector3(0.0, 0.25, 0.0), 60.0, Vector2(0.8, 2.0), 0.6],       # 往上飄高的白霧，像一朵雲
+		["Spray", 70, 1.1, 0.5, Vector2(3.0, 5.2), Vector3(0.0, -7.0, 0.0), 38.0, Vector2(0.5, 1.2), 0.95],     # 往上噴再掉下去的小水花
+	]
+	for s in specs:
+		var p := CPUParticles3D.new()
+		p.name = s[0]
+		var qm := QuadMesh.new()
+		qm.size = Vector2.ONE * float(s[3]) * k
+		var sm := StandardMaterial3D.new()
+		sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		sm.billboard_mode = BaseMaterial3D.BILLBOARD_PARTICLES
+		sm.vertex_color_use_as_albedo = true
+		sm.albedo_texture = _soft_dot()
+		sm.albedo_color = Color(tint.r, tint.g, tint.b, float(s[8]))
+		sm.disable_receive_shadows = true
+		qm.material = sm
+		p.mesh = qm
+		p.amount = int(float(s[1]) * k)
+		p.lifetime = s[2]
+		p.preprocess = s[2]          # 一進關卡就已經是一整團，不是從零慢慢冒出來
+		p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
+		p.emission_box_extents = Vector3(0.9, 0.15, half_w) * k
+		p.direction = Vector3(0.25, 1.0, 0.0)        # 稍微往下游那邊（+x）飄
+		p.spread = s[6]
+		p.initial_velocity_min = (s[4] as Vector2).x * k
+		p.initial_velocity_max = (s[4] as Vector2).y * k
+		p.gravity = s[5]
+		p.damping_min = 0.3
+		p.damping_max = 0.8
+		p.scale_amount_min = (s[7] as Vector2).x
+		p.scale_amount_max = (s[7] as Vector2).y
+		p.scale_amount_curve = grow
+		p.color_ramp = fade
+		p.angle_min = 0.0
+		p.angle_max = 360.0
+		p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		p.visibility_aabb = AABB(Vector3(-8, -3, -8) * k, Vector3(16, 12, 16) * k)
+		holder.add_child(p)
 
 ## 河岸：兩岸堆一排大小不一的石頭、水裡露出幾塊，岸邊長一叢一叢比較高的草
 func _build_banks() -> void:
