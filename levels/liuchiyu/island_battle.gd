@@ -688,6 +688,17 @@ var _base_speed := -1.0          # 原本的飄移速度
 
 ## 連按兩下 W（往前）就開始加速，一直到放開 W 為止
 func _input(event: InputEvent) -> void:
+	# 島嶼預覽播放中：按 Enter、空白鍵或滑鼠左鍵跳過（這一下不算開打、也不算用道具）
+	if _intro_t >= 0.0:
+		var skip: bool = event.is_action_pressed("battle_start") \
+			or (event is InputEventKey and event.pressed and event.keycode == KEY_SPACE) \
+			or (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED)
+		if skip:
+			_end_intro()
+			get_viewport().set_input_as_handled()
+		elif event is InputEventMouseMotion:
+			get_viewport().set_input_as_handled()        # 預覽時滑鼠不轉視角
+		return
 	if event.is_action_pressed("move_forward") and not event.is_echo():
 		var now := float(Time.get_ticks_msec()) / 1000.0
 		if now - _w_last <= SPRINT_TAP:
@@ -758,6 +769,7 @@ func _level_setup() -> void:
 		if f.cone != null:
 			f.cone.queue_free()
 			f.cone = null
+	_start_intro()
 
 ## 共用道具沒有 hint，在這裡補
 const ITEM_HINTS := {"feed": "按一下左鍵：撒飼料，把家豪引過去"}
@@ -853,7 +865,88 @@ func try_cast() -> bool:
 
 ## 鏡頭現在是不是被過場借走了（這時候神的手收起來）。小關有自己的過場就覆寫，記得 or super()
 func _camera_borrowed() -> bool:
-	return _cut_t > 0.0 or _follow_pos != null
+	return _cut_t > 0.0 or _follow_pos != null or _intro_t >= 0.0
+
+# ---------------------------------------------------------------- 一開始的島嶼預覽（像賽車遊戲開賽前繞場地的鏡頭）
+
+## 每一段鏡頭：[從哪裡, 到哪裡, 一開始看哪裡, 最後看哪裡, 幾秒]（島座標）；一段結束直接切到下一段。
+## 最後一段的終點會換成「家豪背後」，接回平常開場的鏡頭
+const INTRO_SHOTS := [
+	# 從海上高高地繞著整座島看
+	[Vector3(84.0, 40.0, 54.0), Vector3(36.0, 46.0, 72.0), Vector3(22.0, 6.0, 2.0), Vector3(12.0, 8.0, 0.0), 4.2],
+	# 沿著北岸（Chapter 2）低飛，往高原和火山（Chapter 3）看過去
+	[Vector3(74.0, 20.0, -40.0), Vector3(40.0, 27.0, -30.0), Vector3(38.0, 3.0, -16.0), Vector3(-6.0, 20.0, 4.0), 3.8],
+	# 從南邊的海上往南岸（Chapter 1）飛下去，停在家豪背後
+	[Vector3(58.0, 34.0, 70.0), Vector3(43.0, 14.0, 34.0), Vector3(40.0, 8.0, 10.0), Vector3(43.0, 1.0, 19.0), 4.0],
+]
+var _intro_t := -1.0             # 預覽播到第幾秒（< 0 = 沒在播）
+var _intro_hud := {}             # 預覽時藏起來的畫面元件 → 原本有沒有顯示
+
+## 進到第一小關（整個大關的開頭）時播一次；重來（R）不會再播
+func _start_intro() -> void:
+	if _stage_no() != 1 or player == null or DisplayServer.get_name() == "headless":
+		return
+	_intro_t = 0.0
+	player.set_physics_process(false)
+
+func _end_intro() -> void:
+	if _intro_t < 0.0:
+		return
+	_intro_t = -1.0
+	for n in _intro_hud:
+		if is_instance_valid(n):
+			n.visible = _intro_hud[n]
+	_intro_hud.clear()
+	if crosshair:
+		crosshair.visible = true
+	if player:
+		player.set_physics_process(true)
+		_aim_camera(_behind_bird(), bird.pos + Vector3(0.0, bird.air + 1.0, 0.0))
+
+## 預覽時畫面上只留風景：道具欄、準心、星星數、敵人圓點都先收起來
+func _intro_hide_hud() -> void:
+	var list: Array = [get_node_or_null("../HUD")]
+	for c in get_children():
+		if c is CanvasLayer:
+			list.append(c)
+	for n in list:
+		if n != null and not _intro_hud.has(n) and n != _defeat_layer:
+			_intro_hud[n] = n.visible
+			n.visible = false
+
+func _tick_intro(dt: float) -> void:
+	if _intro_t < 0.0:
+		return
+	if phase != Phase.PREPARE:
+		_end_intro()        # 已經開打了（例如測試直接開始）就不播
+		return
+	_intro_hide_hud()
+	if crosshair:
+		crosshair.visible = false
+	if _preview:
+		_preview.visible = false        # 地上那一圈瞄準的白環也先不畫
+	_intro_t += dt
+	var off := Vector3(world._off.x, 0.0, world._off.y)
+	var t := _intro_t
+	for i in INTRO_SHOTS.size():
+		var sh: Array = INTRO_SHOTS[i]
+		var dur: float = sh[4]
+		if t > dur:
+			t -= dur
+			continue
+		var k := t / dur
+		var a: Vector3 = sh[0] + off
+		var b: Vector3 = sh[1] + off
+		var la: Vector3 = sh[2] + off
+		var lb: Vector3 = sh[3] + off
+		if i == INTRO_SHOTS.size() - 1:
+			# 最後一段：慢慢停下來，剛好停在平常開場的位置
+			b = _behind_bird()
+			lb = bird.pos + Vector3(0.0, bird.air + 1.0, 0.0)
+			k = 1.0 - pow(1.0 - k, 2.5)
+		_aim_camera(a.lerp(b, k), la.lerp(lb, k))
+		return
+	_end_intro()
 
 ## 道具真的放出去了，手就動一下（按住型的在 _hold_tick 裡處理）
 func cast(i: int, p: Vector3) -> bool:
@@ -883,6 +976,7 @@ func _process(dt: float) -> void:
 	_tick_sprint()
 	_keep_above_sea()
 	_tick_follow(dt)
+	_tick_intro(dt)
 	if phase == Phase.PREPARE:
 		_hold_tick(dt)        # 按 Enter 之前也能用「準備階段也能按」的按住型道具（變成晚上）
 	_tick_item_hint(dt)
