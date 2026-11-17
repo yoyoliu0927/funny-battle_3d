@@ -1,6 +1,6 @@
 extends RefCounted
 ## 選關地圖上的森林島（chapter.gd 的 MAP_SCRIPT；由 scripts/level_select.gd 呼叫）。
-## 一座草地大島，三個地標：木屋（小紅帽）、伐木、營火。
+## 一座草地大島。目前只排第一關：木屋。
 
 const TOP := 1.5
 const BIRCH := "res://assets/nature/BirchTree.glb"
@@ -21,8 +21,13 @@ func ground_y(_x: float, _z: float) -> float:
 func build_island(root: Node3D, ctx: Dictionary) -> void:
 	var c: Vector2 = ctx.center
 	var radius := maxf(float(ctx.rx), float(ctx.rz))
-	_disc(root, c, radius * 0.78, (TOP + 0.4) * 0.5 - 0.35, TOP + 0.9, Color(0.42, 0.30, 0.18))
-	_disc(root, c, radius * 0.96, TOP - 0.16, 0.38, Color(0.36, 0.62, 0.28))
+	# 島面要比站點低一點，圓點和路才不會跟草地貼在同一個高度上閃。
+	var grass_top := TOP - 0.14
+	var grass_h := 0.32
+	var cliff_top := grass_top - 0.06
+	var cliff_h := cliff_top + 0.55
+	_disc(root, c, radius * 0.78, cliff_top - cliff_h * 0.5, cliff_h, Color(0.42, 0.30, 0.18))
+	_disc(root, c, radius * 0.96, grass_top - grass_h * 0.5, grass_h, Color(0.36, 0.62, 0.28))
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 481516
 	var placed := 0

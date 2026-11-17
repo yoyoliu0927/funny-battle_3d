@@ -8,7 +8,7 @@ func _layout_level() -> void:
 	hero_start = Vector3(0.0, 0.0, 11.2)
 	hero_yaw = PI
 	camera_start = Vector3(2.4, 8.6, 17.8)
-	camera_look = Vector3(0.0, 1.3, -0.4)
+	camera_look = Vector3(0.0, 0.6, 9.0)
 	has_house = true
 	house_center = Vector2.ZERO
 	walls = house_walls()

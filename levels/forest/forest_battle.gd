@@ -36,6 +36,12 @@ var warn_smoke := false
 var warn_hood := false
 var ignited := false
 var _range: MeshInstance3D
+## 選關地圖讀這張表（場景路徑 → {目標 id: true}）。只有過關才寫進去，這次開遊戲期間累積。
+static var best_stars := {}
+var _done := {}
+var _new_stars: Array = []
+var _goal_layer: CanvasLayer
+var _goal_rows: VBoxContainer
 
 func _want_trees() -> bool:
 	return false
@@ -77,7 +83,55 @@ func _level_setup() -> void:
 	_free_cursor()
 	var hint := get_node_or_null("../HUD/Hint") as Label
 	if hint:
-		hint.text = "移動滑鼠把圈圈對到地面｜左鍵 放下｜WASD 移動鏡頭｜空白 上升｜Shift 下降｜數字鍵／滾輪 選道具｜Enter 開始｜R 重試｜M 地圖｜Esc 選單"
+		hint.text = "移動滑鼠把圈圈對到地面｜左鍵 放下｜WASD 移動鏡頭｜空白 上升｜Shift 下降｜數字鍵／滾輪 選道具｜Enter 開始｜R 重試｜M 地圖｜Esc 跳過教學"
+		_plain_dark(hint)
+	_build_goals()
+
+func _plain_dark(hint: Label) -> void:
+	hint.remove_theme_stylebox_override("normal")
+	var ink := Color(0.16, 0.1, 0.06)
+	hint.add_theme_color_override("font_color", ink)
+	hint.add_theme_color_override("font_outline_color", Color(0, 0, 0, 0))
+	hint.add_theme_constant_override("outline_size", 0)
+	if hint.label_settings:
+		var ls := hint.label_settings.duplicate() as LabelSettings
+		ls.font_color = ink
+		ls.outline_size = 0
+		hint.label_settings = ls
+
+## 「過關」那一行放在道具欄下面，貼著畫面底。
+func _place_goal_line() -> void:
+	if _phase_label == null or _hotbar == null:
+		return
+	var hb: Vector2 = _hotbar.bar_size()
+	_hotbar.offset_top = -hb.y - 58.0
+	_hotbar.offset_bottom = -58.0
+	_phase_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_phase_label.offset_left = -560
+	_phase_label.offset_right = 560
+	_phase_label.offset_top = -46
+	_phase_label.offset_bottom = -6
+	_phase_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	if _dialog:
+		_dialog.offset_top = -hb.y - 58.0 - 20.0 - 120.0
+		_dialog.offset_bottom = -hb.y - 58.0 - 20.0
+
+func _set_tut_step(i: int) -> void:
+	super(i)
+	if pause_menu:
+		pause_menu.hotkey = tutorial_step < 0
+
+func _input(event: InputEvent) -> void:
+	if tutorial_step < 0:
+		return
+	var key_ev := event as InputEventKey
+	if key_ev == null or not key_ev.pressed or key_ev.echo:
+		return
+	var key := key_ev.physical_keycode if key_ev.physical_keycode != KEY_NONE else key_ev.keycode
+	if key != KEY_ESCAPE:
+		return
+	_set_tut_step(-1)
+	get_viewport().set_input_as_handled()
 
 func _dress_fighters() -> void:
 	for f in enemies:
@@ -122,6 +176,7 @@ func _tint(c: Color) -> Material:
 
 func _level_reset() -> void:
 	_free_cursor()
+	_place_goal_line()
 	guides.clear()
 	decoys.clear()
 	trees_cut = 0
@@ -134,6 +189,11 @@ func _level_reset() -> void:
 	warn_smoke = false
 	warn_hood = false
 	ignited = false
+	_done.clear()
+	_new_stars.clear()
+	if _goal_layer:
+		_goal_layer.visible = true
+	_refresh_goals()
 	for t in grove:
 		t.alive = true
 		t.fall = 0.0
@@ -293,6 +353,7 @@ func _level_step(dt: float) -> void:
 	_advance_falls(dt)
 	_move_hood(dt)
 	_warnings()
+	_sync_goals()
 
 func _level_step_ended(dt: float) -> void:
 	_advance_falls(dt)
@@ -337,6 +398,8 @@ func _move_hood(dt: float) -> void:
 
 func _check_end() -> String:
 	_mark_saved()
+	# 家豪是在這一步之後才走進門的，星星要在判定輸贏前補記，不然過關字出現了、左邊那顆還是空的。
+	_sync_goals()
 	# 樹和抽菸一超過就輸，家豪血還滿也一樣。
 	if want_smoke and smoke_time > smoke_cap:
 		fail = "fire"
@@ -780,6 +843,144 @@ func _update_phase_label() -> void:
 	if phase == Phase.RUNNING and _phase_label != null:
 		_phase_label.text = _meter_line()
 
+# ---------------------------------------------------------------- 左邊的三顆星
+
+## 過關看小紅帽；星星看這三件事。伐木的人要兩個都打倒才算一顆。
+func _objectives() -> Array:
+	if not want_hood:
+		return []
+	return [
+		{"id": "hood", "text": "救出小紅帽"},
+		{"id": "smoker", "text": "打倒抽菸的人"},
+		{"id": "chop", "text": "打倒伐木的人"},
+	]
+
+func _stage_key() -> String:
+	var root := get_parent()
+	return root.scene_file_path if root else "?"
+
+func _best() -> Dictionary:
+	var k := _stage_key()
+	if not best_stars.has(k):
+		best_stars[k] = {}
+	return best_stars[k]
+
+func _kind_all_down(kind: String) -> bool:
+	var any := false
+	for f in enemies:
+		if f.kind != kind:
+			continue
+		any = true
+		if f.alive():
+			return false
+	return any
+
+func _sync_goals() -> void:
+	if want_hood and hood_saved:
+		_mark_goal("hood")
+	if _kind_all_down("smoker"):
+		_mark_goal("smoker")
+	if _kind_all_down("chopper"):
+		_mark_goal("chop")
+
+func _mark_goal(id: String) -> void:
+	if _done.has(id):
+		return
+	if not _objectives().any(func(c): return c.id == id):
+		return
+	_done[id] = true
+	if not _best().has(id):
+		_new_stars.append(id)
+	var text := ""
+	for c in _objectives():
+		if c.id == id:
+			text = String(c.text)
+	toast("★ " + text, 1.4)
+	log_event("目標：" + text)
+	_refresh_goals()
+
+func _build_goals() -> void:
+	if _objectives().is_empty():
+		return
+	_goal_layer = CanvasLayer.new()
+	_goal_layer.layer = 5
+	add_child(_goal_layer)
+	var box := VBoxContainer.new()
+	box.position = Vector2(20, 56)
+	box.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_goal_layer.add_child(box)
+	var panel := PanelContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
+	UIStyle.paper(panel)
+	box.add_child(panel)
+	_goal_rows = VBoxContainer.new()
+	_goal_rows.add_theme_constant_override("separation", 4)
+	_goal_rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(_goal_rows)
+	_refresh_goals()
+
+func _refresh_goals() -> void:
+	if _goal_rows == null:
+		return
+	for c in _goal_rows.get_children():
+		_goal_rows.remove_child(c)
+		c.queue_free()
+	var title := Label.new()
+	title.text = "目標"
+	title.label_settings = UIStyle.ls(20, UIStyle.INK)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_goal_rows.add_child(title)
+	var best := _best()
+	for c in _objectives():
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_goal_rows.add_child(row)
+		var now_done: bool = _done.has(c.id)
+		var had: bool = best.has(c.id)
+		var st := Label.new()
+		st.text = "★"
+		st.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		st.label_settings = UIStyle.ls(24, Color("f6c445") if now_done else (Color("f5e2a8") if had else Color("fff8e7")), 6,
+			UIStyle.INK if (now_done or had) else Color(UIStyle.INK, 0.45))
+		row.add_child(st)
+		var tx := Label.new()
+		tx.text = String(c.text)
+		tx.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tx.label_settings = UIStyle.ls(24, UIStyle.INK if (now_done or had) else Color(UIStyle.INK, 0.55))
+		row.add_child(tx)
+
+## saved：過關結算用累積紀錄（含這一局）。沒過關就只列這一局做到的。
+func _star_block(saved: bool) -> String:
+	var list := _objectives()
+	if list.is_empty():
+		return ""
+	var have: Dictionary = _best() if saved else _done
+	var n := 0
+	for c in list:
+		if have.has(c.id):
+			n += 1
+	var lines: PackedStringArray = ["★".repeat(n) + "☆".repeat(list.size() - n) + "（%d/%d）" % [n, list.size()]]
+	for c in list:
+		var tag := "★ " if have.has(c.id) else "☆ "
+		var fresh := "　新！" if saved and _new_stars.has(c.id) else ""
+		lines.append(tag + String(c.text) + fresh)
+	return "\n".join(lines)
+
+func _end(result: String) -> void:
+	if result == "win":
+		var best := _best()
+		for id in _done:
+			best[id] = true
+	super(result)
+	if _summary_panel and not _objectives().is_empty():
+		_summary_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+		_summary_panel.offset_right = -28
+		_summary_panel.offset_top = 28
+		_summary_panel.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+		_summary_panel.grow_vertical = Control.GROW_DIRECTION_END
+
 func _meter_line() -> String:
 	var bits := PackedStringArray()
 	if want_trees:
@@ -797,11 +998,15 @@ func _prepare_hint() -> String:
 	return "假獵物引開人、飼料引家豪、引路點由近到遠　Enter 開始"
 
 func _win_line() -> String:
+	var lead := "人倒下了，樹還在。"
 	if want_hood:
-		return "小紅帽跑出木屋了。"
-	if want_smoke and not want_trees:
-		return "煙滅了，森林沒有著火。"
-	return "人倒下了，樹還在。"
+		lead = "救出小紅帽了。"
+	elif want_smoke and not want_trees:
+		lead = "煙滅了，森林沒有著火。"
+	var stars := _star_block(true)
+	if stars == "":
+		return lead
+	return lead + "\n" + stars
 
 func _lose_line(_left: int) -> String:
 	match fail:
@@ -826,12 +1031,15 @@ func _defeat_title() -> String:
 			return "家豪被抓去當晚餐了……"
 
 func _defeat_tip() -> String:
+	var tip := "用引路點讓家豪一次只打到一個人，飼料可以把她拉出包圍。"
 	match fail:
 		"hood":
-			return "引路點可以排進木屋。小紅帽的計時不會停。"
+			tip = "引路點可以排進木屋。小紅帽的計時不會停。"
 		"fire":
-			return "假獵物能讓抽菸的人把菸放下。全部停下，計時才會停。"
+			tip = "假獵物能讓抽菸的人把菸放下。全部停下，計時才會停。"
 		"trees":
-			return "假獵物能把伐木的人引離樹。人在打架或看假獵物時不會砍。"
-		_:
-			return "用引路點讓家豪一次只打到一個人，飼料可以把她拉出包圍。"
+			tip = "假獵物能把伐木的人引離樹。人在打架或看假獵物時不會砍。"
+	var stars := _star_block(false)
+	if stars == "":
+		return tip
+	return tip + "\n" + stars
