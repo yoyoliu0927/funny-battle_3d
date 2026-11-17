@@ -36,6 +36,8 @@ extends Node3D
 const Progress := preload("res://scripts/progress.gd")
 const Registry := preload("res://scripts/registry.gd")
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術
+const Wardrobe := preload("res://scripts/wardrobe.gd")     # 家豪的衣櫃（商店）：星星記在這裡
+const SHOP_SCENE := "res://scenes/shop.tscn"
 const SeaShader := preload("res://shaders/map_sea.gdshader")
 const TEX := "res://assets/textures/"
 const INTRO_SCENE := "res://scenes/intro.tscn"
@@ -140,6 +142,10 @@ var _mood_to := {}
 var _mood_k := 1.0
 var _snd := {}               # 音效名字 -> AudioStreamPlayer
 var _snd_rect := Rect2()     # 右上角喇叭按鈕在畫面上的位置
+var _shop_rect := Rect2()    # 右上角商店按鈕在畫面上的位置
+var _ledger := {}            # 關卡場景路徑 -> 存檔裡拿過最多幾顆星（重開遊戲星星還在）
+var _wallet := 0             # 還能在商店花的星星
+var _shop_spots: Array = []  # 每座商店小島招牌的位置（滑鼠點得到）
 var _snd_pop := 0.0          # 喇叭按鈕剛被按：彈一下還剩幾秒
 var _hop_i := 0              # 走路時已經跳了幾下（每落地一次響一聲）
 var _flags: Array = []       # 會飄的旗子 {node, phase}
@@ -149,6 +155,7 @@ var _clouds: Array = []      # 蓋住未開放小島的雲 {node, base, phase}
 
 func _ready() -> void:
 	_load_chapters()
+	_sync_stars()
 	_cam = get_node("../Camera3D")
 	_sun = get_node("../Sun")
 	_env = (get_node("../WorldEnvironment") as WorldEnvironment).environment
@@ -395,7 +402,37 @@ func _build_world(e: int) -> Dictionary:
 			hook.build_spot(k, ir, ctx)
 		else:
 			_default_spot(ir, e, k)
+	if playable and not ent.example:
+		_build_shop_isle(root, (w.pads[0] as Vector3) + Vector3(-13.0, 0, -9.5), e)
 	return w
+
+## 商店小島：每座大島第 1 關的西邊海上，一間小店＋招牌。點它（或按 B）進商店。
+func _build_shop_isle(root: Node3D, at: Vector3, e: int) -> void:
+	var isle := Node3D.new()
+	isle.name = "ShopIsle"
+	isle.position = Vector3(at.x, 0, at.z)
+	root.add_child(isle)
+	var mi := MeshInstance3D.new()
+	mi.mesh = _island_mesh(3.6, 3.2, 2.3 + e)
+	mi.set_surface_override_material(0, _tex_mat("grass_ground_diff_1k.jpg", Color(0.86, 1.0, 0.60)))
+	mi.set_surface_override_material(1, _tex_mat("lichen_rock_diff_1k.jpg", Color(0.95, 0.86, 0.72), 0.18))
+	isle.add_child(mi)
+	_spawn_fit(isle, "res://assets/farm/SmallBarn.glb", Vector3(-0.3, TOP_Y - 0.05, -0.5), 3.4, 0.35)
+	_spawn_fit(isle, "res://assets/farm/Hay.glb", Vector3(1.9, TOP_Y - 0.05, 0.9), 0.9, 0.6)
+	_build_flag(isle, Vector3(1.6, TOP_Y, -0.9), Color("e8483a"), e * 0.7)
+	var sign := Label3D.new()
+	sign.text = "商店"
+	sign.font = _font()
+	sign.font_size = 96
+	sign.pixel_size = 0.012
+	sign.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	sign.modulate = Color("fff8e7")
+	sign.outline_size = 28
+	sign.outline_modulate = Color("8f231c")
+	sign.position = Vector3(0, TOP_Y + 3.6, 0)
+	sign.alpha_cut = Label3D.ALPHA_CUT_OPAQUE_PREPASS   # 海面是半透明的：招牌要寫進深度，不然會被海蓋掉
+	isle.add_child(sign)
+	_shop_spots.append(Vector3(at.x, TOP_Y + 2.2, at.z))
 
 ## 站點：路上的圓墊（白邊＋主色）
 func _build_pad(parent: Node3D, pos: Vector3, col: Color) -> Node3D:
@@ -936,7 +973,38 @@ func _stars(ch: Dictionary, st: Dictionary) -> int:
 	var n := mini(STAR_MAX, (got as Dictionary).size()) if got is Dictionary else 0
 	if n == 0 and Progress.is_cleared(st.id):
 		n = 1
-	return n
+	return maxi(n, int(_ledger.get(String(st.scene), 0)))
+
+## 把每一關拿到的星星記進衣櫃的存檔（商店用星星買服裝），順便讀回以前記過的（重開遊戲星星還在）。
+## 沒有三星制度的大關：過一關算 1 顆。範例關不算。
+func _sync_stars() -> void:
+	var records := {}
+	var max_total := 0
+	for ch in LEVELS:
+		if _is_example(ch) or not _playable(ch):
+			continue
+		for st in ch.stages:
+			var key := String(st.scene)
+			if key == "":
+				continue
+			var n := _stars(ch, st)
+			if n < 0:
+				n = 1 if Progress.is_cleared(st.id) else 0
+				max_total += 1
+			else:
+				max_total += STAR_MAX
+			records[key] = n
+	Wardrobe.record_stars(records, max_total)
+	for key in records:
+		_ledger[key] = maxi(int(records[key]), Wardrobe.stars_of(key))
+	_wallet = Wardrobe.wallet()
+
+func open_shop() -> void:
+	if _starting or not ResourceLoader.exists(SHOP_SCENE):
+		return
+	_starting = true
+	_play_detached("start")
+	get_tree().change_scene_to_file(SHOP_SCENE)
 
 # ================================================================== 畫圖工具
 
@@ -1086,6 +1154,7 @@ func _build_ui() -> void:
 	hrow.add_child(UIStyle.key_hint("←／→", "走", 14))
 	hrow.add_child(UIStyle.key_hint("↑／↓", "換島", 14))
 	hrow.add_child(UIStyle.key_hint("Enter", "開始", 14))
+	hrow.add_child(UIStyle.key_hint("B", "商店", 14))
 	hrow.add_child(UIStyle.key_hint("Esc", "返回", 14))
 	_layer.add_child(hint)
 	hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
@@ -1310,6 +1379,29 @@ func _paint_sound_button(c: Control, u: float) -> void:
 		c.draw_arc(o + Vector2(7, 0) * k, 15.0 * k, -0.9, 0.9, 16, ink, 3.2 * k, true)
 	var ks := UIStyle.keycap_size("V", 13 * u)
 	UIStyle.draw_keycap(c, Vector2(ctr.x - ks.x * 0.5, ctr.y + 34.0 * u + 2.0 * u), "V", 13 * u)
+	_paint_shop_button(c, u, ctr + Vector2(-100.0 * u, 0))
+
+## 喇叭左邊的商店按鈕：圓形的米色紙片，畫一個衣架；右下角掛著還能花的星星；下面一顆 B 鍵帽
+func _paint_shop_button(c: Control, u: float, ctr: Vector2) -> void:
+	var r := 34.0 * u
+	_shop_rect = Rect2(ctr - Vector2(48, 44) * u, Vector2(96, 88) * u)
+	c.draw_circle(ctr + Vector2(2, 5) * u, r + 3.0 * u, Color(0, 0, 0, 0.25))
+	c.draw_circle(ctr, r + 3.0 * u, PAPER_EDGE)
+	c.draw_circle(ctr, r, PAPER)
+	# 衣架：上面一個鉤子、下面一個三角形
+	var o := ctr + Vector2(0, -2) * u
+	c.draw_arc(o + Vector2(0, -13) * u, 5.0 * u, -PI * 0.9, PI * 0.5, 12, INK, 3.2 * u, true)
+	c.draw_polyline(PackedVector2Array([o + Vector2(0, -8) * u, o + Vector2(-19, 8) * u, o + Vector2(19, 8) * u, o + Vector2(0, -8) * u]), INK, 3.2 * u, true)
+	# 星星數
+	var label := str(_wallet)
+	var f := _font()
+	var lw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u)).x
+	var chip := Rect2(ctr + Vector2(4, 12) * u, Vector2(lw + 32 * u, 26 * u))
+	c.draw_style_box(_box(Color("fff1bf"), Color("d9b84a"), 13 * u, 2.0, false), chip)
+	_star(c, chip.position + Vector2(13, 13) * u, 8 * u, GOLD, Color("8a6410"))
+	_text(c, chip.position + Vector2(24 * u, 19 * u), label, 17 * u, INK)
+	var ks := UIStyle.keycap_size("B", 13 * u)
+	UIStyle.draw_keycap(c, Vector2(ctr.x - ks.x * 0.5, ctr.y + 34.0 * u + 2.0 * u), "B", 13 * u)
 
 # ================================================================== 選取、移動、開始
 
@@ -1485,6 +1577,13 @@ func _unhandled_input(ev: InputEvent) -> void:
 		if _snd_rect.has_point(ev.position):
 			_toggle_sound()
 			return
+		if _shop_rect.has_point(ev.position):
+			open_shop()
+			return
+		for sp in _shop_spots:
+			if not _cam.is_position_behind(sp) and _cam.unproject_position(sp).distance_to(ev.position) < 110.0 * _u():
+				open_shop()
+				return
 		if _start_rect.has_point(ev.position):
 			start_selected()
 			return
@@ -1517,6 +1616,8 @@ func _unhandled_input(ev: InputEvent) -> void:
 				start_selected()
 			KEY_V:
 				_toggle_sound()
+			KEY_B:
+				open_shop()
 			KEY_ESCAPE:
 				if not _starting and ResourceLoader.exists(INTRO_SCENE):
 					get_tree().change_scene_to_file(INTRO_SCENE)

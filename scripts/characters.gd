@@ -10,6 +10,8 @@ const HERO_HEIGHT := 1.45
 const ENEMY_HEIGHT := 2.6
 ## 主角造型：黑色連帽 T、帽子戴起來（網路「家豪」風的厭世少年感）
 const HERO_HOODIE := true
+## 家豪的衣櫃：商店買的服裝（hoodie=true 的那一隻才是家豪，才會換裝）
+const Wardrobe := preload("res://scripts/wardrobe.gd")
 
 var hero: Node3D
 var enemy: Node3D
@@ -240,6 +242,11 @@ func _make_round_chicken(hoodie := HERO_HOODIE) -> Node3D:
 	var black := Color(0.09, 0.09, 0.10)
 	var red := Color(0.90, 0.22, 0.16)
 	var yellow := Color(0.98, 0.80, 0.25)
+	# 家豪照衣櫃換裝：身體不是帽 T 那一型，就先做成白雞再把衣服穿上去
+	var is_hero := hoodie
+	var look: Dictionary = Wardrobe.look() if is_hero else {}
+	if is_hero:
+		hoodie = Wardrobe.hoodie_body(look)
 	var body_c := black if hoodie else white
 
 	# 短短的腳：只露出一點點，下面是三根腳趾
@@ -303,6 +310,8 @@ func _make_round_chicken(hoodie := HERO_HOODIE) -> Node3D:
 			_part(body, _capsule(0.012, 0.17), white, Vector3(0.06 * sx, 0.47, 0.375), Vector3.ONE, Vector3(0.15, 0, 0))
 		_w_mark(body, Vector3(0, 0.3, 0.36), 0.055, white)
 		_part(body, _sphere(0.016, 8), red, Vector3(0.05, 0.24, 0.35))
+	if is_hero:
+		Wardrobe.dress(root, "round", look)
 
 	_standin_parts.append({"body": body, "head": head, "kind": "bird"})
 	root.scale = Vector3.ONE * (HERO_HEIGHT / 1.05)   # 替身原始高度約 1.05（含雞冠）
@@ -333,6 +342,11 @@ func _make_standin_rooster(hoodie := HERO_HOODIE) -> Node3D:
 	var dark_teal := white_shade
 	var red := Color(0.84, 0.20, 0.17)
 	var leg := Color(0.96, 0.80, 0.42)
+	# 家豪照衣櫃換裝：身體不是帽 T 那一型，就先做成白雞再把衣服穿上去
+	var is_hero := hoodie
+	var look: Dictionary = Wardrobe.look() if is_hero else {}
+	if is_hero:
+		hoodie = Wardrobe.hoodie_body(look)
 	if hoodie:
 		# 帽 T 把胸羽、腹部、翅膀都包住
 		cream = Color(0.10, 0.10, 0.11)
@@ -390,24 +404,30 @@ func _make_standin_rooster(hoodie := HERO_HOODIE) -> Node3D:
 		_part(eye, eye_mesh, Color(0.05, 0.05, 0.06), Vector3.ZERO, Vector3(1.0, 1.0, 0.35), Vector3(0, 0, PI))
 
 	if hoodie:
-		_dress_hoodie(upper, head, body)
+		_dress_hoodie(upper, head, body, Wardrobe.hood_up(look) if is_hero else true)
+	if is_hero:
+		Wardrobe.dress(root, "rooster", look)
 
 	_standin_parts.append({"body": body, "head": head, "kind": "bird"})
 	root.scale = Vector3.ONE * (HERO_HEIGHT / (0.95 - LEG_TRIM))
 	return root
 
 ## 黑色帽 T：帽兜罩住頭（露出白臉、嘴喙和一點雞冠）、白色抽繩、胸前白色 W 字、黑白球鞋
-func _dress_hoodie(upper: Node3D, head: Node3D, body: Node3D) -> void:
+func _dress_hoodie(upper: Node3D, head: Node3D, body: Node3D, hood_up := true) -> void:
 	var black := Color(0.10, 0.10, 0.11)
 	var rim := Color(0.15, 0.15, 0.16)
 	var white := Color(0.95, 0.95, 0.93)
-	_part(head, _sphere(0.16), black, Vector3(0, 0.05, -0.08), Vector3(1.05, 1.05, 1.0))
-	var torus := TorusMesh.new()
-	torus.inner_radius = 0.105
-	torus.outer_radius = 0.135
-	torus.rings = 24
-	torus.ring_segments = 8
-	_part(head, torus, rim, Vector3(0, 0.035, 0.055), Vector3(1.0, 1.0, 1.15), Vector3(PI * 0.5, 0, 0))
+	if hood_up:
+		_part(head, _sphere(0.16), black, Vector3(0, 0.05, -0.08), Vector3(1.05, 1.05, 1.0))
+		var torus := TorusMesh.new()
+		torus.inner_radius = 0.105
+		torus.outer_radius = 0.135
+		torus.rings = 24
+		torus.ring_segments = 8
+		_part(head, torus, rim, Vector3(0, 0.035, 0.055), Vector3(1.0, 1.0, 1.15), Vector3(PI * 0.5, 0, 0))
+	else:
+		# 帽兜放下來：掛在脖子後面的一團
+		_part(upper, _sphere(0.13, 12), black, Vector3(0, 0.72, -0.02), Vector3(1.1, 0.6, 1.0))
 	# 帽 T 領口探出一圈白羽毛
 	_part(upper, _sphere(0.13, 12), Color(0.97, 0.96, 0.93), Vector3(0, 0.74, 0.2), Vector3(1.0, 0.45, 0.85))
 	# 帽繩

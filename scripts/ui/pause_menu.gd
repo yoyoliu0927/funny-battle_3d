@@ -5,7 +5,8 @@ extends CanvasLayer
 ##   - 整個小關場景停住：把場景根節點的 process_mode 設成「停用」，所以戰局（含各關自己覆寫的
 ##     _process／_physics_process）、玩家鏡頭、場地、角色動畫、音樂都不會再跑；只有這個選單自己還在動。
 ##     戰局是固定每 1/60 秒算一步，暫停期間一步都不會算，關掉選單後從同一步接著算，結果和沒暫停一樣。
-##   - 游標放開、畫面壓暗、中間一張筆記紙：繼續（Esc）、重來（R）、回地圖（M）、操作說明（H）。
+##   - 游標放開、畫面壓暗、中間一張筆記紙：繼續（Esc）、重來（R）、回地圖（M）、聲音開關（V）、操作說明（H）。
+##     聲音開關關掉的是整個遊戲的聲音（Master），跟選關畫面右上角的喇叭是同一個設定（存在 user://settings.cfg）。
 ##     滑鼠可以點；也可以用 ↑↓ 選、Enter 確定。
 ## 關掉的時候：場景恢復原本的 process_mode、時間倍率和游標狀態。
 ##
@@ -26,6 +27,7 @@ const ITEMS := [
 	{"id": "resume", "text": "繼續", "key": "Esc"},
 	{"id": "restart", "text": "重來", "key": "R"},
 	{"id": "map", "text": "回地圖", "key": "M"},
+	{"id": "sound", "text": "聲音", "key": "V"},
 	{"id": "help", "text": "操作說明", "key": "H"},
 ]
 const ROW_W := 340.0
@@ -41,6 +43,7 @@ var _root: Control
 var _card: PanelContainer
 var _rows: Array = []          # 每個選項的底板（PanelContainer）
 var _marks: Array = []         # 每個選項前面的「▶」
+var _texts: Array = []         # 每個選項的字（Label）
 var _help_box: VBoxContainer
 var _help_on := false
 var _was_mode := Node.PROCESS_MODE_INHERIT
@@ -150,6 +153,7 @@ func _make_row(i: int) -> Control:
 			activate(i))
 	_rows.append(row)
 	_marks.append(mark)
+	_texts.append(t)
 	return row
 
 func _row_box(on: bool) -> StyleBoxFlat:
@@ -171,6 +175,8 @@ func _refresh() -> void:
 		var on := i == selected
 		(_rows[i] as PanelContainer).add_theme_stylebox_override("panel", _row_box(on))
 		(_marks[i] as Label).modulate.a = 1.0 if on else 0.0
+		if String(ITEMS[i].id) == "sound":
+			(_texts[i] as Label).text = "聲音：關" if AudioServer.is_bus_mute(0) else "聲音：開"
 
 # ---------------------------------------------------------------- 開關
 
@@ -233,6 +239,15 @@ func activate(i: int) -> void:
 	match id:
 		"help":
 			toggle_help()
+		"sound":
+			# 開／關整個遊戲的聲音，並記到設定檔（選單不關）
+			var muted := not AudioServer.is_bus_mute(0)
+			AudioServer.set_bus_mute(0, muted)
+			var cf := ConfigFile.new()
+			cf.load("user://settings.cfg")
+			cf.set_value("audio", "muted", muted)
+			cf.save("user://settings.cfg")
+			_refresh()
 		"resume":
 			close()
 			picked.emit(id)
@@ -294,6 +309,8 @@ func _input(event: InputEvent) -> void:
 					_activate_id("restart")
 				KEY_M:
 					_activate_id("map")
+				KEY_V:
+					_activate_id("sound")
 				KEY_H:
 					_activate_id("help")
 		# 選單開著的時候，鍵盤不會漏到別的地方

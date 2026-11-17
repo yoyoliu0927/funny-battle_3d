@@ -19,7 +19,13 @@ const Sfx := preload("res://levels/ice/sfx.gd")
 ## 有人掉進冰洞時要不要在畫面中間跳字卡（救企鵝模式改用洞口的跳字）
 var fall_toast := true
 ## 聲音總開關（音效＋背景音樂）。開發階段先關閉；換好正式音效後改成 true
-const SOUND_ON := false
+const SOUND_ON := true
+## 配樂的音量（分貝）：準備階段小聲一點，開打之後大聲一點；切換時兩首交叉淡入淡出
+const MUSIC_DB := {"bgm_plan": -13.0, "bgm_run": -12.0}
+const MUSIC_OFF_DB := -60.0
+## 畫面上跳出這幾個字的時候順便響的音效（搞笑的點本來就都有跳字，音效跟著字走就不會漏）
+const LABEL_SFX := {"撲通！": "splash", "連環撞！": "carom", "差一點！": "miss", "啄": "peck", "？": "huh",
+	"追不上了…": "sigh", "喀喀喀…": "creak"}
 const ICE_GRIP := 1.1          # 人在冰上的抓地力（越小越滑、越轉不了彎）
 const SNOW_GRIP := 14.0        # 人在雪地上的抓地力（幾乎馬上就能轉向）
 const MAX_SLIDE := 4.5         # 滑行速度上限
@@ -67,8 +73,8 @@ func worker(name: String, route: Array, extra := {}) -> Dictionary:
 # ---------------------------------------------------------------- 建立、重置、輸贏
 
 func _level_setup() -> void:
-	# 開發階段先關掉聲音（SOUND_ON = false）：目前的音效和背景音樂是程式合成的暫時版本，之後會整批換成正式素材
-	var sounds: Dictionary = Sfx.make_all() if SOUND_ON else {}
+	# 音效和配樂是程式合成的（sfx.gd）。沒有畫面的自動測試（headless）不合成，省啟動時間
+	var sounds: Dictionary = Sfx.make_all() if SOUND_ON and DisplayServer.get_name() != "headless" else {}
 	for k in sounds:
 		var p := AudioStreamPlayer.new()
 		p.stream = sounds[k]
@@ -76,6 +82,11 @@ func _level_setup() -> void:
 		p.volume_db = -4.0
 		add_child(p)
 		_players[k] = p
+	# 配樂：安靜版和熱鬧版同時播（一開始都靜音），_tick_music() 依階段調音量
+	for k in MUSIC_DB:
+		if _players.has(k):
+			(_players[k] as AudioStreamPlayer).volume_db = MUSIC_OFF_DB
+			(_players[k] as AudioStreamPlayer).play()
 	var hint := get_node_or_null("../HUD/Hint") as Label
 	if hint:
 		hint.text = "WASD 飄移｜空白 上升｜Shift 下降｜滑鼠 轉視角｜數字鍵／滾輪 選道具｜左鍵 施放｜Enter 開始｜按住 F 快轉｜R 重試｜M 地圖｜Esc 放開游標"
@@ -313,8 +324,21 @@ func _level_visuals() -> void:
 
 # ---------------------------------------------------------------- 每一畫面：快轉、慢動作、震動、字、瞄準預告
 
+## 配樂跟著階段走：準備＝安靜版、開打＝熱鬧版、結束＝都收掉（讓過關／被抓的音效出來）。音量慢慢靠過去，不會突然切
+func _tick_music(dt: float) -> void:
+	var on := ""
+	if not silent:
+		on = "bgm_plan" if phase == Phase.PREPARE else ("bgm_run" if phase == Phase.RUNNING else "")
+	for k in MUSIC_DB:
+		var p: AudioStreamPlayer = _players.get(k)
+		if p:
+			var want: float = MUSIC_DB[k] if k == on else MUSIC_OFF_DB
+			var rate := 90.0 if want > p.volume_db else 60.0          # 進來快一點、出去慢一點（分貝／秒）
+			p.volume_db = move_toward(p.volume_db, want, rate * dt / maxf(Engine.time_scale, 0.01))
+
 func _process(dt: float) -> void:
 	super(dt)
+	_tick_music(dt)
 	if phase == Phase.PREPARE:
 		_tick_clock(dt)
 	var now := Time.get_ticks_msec()
@@ -417,6 +441,8 @@ func sfx(name: String) -> void:
 func pop_label(text: String, pos: Vector3, color: Color, ms: int, follow: Fighter = null) -> void:
 	if silent:
 		return
+	if LABEL_SFX.has(text):
+		sfx(LABEL_SFX[text])
 	var l := Label3D.new()
 	l.text = text
 	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED

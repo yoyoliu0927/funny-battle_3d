@@ -447,6 +447,7 @@ func _level_reset() -> void:
 		_toast_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
 
 func _level_start() -> void:
+	sfx("go")
 	path = _build_path(feed_pos)      # 瞄準飼料時畫面上的黃線是暫時的：開打一律用放好的那一條
 	_goal_label.visible = false
 	_goal_seen[_stage_key()] = true
@@ -1671,7 +1672,7 @@ func _tick_slide(f: Fighter, dt: float) -> void:
 				f.data.knock_at = Vector2(sn.pos.x, sn.pos.z)
 				log_event("雪人的頭掉下來扣在%s頭上" % f.name)
 				pop_label("咚！", f.pos + Vector3(0, 3.4, 0), Color(1, 1, 1), 900, f)
-				sfx("crack")
+				sfx("bonk")
 				# 雪人頭扣上去的那一下：停格、慢動作、正面近拍（不然發生得太快，容易漏看）
 				f.data.hat_off_t = _clock
 				_hitstop_until = Time.get_ticks_msec() + 120
@@ -2624,7 +2625,7 @@ func _stop_slide(f: Fighter, msg: String) -> void:
 				f.pos = ground(p)
 				log_event("%s倒栽進雪堆，只剩兩條腿在外面" % f.name)
 				pop_label("噗！", f.pos + Vector3(0, 3.1, 0), Color(1, 1, 1), 900, f)
-				sfx("crack")
+				sfx("poof")
 				mark("pile")
 				_shake_until = Time.get_ticks_msec() + 300
 				anim(f, "Run")
