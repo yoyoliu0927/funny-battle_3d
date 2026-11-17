@@ -423,6 +423,114 @@ func _build_extra() -> void:
 	_build_pools()
 	_build_remembered()
 	_build_stars()
+	_build_signs()
+
+# ---------------------------------------------------------------- 天空中的關卡名稱
+
+const SIGN_NAMES := ["Chapter 1", "Chapter 2", "Chapter 3"]
+const SIGN_H := 22.0               # 字浮在那一小關的空地中間、離地多高
+const SIGN_BIG := 2.8              # 玩家現在所在的那一關：字有多高（公尺）
+const SIGN_SMALL := 1.8            # 別的關：字比較小
+var _signs: Array = []             # [{root, glow, here, y}]
+
+## 字：不受光、不被霧蓋掉的純色（遠遠也看得清楚）
+const SIGN_TEXT_SHADER := "shader_type spatial;
+render_mode unshaded, fog_disabled, cull_disabled, shadows_disabled;
+uniform vec4 tint : source_color = vec4(1.0);
+void fragment() {
+	ALBEDO = tint.rgb;
+}
+"
+## 字後面的光暈：橫的一團軟軟的光，疊加上去；沒有光的地方不畫
+const SIGN_GLOW_SHADER := "shader_type spatial;
+render_mode unshaded, blend_add, depth_draw_never, cull_disabled, shadows_disabled, fog_disabled;
+uniform vec4 tint : source_color = vec4(1.0);
+void fragment() {
+	vec2 p = (UV - 0.5) * 2.0;
+	float v = exp(-dot(p, p) * 3.2) * smoothstep(1.0, 0.55, length(p)) * tint.a;
+	if (v < 0.004) {
+		discard;
+	}
+	ALBEDO = tint.rgb * v;
+	ALPHA = clamp(v, 0.0, 1.0);
+}
+"
+
+## 三個小關的空地正上方各浮著一行發光的白字（Chapter 1 / 2 / 3，斜體的襯線字）。
+## 玩家現在在的那一關：字大、純白、金色的字影、後面一團金色的光暈一明一暗、整行慢慢上下飄；
+## 別的關：字小、淡淡的灰白色、不動，遠遠看得出那邊是第幾關
+func _build_signs() -> void:
+	_signs.clear()
+	var tsh := Shader.new()
+	tsh.code = SIGN_TEXT_SHADER
+	var gsh := Shader.new()
+	gsh.code = SIGN_GLOW_SHADER
+	# 用電腦裡現成的襯線字型（Mac、Windows 各列幾個，找不到就用系統預設的襯線字）
+	var font := SystemFont.new()
+	font.font_names = PackedStringArray(["Palatino", "Palatino Linotype", "Book Antiqua", "Georgia", "Baskerville", "Times New Roman", "serif"])
+	font.font_italic = true
+	font.font_weight = 700
+	for k in ZONES.size():
+		var c: Vector2 = (ZONES[k] as Rect2).get_center() + _off
+		var here: bool = k == stage_index - 1
+		var size: float = SIGN_BIG if here else SIGN_SMALL
+		var root := Node3D.new()
+		root.name = "Sign%d" % (k + 1)
+		var y: float = _land_h(c.x, c.y) + SIGN_H
+		root.position = Vector3(c.x, y, c.y)
+		add_child(root)
+		var tm := TextMesh.new()
+		tm.text = SIGN_NAMES[k]
+		tm.font = font
+		tm.font_size = 64
+		tm.pixel_size = size / 64.0
+		tm.depth = 0.1
+		# 前面白字、後面往右下錯開一點的字影（襯出字的邊，背景是亮的天空也看得清楚）
+		var layers := [
+			[Color(1, 1, 1) if here else Color(0.9, 0.93, 0.97), Vector3.ZERO],
+			[Color(0.78, 0.46, 0.1) if here else Color(0.5, 0.56, 0.66), Vector3(size * 0.028, -size * 0.028, -0.2)],
+		]
+		for ly in layers:
+			var mi := MeshInstance3D.new()
+			mi.mesh = tm
+			var mat := ShaderMaterial.new()
+			mat.shader = tsh
+			mat.set_shader_parameter("tint", ly[0])
+			mi.material_override = mat
+			mi.position = ly[1]
+			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			root.add_child(mi)
+		var gm: ShaderMaterial = null
+		if here:
+			var glow := MeshInstance3D.new()
+			var qm := QuadMesh.new()
+			qm.size = Vector2(size * 8.5, size * 3.4)
+			glow.mesh = qm
+			gm = ShaderMaterial.new()
+			gm.shader = gsh
+			gm.set_shader_parameter("tint", Color(1.0, 0.8, 0.4, 0.7))
+			glow.material_override = gm
+			glow.position = Vector3(0.0, 0.0, -0.5)
+			glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			root.add_child(glow)
+		_signs.append({"root": root, "glow": gm, "here": here, "y": y})
+
+## 字永遠正面朝著鏡頭；現在這一關的字：光暈一明一暗、整行慢慢上下飄
+func _tick_signs() -> void:
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+	var t := Time.get_ticks_msec() / 1000.0
+	for sg in _signs:
+		if not is_instance_valid(sg.root):
+			continue
+		var root: Node3D = sg.root
+		if sg.here:
+			root.position.y = float(sg.y) + sin(t * 0.9) * 0.35
+			(sg.glow as ShaderMaterial).set_shader_parameter("tint", Color(1.0, 0.8, 0.4, 0.65 + 0.25 * sin(t * 2.2)))
+		if cam:
+			var d: Vector3 = cam.global_position - root.global_position
+			d.y = 0.0
+			if d.length() > 0.5:
+				root.rotation.y = atan2(d.x, d.z)
 
 ## 別的小關的擺設和水池：只有外觀，飛過去看得到
 func _build_other_zones() -> void:
@@ -1139,6 +1247,7 @@ func _apply_time() -> void:
 
 func _process(delta: float) -> void:
 	_tick_glow_mat(delta)
+	_tick_signs()
 	if _dead_tree and _tree_fall >= 0.0 and _tree_fall < 1.0:
 		_tree_fall = minf(_tree_fall + delta / 1.1, 1.0)
 		# 一開始慢、越倒越快，最後彈一下
