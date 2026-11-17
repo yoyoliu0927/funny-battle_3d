@@ -1,19 +1,20 @@
 shader_type spatial;
-// 油畫風的地面：幾層大筆觸疊出滿地落葉——底色是深紅棕，上面疊棕、鏽橘，
-// 只有陽光照到的光斑才有幾筆土黃。顏色故意只用相近的幾個，角色站在上面才看得清楚。
+// 油畫風的地面：筆觸是預先畫好的貼圖（levels/liuchiyu/tools/bake_textures.gd 產生），shader 只負責：
+// 低頻的大塊光斑決定哪裡疊暖色筆觸、遠處筆觸淡成純色、陡坡換成岩石色，光影用三階 ramp。
+// 貼圖由 levels/liuchiyu/oil_textures.gd 設成這個 shader 的預設值，材質不用自己設。
+#include "res://levels/liuchiyu/shaders/toon_light.gdshaderinc"
 
-// 陰影裡的顏色：色相很多（紅棕、紫、深綠、鏽橘、棕），但明暗差不多，所以看起來豐富卻不花
-uniform vec3 sh1 : source_color = vec3(0.40, 0.17, 0.15);
-uniform vec3 sh2 : source_color = vec3(0.31, 0.21, 0.38);
-uniform vec3 sh3 : source_color = vec3(0.20, 0.31, 0.17);
-uniform vec3 sh4 : source_color = vec3(0.47, 0.25, 0.11);
-uniform vec3 sh5 : source_color = vec3(0.35, 0.21, 0.14);
-// 陽光光斑裡的顏色：橘、黃、金、紅橘、黃綠，同樣明暗接近
-uniform vec3 su1 : source_color = vec3(0.86, 0.50, 0.14);
-uniform vec3 su2 : source_color = vec3(0.90, 0.70, 0.22);
-uniform vec3 su3 : source_color = vec3(0.84, 0.60, 0.18);
-uniform vec3 su4 : source_color = vec3(0.80, 0.38, 0.14);
-uniform vec3 su5 : source_color = vec3(0.62, 0.64, 0.24);
+uniform sampler2D shade_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D sun_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform sampler2D noise_tex : filter_linear_mipmap, repeat_enable;
+// 照片掃描的落葉地面（Poly Haven brown_mud_leaves_01，CC0）：只拿它的「形狀」——哪裡是葉子、哪裡是泥土、明暗，
+// 顏色全部換成秋天的調色盤、明暗切成幾階平塗，所以看起來是畫的，但葉子的形狀和疊法是真的。
+uniform sampler2D photo_tex : source_color, filter_linear_mipmap_anisotropic, repeat_enable;
+uniform float use_photo = 1.0;       // 1 = 用照片當形狀，0 = 用預先畫好的筆觸貼圖
+uniform float photo_tile = 3.2;      // 一張照片鋪多少公尺
+uniform float tile = 8.0;            // 一張筆觸貼圖鋪多少公尺
+uniform vec3 far_shade : source_color = vec3(0.37, 0.21, 0.15);     // 遠處（看不清筆觸）的陰影底色
+uniform vec3 far_sun : source_color = vec3(0.84, 0.56, 0.17);       // 遠處光斑的顏色
 uniform vec3 rock : source_color = vec3(0.24, 0.13, 0.14);
 
 uniform float night = 0.0;           // 1 = 晚上：不管原本什麼顏色，都換成同一組由深到淺的藍綠色
@@ -28,33 +29,6 @@ vec3 night_ramp(vec3 c) {
 uniform vec2 origin = vec2(0.0);    // 島的原點在這一小關座標裡的位置（x, z）
 varying vec3 wp;
 
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float vnoise(vec2 p) {
-	vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
-	return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
-}
-
-vec3 pick5(float r, vec3 a, vec3 b, vec3 c, vec3 d, vec3 e) {
-	return r < 0.2 ? a : (r < 0.4 ? b : (r < 0.6 ? c : (r < 0.8 ? d : e)));
-}
-
-// 一層筆觸：回傳 (這一筆的亂數, 筆觸的遮罩)
-vec2 strokes(vec2 p, float size, float ang, float cover, float seed) {
-	// 每一塊區域筆的方向不太一樣
-	float a = ang + (vnoise(p * 0.18 + seed) - 0.5) * 2.2;
-	vec2 q = vec2(cos(a) * p.x - sin(a) * p.y, sin(a) * p.x + cos(a) * p.y) / size;
-	q.y *= 3.2;                               // 筆觸是長條形
-	q.x += floor(q.y) * 0.37 + seed;          // 每一排錯開
-	vec2 id = floor(q);
-	vec2 f = fract(q) - 0.5;
-	float r = hash(id + seed * 13.0);
-	float len = 0.30 + 0.18 * hash(id + 5.0);
-	float d = max(abs(f.x) - len, abs(f.y) - 0.30);
-	d += (vnoise(q * vec2(9.0, 3.0)) - 0.5) * 0.22;      // 邊緣毛毛的
-	float m = smoothstep(0.06, -0.02, d) * step(r, cover);
-	return vec2(hash(id + 31.0 + seed), m);
-}
-
 void vertex() {
 	wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	wp.xz -= origin;        // 筆觸跟著島走：同一塊地不管從哪一小關看，畫出來都一樣
@@ -62,26 +36,41 @@ void vertex() {
 
 void fragment() {
 	vec2 p = wp.xz;
-	// 光斑：大範圍的亮區和暗區
-	float sun_patch = smoothstep(0.46, 0.64, vnoise(p * 0.13 + 3.0) * 0.75 + vnoise(p * 0.4) * 0.25);
-	vec3 col = sh5;
-	// 陰影的筆觸：三層不同大小，每一筆從陰影色裡挑一個
-	vec2 s = strokes(p, 1.0, 0.3, 0.85, 1.0);
-	col = mix(col, pick5(s.x, sh1, sh5, sh4, sh1, sh5), s.y);
-	s = strokes(p, 0.62, 1.1, 0.7, 2.0);
-	col = mix(col, pick5(s.x, sh1, sh2, sh3, sh4, sh5), s.y);
-	s = strokes(p, 0.42, -0.4, 0.45, 3.0);
-	col = mix(col, pick5(s.x, sh2, sh3, sh4, sh1, sh2), s.y);
-	// 光斑的筆觸：只出現在亮區，越靠近亮區中心越密
-	s = strokes(p, 0.70, 0.8, sun_patch * 0.85, 4.0);
-	col = mix(col, pick5(s.x, su1, su3, su4, su1, su3), s.y);
-	s = strokes(p, 0.46, 2.0, sun_patch * 0.7, 5.0);
-	col = mix(col, pick5(s.x, su1, su2, su3, su2, su5), s.y);
+	// 一次讀出四個頻率的雜訊：R = 光斑（約 50 公尺一塊），G = 讓貼圖轉個方向、不要一眼看出重複
+	vec4 nz = texture(noise_tex, p / 200.0);
+	float sun_patch = smoothstep(0.50, 0.66, nz.r * 0.8 + nz.b * 0.2);
+	// 兩種擺法的貼圖（一般、轉 90 度）按大塊雜訊切換，拼接的痕跡就不明顯
+	vec2 uv = p / tile;
+	vec2 uv2 = vec2(uv.y, -uv.x) * 1.13 + 0.37;
+	float alt = step(0.5, nz.g);
+	vec3 shade = mix(texture(shade_tex, uv).rgb, texture(shade_tex, uv2).rgb, alt);
+	vec4 sun = texture(sun_tex, mix(uv, uv2, alt) + 0.21);
+	// 光斑裡：筆觸的亂數（alpha）小於門檻的那幾筆才畫，越靠近光斑中心畫越多筆
+	float sun_m = smoothstep(0.03, 0.0, sun.a - sun_patch * 0.6);
+	// 筆觸的顏色往遠處的平塗色靠一點：地面安靜一點，主角是樹上和飄下來的落葉
+	shade = mix(shade, far_shade, 0.35);
+	vec3 col = mix(shade, mix(sun.rgb, far_sun, 0.3), sun_m);
+	col = mix(col, far_sun, sun_patch * 0.15);
+	if (use_photo > 0.5) {
+		vec2 puv = mix(p, vec2(p.y, -p.x) + 1.7, alt) / photo_tile;
+		vec3 ph = texture(photo_tex, puv).rgb;
+		float leaf = smoothstep(-0.03, 0.04, ph.g - ph.r);       // 照片裡綠色的地方 = 葉子
+		float lum = dot(ph, vec3(0.3, 0.55, 0.15));
+		float step3 = floor(clamp(lum * 4.2, 0.0, 2.99)) / 2.0;   // 明暗切成三階
+		// 葉子：每一大塊區域換一種秋天的顏色（暗紅、鏽橘、金黃），光斑裡偏亮
+		vec3 la = mix(vec3(0.42, 0.14, 0.09), vec3(0.62, 0.28, 0.08), smoothstep(0.35, 0.65, nz.b));
+		vec3 lb = mix(vec3(0.80, 0.44, 0.10), vec3(0.92, 0.70, 0.22), smoothstep(0.30, 0.70, nz.g));
+		vec3 leaf_col = mix(la, lb, clamp(step3 * 0.7 + sun_patch * 0.6, 0.0, 1.0));
+		vec3 soil = mix(far_shade * 0.75, far_shade * 1.1, step3);
+		col = mix(soil, leaf_col, leaf);
+	}
+	// 遠處淡成純色，就不會閃爍、也比較乾淨
+	float far = smoothstep(26.0, 60.0, length(VERTEX));
+	col = mix(col, mix(far_shade, far_sun, sun_patch * 0.8), far);
 
-	// 陡坡畫成深色的岩石筆觸
+	// 陡坡畫成深色的岩石
 	float steep = smoothstep(0.3, 0.7, COLOR.b);
-	s = strokes(p * vec2(1.0, 0.6), 0.9, 1.5, 0.8, 6.0);
-	col = mix(col, mix(rock, rock * 1.9 + vec3(0.1, 0.05, 0.0), s.x * s.y), steep * 0.85);
+	col = mix(col, rock * (0.9 + 0.5 * nz.a), steep * 0.85);
 
 	// 整體壓暗、降一點彩度，站在上面的角色才看得清楚
 	float luma = dot(col, vec3(0.3, 0.55, 0.15));

@@ -557,11 +557,13 @@ func _build_other_zones() -> void:
 			cm.height = 0.04
 			cm.radial_segments = 48
 			water.mesh = cm
+			# 跟近處的水池、海同一種水面（預先畫好的水面貼圖＋三階平塗）
 			var wm := ShaderMaterial.new()
-			wm.shader = load("res://shaders/water.gdshader")
-			wm.set_shader_parameter("island_radius", Vector2(1000.0, 1000.0))
-			wm.set_shader_parameter("deep", Color(0.2, 0.55, 0.72))
-			wm.set_shader_parameter("light_c", Color(0.6, 0.88, 0.92))
+			wm.shader = SEA_SHADER
+			wm.set_shader_parameter("sun_dir", SUN_DIR)
+			wm.set_shader_parameter("center", c)
+			wm.set_shader_parameter("night", 1.0 if night else 0.0)
+			_leaf_mats.append(wm)
 			water.material_override = wm
 			water.position = Vector3(c.x, _land_h(c.x + r * 0.7, c.y) - 0.6, c.y)
 			water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF

@@ -1,7 +1,9 @@
 shader_type spatial;
 render_mode unshaded, cull_disabled, shadows_disabled;
-// 油畫風的河和瀑布：一筆一筆順著水流方向的長筆觸，整片往下游流。
-// UV.x = 橫跨河面（0～1），UV.y = 沿著河走了幾公尺；COLOR.r = 1 的地方是瀑布（比較白、流得比較快）。
+// 河和瀑布：跟海同一張預先畫好的水面貼圖（water.png），順著水流方向拉長、往下游滑，
+// 再換成三階平塗的藍＋白色水花。UV.x = 橫跨河面（0～1），UV.y = 沿著河走了幾公尺；
+// COLOR.r = 1 的地方是瀑布（比較白、流得比較快）。
+uniform sampler2D water_tex : filter_linear_mipmap_anisotropic, repeat_enable;
 uniform float night = 0.0;
 uniform vec3 day_deep : source_color = vec3(0.12, 0.32, 0.44);
 uniform vec3 day_mid : source_color = vec3(0.22, 0.47, 0.58);
@@ -12,27 +14,7 @@ uniform vec3 night_mid : source_color = vec3(0.07, 0.20, 0.31);
 uniform vec3 night_light : source_color = vec3(0.20, 0.42, 0.54);
 uniform vec3 night_foam : source_color = vec3(0.62, 0.84, 0.90);
 uniform float flow = 1.0;            // 流速
-uniform float width = 3.6;           // 河多寬（公尺），算筆觸粗細用
-
-float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
-float vnoise(vec2 p) {
-	vec2 i = floor(p); vec2 f = fract(p); f = f * f * (3.0 - 2.0 * f);
-	return mix(mix(hash(i), hash(i + vec2(1, 0)), f.x), mix(hash(i + vec2(0, 1)), hash(i + vec2(1, 1)), f.x), f.y);
-}
-
-// 一層順著水流的筆觸：回傳 (這一筆的明暗, 遮罩)
-vec2 strokes(vec2 p, float lanes, float len, float speed, float seed) {
-	// p.x = 橫向 0～1，p.y = 沿河的公尺數
-	float lane = floor(p.x * lanes);
-	float rl = hash(vec2(lane, seed));
-	float y = (p.y - TIME * flow * speed * (0.75 + 0.5 * rl)) / len + rl * 9.0;
-	vec2 id = vec2(lane, floor(y));
-	vec2 f = vec2(fract(p.x * lanes), fract(y)) - 0.5;
-	float l = 0.34 + 0.14 * hash(id + 5.0);
-	float d = max(abs(f.y) - l, abs(f.x) - 0.36);
-	d += (vnoise(vec2(p.x * lanes * 3.0, y * 5.0) + seed) - 0.5) * 0.22;
-	return vec2(hash(id + seed * 13.0), smoothstep(0.05, -0.02, d));
-}
+uniform float width = 3.6;           // 河多寬（公尺），花紋的粗細跟著河寬走
 
 void fragment() {
 	float fall = COLOR.r;
@@ -40,19 +22,21 @@ void fragment() {
 	vec3 mid = mix(day_mid, night_mid, night);
 	vec3 light = mix(day_light, night_light, night);
 	vec3 foam = mix(day_foam, night_foam, night);
-	vec2 p = UV;
-	float lanes = max(floor(width / 0.55), 3.0);
-	float speed = mix(1.4, 6.5, fall);
-	float len = mix(1.5, 2.6, fall);
+	float speed = mix(1.4, 6.5, fall) * flow;
+	// 換成公尺：橫向 = 河寬，縱向 = 沿河的距離；花紋順著水流拉長三倍
+	vec2 m = vec2(UV.x * width, UV.y);
+	vec4 a = texture(water_tex, vec2(m.x / 3.0, (m.y - TIME * speed) / 9.0));
+	vec4 b = texture(water_tex, vec2(m.x / 2.2 + 0.37, (m.y - TIME * speed * 1.3) / 6.0 + 0.5));
+	float h = (a.r + b.r) * 0.5 + (a.b - 0.5) * 0.3;
 	// 靠兩岸的地方、還有瀑布，白色的水花比較多
-	float edge = smoothstep(0.30, 0.48, abs(p.x - 0.5));
+	float edge = smoothstep(0.30, 0.48, abs(UV.x - 0.5));
 	float white = max(fall * 0.75, edge * 0.5);
-	vec3 col = mix(deep, mid, fall * 0.7);
-	vec2 s = strokes(p, lanes * 0.6, len * 1.6, speed, 1.0);
-	col = mix(col, s.x > 0.5 ? mid : deep * 0.8, s.y * (1.0 - fall * 0.6));
-	s = strokes(p + vec2(0.13, 0.0), lanes, len, speed * 1.15, 2.0);
-	col = mix(col, s.x + white * 0.4 > 0.8 ? light : mid, s.y * step(0.35, s.x + white));
-	s = strokes(p + vec2(0.31, 0.0), lanes * 1.5, len * 0.7, speed * 1.3, 3.0);
-	col = mix(col, s.x + white > 1.15 ? foam : light, s.y * step(0.85, s.x + white));
+	float w = fwidth(h) + 0.004;
+	vec3 col = mix(deep, mid, smoothstep(0.42 - w, 0.42 + w, h + fall * 0.2));
+	col = mix(col, light, smoothstep(0.62 - w, 0.62 + w, h + white * 0.2));
+	float line = max(a.g, b.g);
+	float lw = fwidth(line) + 0.02;
+	float lm = smoothstep(0.55 - lw, 0.55 + lw, line + white * 0.3);
+	col = mix(col, mix(light, foam, clamp(white * 1.4 + 0.2, 0.0, 1.0)), lm * clamp(0.4 + white, 0.0, 1.0));
 	ALBEDO = col;
 }

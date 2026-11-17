@@ -45,3 +45,8 @@ hand/
   授權：CC0 1.0（作者頁面寫明 "released under CC0 (Public Domain)"）
   神的第一人稱雙手。只放了 arms_rig.glb（貼圖 arms_rig_arms_01.png 是 Godot 匯入時從 glb 裡拆出來的）；
   材質換成 shaders/ghost_hand.gdshader 的半透明發光效果，見 god_hands.gd。
+
+textures/
+  ground_shade.png、ground_sun.png、noise4.png：自己用 levels/liuchiyu/tools/bake_textures.gd 產生的（沒有外部來源）。
+  油畫地面（shaders/oil_ground.gdshader）另外讀 polyhaven/brown_mud_leaves_01_diff_1k.jpg（Poly Haven，CC0 1.0，
+  https://polyhaven.com/a/brown_mud_leaves_01）當落葉的形狀，顏色在 shader 裡換成秋天的調色盤。

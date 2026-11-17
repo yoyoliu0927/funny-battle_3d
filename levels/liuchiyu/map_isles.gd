@@ -13,6 +13,7 @@ const LEAF := preload("res://levels/liuchiyu/shaders/oil_leaf.gdshader")
 const LAVA := preload("res://levels/liuchiyu/shaders/oil_lava.gdshader")
 const RIVER := preload("res://levels/liuchiyu/shaders/oil_river.gdshader")
 const GHOST := preload("res://levels/liuchiyu/shaders/map_hand.gdshader")
+const OilTextures := preload("res://levels/liuchiyu/oil_textures.gd")
 const A := "res://levels/liuchiyu/assets/"
 const KH := A + "kaykit_halloween/"
 const KT := A + "kenney_town/"
@@ -91,6 +92,7 @@ func ground_y(x: float, z: float) -> float:
 
 ## 蓋整座島（世界座標；y = 0 是海面）
 func build_island(root: Node3D, ctx: Dictionary) -> void:
+	OilTextures.apply()        # 地面、岩壁的著色器要讀的預先畫好的貼圖
 	_ctx = ctx
 	_top_y = float(ctx.get("top_y", 1.5))
 	_rng.seed = 20261118
