@@ -22,9 +22,12 @@ const MILL_GUST := 8.0                  # 風要吹在離風車多近才算
 const MILL_NEED := 3.0                  # 轉到這個速度，葉片就飛出去
 const MILL_RATE := 1.1                  # 按住吹的時候每秒快多少（大約吹三秒就飛出去）
 const MILL_DECAY := 0.35                # 沒在吹的時候每秒慢多少
-const BOLT_DELAY := 1.1                 # 農夫都倒下之後，過多久雷劈在枯樹上（這之前鏡頭已經先轉過去了）
-const CLOSEUP_LEAD := 0.6               # 打雷前多久鏡頭就轉去看枯樹
-const CLOSEUP_HOLD := 1.5               # 雷劈下來之後，特寫再停多久才把鏡頭還給玩家
+const BOLT_DELAY := 3.0                 # 農夫都倒下之後，過多久雷劈在枯樹上（這之前鏡頭已經先飛過去、停了一下）
+const CLOSEUP_LEAD := 2.4               # 打雷前多久鏡頭就開始飛去看枯樹（飛到之後還會停一下才打雷）
+const CLOSEUP_FLY := 1.1                # 鏡頭飛過去要幾秒
+const CLOSEUP_HOLD := 3.2               # 雷劈下來之後，特寫再停多久才把鏡頭還給玩家（這段時間底下有一行提示）
+const BOLT_HINT := "枯樹被雷劈開了……好像可以用風把它吹倒？"
+const BOLT_HINT_TIME := 6.0             # 提示停幾秒（特寫結束、鏡頭還給玩家之後還會再留一下）
 const WHEEL_FLY := 9.0                  # 葉片飛出去多遠（風車在盆地邊上，要飛進盆地裡）
 const WHEEL_TIME := 1.1                 # 飛幾秒落地
 const WHEEL_CRUSH := 5.0                # 落地時砸到多大一圈（葉片很大）
@@ -191,6 +194,7 @@ func _level_step_ended(dt: float) -> void:
 				world.lightning_strike(tp)
 				log_event("一道雷劈在枯樹上")
 				_closeup_t = CLOSEUP_HOLD
+				_show_bolt_hint()
 		elif _closeup:
 			_closeup_t -= dt
 			if _closeup_t <= 0.0:
@@ -313,6 +317,7 @@ func _begin_closeup() -> void:
 	if _closeup or player == null:
 		return
 	_closeup = true
+	_closeup_fly = 0.0
 	_cam_back = player.global_transform
 	var head := player.get_node_or_null("Head") as Node3D
 	_head_back = head.rotation.x if head else 0.0
@@ -328,6 +333,15 @@ func _end_closeup() -> void:
 			head.rotation.x = _head_back
 		player.set("velocity", Vector3.ZERO)
 
+var _closeup_fly := 0.0        # 鏡頭飛去枯樹已經飛了幾秒
+
+## 雷劈下來之後，技能欄上面浮一行小字提示（用的是道具說明那一行字，過幾秒自己淡掉）
+func _show_bolt_hint() -> void:
+	if _hint_label == null:
+		return
+	_hint_label.text = BOLT_HINT
+	_hint_t = BOLT_HINT_TIME
+
 func _process(dt: float) -> void:
 	super(dt)
 	if _closeup and player:
@@ -335,10 +349,13 @@ func _process(dt: float) -> void:
 		var from := tp + Vector3(7.5, 5.0, 9.0)
 		var at := tp + Vector3(0.0, 4.5, 0.0)
 		var d := at - from
-		player.global_position = from - Vector3(0.0, 1.65, 0.0)
-		player.rotation = Vector3(0.0, atan2(-d.x, -d.z), 0.0)
-		player.set("velocity", Vector3.ZERO)
 		var head := player.get_node_or_null("Head") as Node3D
+		# 鏡頭從玩家原本的位置平順地飛過去（慢慢起步、慢慢停下），不是一下子跳過去
+		_closeup_fly = minf(_closeup_fly + dt, CLOSEUP_FLY)
+		var k := smoothstep(0.0, 1.0, _closeup_fly / CLOSEUP_FLY)
+		player.global_position = _cam_back.origin.lerp(from - Vector3(0.0, 1.65, 0.0), k)
+		player.rotation = Vector3(0.0, lerp_angle(_cam_back.basis.get_euler().y, atan2(-d.x, -d.z), k), 0.0)
+		player.set("velocity", Vector3.ZERO)
 		if head:
-			head.rotation.x = atan2(d.y, Vector2(d.x, d.z).length())
+			head.rotation.x = lerp_angle(_head_back, atan2(d.y, Vector2(d.x, d.z).length()), k)
 
