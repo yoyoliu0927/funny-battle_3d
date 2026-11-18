@@ -143,8 +143,28 @@ func _exit_path() -> Array[Vector3]:
 
 # ---------------------------------------------------------------- 枯樹
 
+## 進這一小關時預設選「雷」（不管道具清單怎麼排）。
+## 剛進來的那一下不理滾輪和觸控板的滑動：從第一小關飛過來時手指還在滑（或觸控板的慣性滑動），
+## 會把選好的雷又換成風。數字鍵不受影響。
+const DEFAULT_ITEM := "thunder"
+const ENTER_GUARD_MS := 1200
+var _enter_ms := 0
+
+func _select_default() -> void:
+	for i in items.size():
+		if items[i].id == DEFAULT_ITEM:
+			select_skill(i)
+			return
+
+func _wheel_step(d: int) -> void:
+	if Time.get_ticks_msec() - _enter_ms < ENTER_GUARD_MS:
+		return
+	super(d)
+
 func _level_setup() -> void:
 	super()
+	_enter_ms = Time.get_ticks_msec()
+	_select_default()
 	for k in world.GROVE_TREES.size():
 		var made: Dictionary = world.make_dead_tree_node(TREE_H, k, true)        # 高一點、分枝少的版本
 		var node: Node3D = made.node
@@ -506,7 +526,7 @@ func _level_visuals() -> void:
 		return
 	var p := _aim_p()
 	var id: String = items[selected].id if selected >= 0 and selected < items.size() else ""
-	var live: bool = phase != Phase.PREPARE and not _leaving
+	var live: bool = not _leaving        # 準備階段（還沒按 Enter）也會變白
 	for t in _trees:
 		var node: Node3D = t.node
 		var basis := Basis(Vector3.UP, t.yaw)

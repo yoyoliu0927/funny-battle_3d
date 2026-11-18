@@ -375,28 +375,138 @@ func _build_arena_grass() -> void:
 			spots.append([x, z, sc, yaw, tall, v, green])
 	if spots.is_empty():
 		return
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	mm.use_colors = true
-	mm.mesh = _make_grass_mesh()
-	mm.instance_count = spots.size()
+	var xfs: Array[Transform3D] = []
+	var cols: Array[Color] = []
 	for i in spots.size():
 		var sp: Array = spots[i]
 		var s: float = sp[2] * 0.8
 		var bb := Basis(Vector3.UP, sp[3]).scaled(Vector3(s, s * float(sp[4]), s))
-		mm.set_instance_transform(i, Transform3D(bb, Vector3(sp[0], _land_h(sp[0], sp[1]) - 0.04, sp[1])))
+		xfs.append(Transform3D(bb, Vector3(sp[0], _land_h(sp[0], sp[1]) - 0.04, sp[1])))
 		var v: float = sp[5]
-		mm.set_instance_color(i, Color(0.62 * v, 0.95 * v, 0.5 * v) if sp[6] else Color(v, v, v * 0.95))
-	var grass := MultiMeshInstance3D.new()
-	grass.name = "Grass"
-	grass.multimesh = mm
+		cols.append(Color(0.62 * v, 0.95 * v, 0.5 * v) if sp[6] else Color(v, v, v * 0.95))
 	var gm := ShaderMaterial.new()
 	gm.shader = load("res://shaders/grass.gdshader")
-	grass.material_override = gm
-	grass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	add_child(grass)
+	# 切成小塊：別的小關空地上的草離得遠，或在鏡頭背後，引擎會自動不畫
+	_isle_grass_chunks(xfs, cols, gm)
 	_grass_mat = gm
 	_apply_time()
+
+# ---------------------------------------------------------------- 草、外圍樹林切塊（只省效能，外觀不變）
+
+## 草切成 ISLE_GRASS_CHUNK 公尺見方的小塊，全部掛在 "Grass" 底下（第一塊就叫 Grass，oil_world 找得到）。
+## 離鏡頭超過 ISLE_GRASS_HIDE 就不畫（草很小，那麼遠本來就看不太到）。
+const ISLE_GRASS_CHUNK := 8.0
+const ISLE_GRASS_HIDE := 50.0
+
+func _isle_grass_chunks(xfs: Array[Transform3D], cols: Array[Color], mat: Material) -> void:
+	var groups := {}
+	for i in xfs.size():
+		var o := xfs[i].origin
+		var key := Vector2i(floori(o.x / ISLE_GRASS_CHUNK), floori(o.z / ISLE_GRASS_CHUNK))
+		if not groups.has(key):
+			groups[key] = []
+		groups[key].append(i)
+	var keys := groups.keys()
+	keys.sort()   # 固定順序，每次載入都一樣
+	var mesh := _make_grass_mesh()
+	var root: MultiMeshInstance3D = null
+	for key in keys:
+		var ids: Array = groups[key]
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.mesh = mesh
+		mm.instance_count = ids.size()
+		for j in ids.size():
+			mm.set_instance_transform(j, xfs[ids[j]])
+			mm.set_instance_color(j, cols[ids[j]])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.multimesh = mm
+		mmi.material_override = mat
+		mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mmi.visibility_range_end = ISLE_GRASS_HIDE
+		mmi.visibility_range_end_margin = 5.0
+		if root == null:
+			mmi.name = "Grass"
+			add_child(mmi)
+			root = mmi
+		else:
+			mmi.name = "Grass_%d_%d" % [key.x, key.y]
+			root.add_child(mmi)
+
+## 樹林在 oil_world.gd 種（每棵樹由很多段樹枝、很多片葉子組成）。這裡記下每一段樹枝、每一片葉子
+## 是哪一棵樹的（樹根位置），種完之後依樹根切成 ISLE_FOREST_CHUNK 公尺見方的小塊，再分兩層：
+##   靠近這一關遊玩範圍的樹：會投影
+##   其他的樹：不投影（離遊玩範圍遠，影子落在別的樹上或根本在畫面外）
+## 鏡頭背後的小塊引擎會自動略過不畫；原本一整片是一個網格，只要看到一點點就整片都要畫。
+## （做法參考 yujuan 在 level/fort-forest-lod 的版本）
+const ISLE_FOREST_CHUNK := 16.0
+const ISLE_SHADOW_D := 6.0       # 樹根離這一關遊玩範圍這麼近以內才投影
+var _trunk_base: Array[Vector2] = []
+var _leaf_base: Array[Vector2] = []
+
+func _tag_tree(t0: int, l0: int, base: Vector3) -> void:
+	for i in _trunk_xf.size() - t0:
+		_trunk_base.append(Vector2(base.x, base.z))
+	for i in _leaf_xf.size() - l0:
+		_leaf_base.append(Vector2(base.x, base.z))
+
+func _oil_tree(r: RandomNumberGenerator, base: Vector3, h: float, rad: float, birch: bool, depth: int) -> void:
+	var t0 := _trunk_xf.size()
+	var l0 := _leaf_xf.size()
+	super(r, base, h, rad, birch, depth)
+	_tag_tree(t0, l0, base)
+
+func _sapling(r: RandomNumberGenerator, base: Vector3) -> void:
+	var t0 := _trunk_xf.size()
+	var l0 := _leaf_xf.size()
+	super(r, base)
+	_tag_tree(t0, l0, base)
+
+func _build_arena_forest() -> void:
+	_trunk_base.clear()
+	_leaf_base.clear()
+	super()
+	var tn := get_node_or_null("ForestTrunks") as MultiMeshInstance3D
+	var ln := get_node_or_null("ForestLeaves") as MultiMeshInstance3D
+	if tn == null or ln == null or _trunk_base.size() != _trunk_xf.size() or _leaf_base.size() != _leaf_xf.size():
+		return        # 對不起來（oil_world 改了種樹的方式）就維持原本一整片
+	var forest := Node3D.new()
+	forest.name = "Forest"
+	add_child(forest)
+	_split_forest(forest, "ForestTrunks", tn, _trunk_xf, _trunk_col, _trunk_base)
+	_split_forest(forest, "ForestLeaves", ln, _leaf_xf, _leaf_col, _leaf_base)
+	tn.free()
+	ln.free()
+
+func _split_forest(parent: Node3D, prefix: String, src: MultiMeshInstance3D, xfs: Array[Transform3D], cols: Array[Color], bases: Array[Vector2]) -> void:
+	var groups := {}
+	for i in xfs.size():
+		var b := bases[i]
+		var tier := 0 if play_dist(b.x, b.y) < ISLE_SHADOW_D else 1
+		var key := Vector3i(floori(b.x / ISLE_FOREST_CHUNK), floori(b.y / ISLE_FOREST_CHUNK), tier)
+		if not groups.has(key):
+			groups[key] = []
+		groups[key].append(i)
+	var keys := groups.keys()
+	keys.sort()   # 固定順序，每次載入節點都一樣
+	for key in keys:
+		var ids: Array = groups[key]
+		var mm := MultiMesh.new()
+		mm.transform_format = MultiMesh.TRANSFORM_3D
+		mm.use_colors = true
+		mm.mesh = src.multimesh.mesh
+		mm.instance_count = ids.size()
+		for j in ids.size():
+			mm.set_instance_transform(j, xfs[ids[j]])
+			mm.set_instance_color(j, cols[ids[j]])
+		var mmi := MultiMeshInstance3D.new()
+		mmi.name = "%s_%d_%d_%d" % [prefix, key.x, key.y, key.z]
+		mmi.multimesh = mm
+		mmi.material_override = src.material_override       # 同一個材質：晚上、下雨改一次全部跟著變
+		mmi.material_overlay = src.material_overlay
+		mmi.cast_shadow = src.cast_shadow if key.z == 0 else GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		parent.add_child(mmi)
 
 func _gy(x: float, z: float) -> float:
 	return _land_h(x, z) + cliff_h(x, z)
@@ -752,6 +862,7 @@ func _build_far_land() -> void:
 	mi.name = "FarLand"
 	mi.mesh = st.commit()
 	mi.material_override = gm
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF      # 離這一關 60 公尺以外，已經超出陰影的範圍
 	add_child(mi)
 
 ## 第二小關通到高原的石階：一階一階的石板，鋪在切進岩壁的斜坡上
@@ -769,13 +880,23 @@ func _build_stairs() -> void:
 	var y1 := _land_h(b.x + dir.x * 0.5, b.y + dir.y * 0.5)
 	var r := RandomNumberGenerator.new()
 	r.seed = world_seed + 211
+	# 44 階合成一個網格：原本每一階是一個獨立的物件，光是石階每一幀就要多畫一百多次
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	for k in STAIR_STEPS:
 		var top := y0 + (y1 - y0) * float(k + 1) / STAIR_STEPS
 		var c := a + dir * ((k + 0.5) * run)
 		# 每一階寬度、位置稍微不一樣，像一塊一塊鋪上去的石板。
 		# 每一塊都是一根很深的岩石柱，一路插到地底下：石階兩側和底下看到的都是岩石，不會懸空
 		var w := STAIR_W + r.randf_range(-0.3, 0.3)
-		_box(holder, Vector3(w, STAIR_DEPTH, run + 0.14), Vector3(c.x, top - STAIR_DEPTH * 0.5, c.y), mat, Vector3(0.0, yaw + r.randf_range(-0.03, 0.03), 0.0))
+		var bm := BoxMesh.new()
+		bm.size = Vector3(w, STAIR_DEPTH, run + 0.14)
+		st.append_from(bm, 0, Transform3D(Basis.from_euler(Vector3(0.0, yaw + r.randf_range(-0.03, 0.03), 0.0)), Vector3(c.x, top - STAIR_DEPTH * 0.5, c.y)))
+	var mi := MeshInstance3D.new()
+	mi.name = "Steps"
+	mi.mesh = st.commit()
+	mi.material_override = mat
+	holder.add_child(mi)
 
 ## 高原的岩壁上堆大石頭，看起來是一整塊岩石平台；石階兩側也堆一排
 func _build_plateau_rocks() -> void:
@@ -949,9 +1070,9 @@ func _build_falls_mist(nm: String, foot: Vector3, half_w: float, k: float) -> vo
 	grow.add_point(Vector2(1.0, 1.0))
 	var specs := [
 		# [名字, 數量, 存活秒數, 粒子大小, 往上速度(最小,最大), 重力, 散開角度, 大小倍數(最小,最大), 透明度]
-		["Foam", 50, 2.2, 2.6, Vector2(0.6, 1.4), Vector3(0.0, -0.2, 0.0), 88.0, Vector2(0.9, 1.6), 0.85],      # 貼著水面往四周鋪開的一圈白泡泡
-		["Mist", 70, 3.6, 3.0, Vector2(0.8, 1.8), Vector3(0.0, 0.25, 0.0), 60.0, Vector2(0.8, 2.0), 0.6],       # 往上飄高的白霧，像一朵雲
-		["Spray", 70, 1.1, 0.5, Vector2(3.0, 5.2), Vector3(0.0, -7.0, 0.0), 38.0, Vector2(0.5, 1.2), 0.95],     # 往上噴再掉下去的小水花
+		["Foam", 30, 2.2, 2.6, Vector2(0.6, 1.4), Vector3(0.0, -0.2, 0.0), 88.0, Vector2(0.9, 1.6), 0.85],      # 貼著水面往四周鋪開的一圈白泡泡
+		["Mist", 40, 3.6, 3.0, Vector2(0.8, 1.8), Vector3(0.0, 0.25, 0.0), 60.0, Vector2(0.8, 2.0), 0.6],       # 往上飄高的白霧，像一朵雲
+		["Spray", 36, 1.1, 0.5, Vector2(3.0, 5.2), Vector3(0.0, -7.0, 0.0), 38.0, Vector2(0.5, 1.2), 0.95],     # 往上噴再掉下去的小水花
 	]
 	for s in specs:
 		var p := CPUParticles3D.new()
@@ -1052,7 +1173,7 @@ func _build_banks() -> void:
 	mi.multimesh = mm
 	mi.material_override = _cliff_material()
 	add_child(mi)
-	_leaf_multimesh("BankReeds", xf, cols)
+	_leaf_multimesh("BankReeds", xf, cols, null, false)
 
 # ---------------------------------------------------------------- 枯樹橋
 
