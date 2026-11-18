@@ -1034,7 +1034,8 @@ func _level_visuals() -> void:
 		var yb := Basis(Vector3.UP, f.yaw)
 		helm.global_transform = Transform3D(yb * Basis(Vector3.RIGHT, -PI * 0.5 * lie), f.pos + Vector3(0.0, f.air + 0.25 * lie, 0.0))
 	var p2 := _aim_p()
-	var can: bool = phase != Phase.PREPARE and not _leaving and selected >= 0 and selected < items.size() and items[selected].id == "thunder"
+	# 準備階段（還沒按 Enter）也會變白
+	var can: bool = not _leaving and selected >= 0 and selected < items.size() and items[selected].id == "thunder"
 	world.set_highlight(world.volcano_node(), can and flat_dist(p2, world.volcano_top()) <= VOLCANO_REACH)
 	# 拿著雷指到湖，湖面也變淺白色
 	for pool in world.zone_pools(3):

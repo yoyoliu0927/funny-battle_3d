@@ -286,7 +286,8 @@ func _update_highlights_aim() -> void:
 	if not world.has_method("set_highlight"):
 		return
 	var p := _aim_p()
-	var can: bool = phase != Phase.PREPARE and not _leaving and selected >= 0 and selected < items.size() and items[selected].id == "wind"
+	# 準備階段（還沒按 Enter）也會變白，先看得出哪些東西可以互動
+	var can: bool = not _leaving and selected >= 0 and selected < items.size() and items[selected].id == "wind"
 	world.set_highlight(_rock, can and not _rock_rolling and Vector2(p.x, p.z).distance_to(_rock_pos) <= ROCK_GUST)
 	world.set_highlight(world.windmill_node(), can and not _mill_gone and flat_dist(p, world.windmill_pos()) <= MILL_GUST)
 	world.set_highlight(world.dead_tree_node(), can and not _closeup and world.tree_in_reach(p))

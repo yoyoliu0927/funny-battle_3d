@@ -526,7 +526,7 @@ func _level_visuals() -> void:
 		return
 	var p := _aim_p()
 	var id: String = items[selected].id if selected >= 0 and selected < items.size() else ""
-	var live: bool = phase != Phase.PREPARE and not _leaving
+	var live: bool = not _leaving        # 準備階段（還沒按 Enter）也會變白
 	for t in _trees:
 		var node: Node3D = t.node
 		var basis := Basis(Vector3.UP, t.yaw)
