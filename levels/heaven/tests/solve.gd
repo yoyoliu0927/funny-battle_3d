@@ -45,6 +45,7 @@ func _go() -> void:
 	for n in [1, 2, 3]:
 		if only != 0 and only != n:
 			continue
+		Engine.set_meta("stage_id", "")          # 不帶小關編號：贏了也不會寫進玩家的存檔
 		change_scene_to_file("res://levels/heaven/stage_%d/stage.tscn" % n)
 		for i in 10:
 			await process_frame

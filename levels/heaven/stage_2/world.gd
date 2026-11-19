@@ -59,13 +59,13 @@ func _ice_configure() -> void:
 		{"type": "house", "pos": Vector3(20.5, 0, -13.6), "yaw": -0.2},
 		# ---- 西南角：臨街的木樓（正面朝大街）、大銀杏
 		{"type": "house", "pos": Vector3(-11.0, 0, 5.2), "yaw": 1.5708, "scale": 1.05},
-		{"type": "ginkgo", "pos": Vector3(-7.4, 0, 2.6), "yaw": 0.7, "scale": 1.5},
+		{"type": "ginkgo", "pos": Vector3(-8.6, 0, 9.6), "yaw": 0.7, "scale": 0.9},
 		{"type": "house", "pos": Vector3(-18.0, 0, 3.4), "yaw": 3.1416},
-		{"type": "ginkgo", "pos": Vector3(-14.5, 0, 9.5), "yaw": 2.0, "scale": 1.3},
+		{"type": "ginkgo", "pos": Vector3(-17.5, 0, 11.5), "yaw": 2.0, "scale": 1.3},
 		# ---- 東南角：落葉堆旁邊的大銀杏、木樓退後一點
-		{"type": "ginkgo", "pos": Vector3(10.6, 0, 2.4), "yaw": 2.1, "scale": 1.6},
+		{"type": "ginkgo", "pos": Vector3(12.6, 0, 1.6), "yaw": 2.1, "scale": 1.1},
 		{"type": "house", "pos": Vector3(15.0, 0, 6.6), "yaw": -1.5708, "scale": 1.05},
-		{"type": "ginkgo", "pos": Vector3(8.6, 0, 9.0), "yaw": 4.0, "scale": 1.1},
+		{"type": "ginkgo", "pos": Vector3(19.0, 0, 11.0), "yaw": 4.0, "scale": 1.3},
 		# ---- 紅綢帶：橫過北邊的街、從樓閣拉到對面
 		{"type": "ribbon", "from": Vector3(-11.5, 0, -14.6), "to": Vector3(12.6, 0, -14.4), "h": 7.6, "sag": 1.8},
 		{"type": "ribbon", "from": Vector3(-10.4, 0, 3.6), "to": Vector3(-12.0, 0, -14.6), "h": 6.0, "sag": 1.2},

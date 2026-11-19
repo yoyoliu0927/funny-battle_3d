@@ -659,9 +659,11 @@ func _build_decor(root: Node3D) -> void:
 				if pick <= 0.0:
 					kind = String(rk[0])
 					break
-			var south := z > hero_start.z - 8.0
+			# 鏡頭在南邊往北看：南邊（鏡頭和場地之間）、還有緊貼白玉地的東西都矮一點，才不會擋住人
+			var south := z > hero_start.z - 9.0
+			var close := lake_weight(x + 4.0, z) > 0.0 or lake_weight(x - 4.0, z) > 0.0 or lake_weight(x, z - 4.0) > 0.0
 			_zone_item(root, {"type": kind, "pos": Vector3(x, 0, z), "yaw": rng.randf() * TAU,
-				"scale": rng.randf_range(0.55, 0.75) if south else rng.randf_range(0.85, 1.25)})
+				"scale": rng.randf_range(0.5, 0.7) if (south or close) else rng.randf_range(0.9, 1.3)})
 			placed += 1
 	_petal_fall(root)
 

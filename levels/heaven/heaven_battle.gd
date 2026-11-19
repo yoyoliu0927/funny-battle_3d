@@ -719,6 +719,20 @@ func _update_tags() -> void:
 			var lastp: Vector3 = ground(path.back()) if not path.is_empty() else bird.pos
 			_disc_label.position = lastp + Vector3(1.6, 0.9, 0)
 
+# ================================================================== 全章收尾
+
+## 收尾的卡片：字換成這一章的名字
+func _make_finale_card() -> Control:
+	var panel := super()
+	for l in panel.find_children("*", "Label", true, false):
+		if String((l as Label).text).contains("完成"):
+			(l as Label).text = "丹穴山　完成！"
+	return panel
+
+## 冰雪島收尾時有企鵝滑去撞人，仙境沒有
+func _plan_bumps() -> void:
+	pass
+
 ## 工人：跟冰雪島一樣，多幾個可以寫的欄位（_enemy_specs() 裡用）
 ##   slow_rusher：走得慢、晚出發的人（大老闆那一批）。boss＝穿金釘鞋不怕香蕉皮
 func slow_rusher(name: String, spawn: Vector3, rush: Array, delay: float, boss := false) -> Dictionary:
