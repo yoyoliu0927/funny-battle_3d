@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://cv5wudrqc5oej"
-path="res://.godot/imported/feed.jpg-596623e7cecba5d43217c977056d634b.ctex"
+uid="uid://m4gedh1hw7l8"
+path="res://.godot/imported/rock.jpg-2984eb86e9e953d57de6866ec6dbfb98.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://levels/forest/assets/tutorial/feed.jpg"
-dest_files=["res://.godot/imported/feed.jpg-596623e7cecba5d43217c977056d634b.ctex"]
+source_file="res://assets/tutorial/rock.jpg"
+dest_files=["res://.godot/imported/rock.jpg-2984eb86e9e953d57de6866ec6dbfb98.ctex"]
 
 [params]
 

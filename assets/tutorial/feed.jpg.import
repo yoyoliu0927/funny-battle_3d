@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c13lumapteca2"
-path="res://.godot/imported/hero.jpg-8a538c05ff1942db895b9657a4e89069.ctex"
+uid="uid://dva62aw637whj"
+path="res://.godot/imported/feed.jpg-3e03f84c0e3afcaef695d64a0a6190fe.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://levels/forest/assets/tutorial/hero.jpg"
-dest_files=["res://.godot/imported/hero.jpg-8a538c05ff1942db895b9657a4e89069.ctex"]
+source_file="res://assets/tutorial/feed.jpg"
+dest_files=["res://.godot/imported/feed.jpg-3e03f84c0e3afcaef695d64a0a6190fe.ctex"]
 
 [params]
 

@@ -4,7 +4,8 @@ extends SceneTree
 ##   （劉起佑大關的樹很高：加 --cam_h=18）
 ## 不能加 --headless（要真的畫出畫面）。會依序打開這個大關的每一小關，每一種道具第一次出現時錄一段，
 ## 另外在第一小關錄一段「什麼都不放，家豪自己去打人」（hero）。
-## 存到 res://levels/<大關>/assets/tutorial/<道具 id>.jpg（一張影格表：每格 480×270、一列 6 格、每秒 10 格）。
+## 共用道具（scripts/items/ 裡的飼料、香蕉皮、巨石）和「家豪自己行動」存到共用的 res://assets/tutorial/，
+## 已經有了就跳過（全遊戲只放一份；加 --force 重錄）；大關自己的道具存到 res://levels/<大關>/assets/tutorial/<道具 id>.jpg（一張影格表：每格 480×270、一列 6 格、每秒 10 格）。
 ## 錄好之後 battle_base.gd 的教學頁面會自動找這些檔案；沒有的就照舊顯示道具圖示。
 ##
 ## 道具放哪裡是自動挑的（家豪和最近的敵人之間），挑不好的話可以在大關資料夾自己錄、或改這裡的 _spot()。
@@ -17,6 +18,8 @@ const START_AT := 9             # 第幾格開打
 
 var chapter := ""
 var only := ""                  # --only=<道具 id>：只重錄這一種
+var force := false              # --force：共用的動畫已經有了也重錄
+const SHARED := "res://assets/tutorial"
 var cam_h := 8.0                # --cam_h=<公尺>：鏡頭至少比畫面中心高多少（樹很高的大關要調高，免得卡在樹冠裡）
 
 func _initialize() -> void:
@@ -25,6 +28,8 @@ func _initialize() -> void:
 			chapter = a.substr(10)
 		elif a.begins_with("--only="):
 			only = a.substr(7)
+		elif a == "--force":
+			force = true
 		elif a.begins_with("--cam_h="):
 			cam_h = float(a.substr(8))
 	root.size = Vector2i(1600, 900)
@@ -55,14 +60,18 @@ func _run() -> void:
 			await _wait(0.2)
 			continue
 		_prepare(sc, bt)
-		if int(st.n) == 1 and (only == "" or only == "hero") and not done.has("hero"):
-			await _record_hero(sc, bt, out.path_join("hero.jpg"))
+		if int(st.n) == 1 and (only == "" or only == "hero") and not done.has("hero") 				and (force or not FileAccess.file_exists(SHARED.path_join("hero.jpg"))):
+			await _record_hero(sc, bt, SHARED.path_join("hero.jpg"))
 			done["hero"] = true
 		for i in bt.items.size():
 			var id: String = bt.items[i].id
 			if done.has(id) or (only != "" and only != id):
 				continue
-			if await _record_item(sc, bt, i, out.path_join(id + ".jpg")):
+			var shared_item := String((bt.items[i].get_script() as Script).resource_path).begins_with("res://scripts/items/")
+			var dest := SHARED.path_join(id + ".jpg") if shared_item else out.path_join(id + ".jpg")
+			if shared_item and not force and FileAccess.file_exists(dest):
+				continue
+			if await _record_item(sc, bt, i, dest):
 				done[id] = true
 		sc.queue_free()
 		current_scene = null

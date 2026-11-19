@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://c5440232g4p53"
-path="res://.godot/imported/rock.jpg-8d1b6e6f84a1cf34f65c0ab59d004183.ctex"
+uid="uid://vsisg30erudr"
+path="res://.godot/imported/banana.jpg-9ad5a4ba5d2fd4a5afee60d5657eeb46.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://levels/_template/assets/tutorial/rock.jpg"
-dest_files=["res://.godot/imported/rock.jpg-8d1b6e6f84a1cf34f65c0ab59d004183.ctex"]
+source_file="res://assets/tutorial/banana.jpg"
+dest_files=["res://.godot/imported/banana.jpg-9ad5a4ba5d2fd4a5afee60d5657eeb46.ctex"]
 
 [params]
 

@@ -3,7 +3,7 @@ extends CanvasLayer
 ## 從要塞大關（levels/fort/tutorial_popup.gd）的版本搬過來，改成可以指定影格表資料夾、沒有動畫時改顯示道具圖示。
 ## 開著的時候整個遊戲暫停；A/D 或 ←/→ 換頁，空白/Enter/左鍵 下一頁，Esc 或 ✕ 關掉。
 ## 頁面格式：{title, body, keys: [[鍵或 "LMB", 說明], ...], clip: 影格表檔名, icon: Texture2D, controls: [[鍵, 說明], ...]}
-## 示範動畫是一張「影格表」圖（<clip_dir>/<clip>.jpg），每格 FW×FH、一列 COLS 格，由左到右、由上到下播放。
+## 示範動畫是一張「影格表」圖：先找 <clip_dir>/<clip>.jpg，沒有就用共用的 res://assets/tutorial/<clip>.jpg，每格 FW×FH、一列 COLS 格，由左到右、由上到下播放。
 ## 外觀用全遊戲共用的「手帳」風格（scripts/ui/ui_style.gd）：筆記紙卡片、鍵帽、滑鼠圖示。
 
 signal closed
@@ -19,6 +19,7 @@ const CLIP_SIZE := Vector2(640, 360)
 
 var pages: Array = []      # [{title, body, keys: [[鍵或 "LMB", 說明], ...], clip}]；有 controls 的頁面左邊改放操作表
 var page := -1             # -1 = 沒開
+const SHARED_CLIPS := "res://assets/tutorial"   # 共用的示範動畫（飼料、香蕉皮、巨石、家豪自己行動）
 var clip_dir := ""         # 影格表放哪個資料夾（例如 "res://levels/forest/assets/tutorial"）；空字串 = 沒有動畫
 var kicker_text := "教學"
 var hotkey_h := false      # true：關著的時候按 H 自己打開（戰局用）
@@ -124,20 +125,28 @@ func _show_page(i: int) -> void:
 	_next_btn.text = "開始吧 ▶" if i == pages.size() - 1 else "下一頁 ▶"
 
 func _sheet(clip: String) -> Texture2D:
-	if clip == "" or clip_dir == "":
+	if clip == "":
 		return null
 	if not _sheets.has(clip):
-		var path := clip_dir.path_join(clip + ".jpg")
+		# 先找這個大關自己的（玩法不一樣的道具，例如冰雪的香蕉皮會沿紅線滑），沒有就用共用的（res://assets/tutorial）：
+		# 同一種道具、同樣玩法的示範動畫全遊戲只放一份
 		var tex: Texture2D = null
-		if ResourceLoader.exists(path):
-			tex = load(path)
-		elif FileAccess.file_exists(path):
-			# 剛錄好、編輯器還沒匯入的影格表：直接讀檔
-			var img := Image.load_from_file(ProjectSettings.globalize_path(path))
-			if img:
-				tex = ImageTexture.create_from_image(img)
+		for dir in ([clip_dir] if clip_dir != "" else []) + [SHARED_CLIPS]:
+			tex = _load_sheet(String(dir).path_join(clip + ".jpg"))
+			if tex:
+				break
 		_sheets[clip] = tex
 	return _sheets[clip]
+
+func _load_sheet(path: String) -> Texture2D:
+	if ResourceLoader.exists(path):
+		return load(path)
+	if FileAccess.file_exists(path):
+		# 剛錄好、編輯器還沒匯入的影格表：直接讀檔
+		var img := Image.load_from_file(ProjectSettings.globalize_path(path))
+		if img:
+			return ImageTexture.create_from_image(img)
+	return null
 
 func _set_frame(n: int) -> void:
 	_atlas.region = Rect2((n % COLS) * FW, (n / COLS) * FH, FW, FH)

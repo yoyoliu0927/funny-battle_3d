@@ -2,16 +2,16 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://dqjg3uxmaq8w0"
-path="res://.godot/imported/hero.jpg-ff550926688725eddb70bc1ec559f04b.ctex"
+uid="uid://whjhlqn4v0m3"
+path="res://.godot/imported/hero.jpg-7a800cd24c6fac29c0ae276e00d67b2f.ctex"
 metadata={
 "vram_texture": false
 }
 
 [deps]
 
-source_file="res://levels/ice/assets/tutorial/hero.jpg"
-dest_files=["res://.godot/imported/hero.jpg-ff550926688725eddb70bc1ec559f04b.ctex"]
+source_file="res://assets/tutorial/hero.jpg"
+dest_files=["res://.godot/imported/hero.jpg-7a800cd24c6fac29c0ae276e00d67b2f.ctex"]
 
 [params]
 
