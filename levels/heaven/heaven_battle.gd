@@ -756,8 +756,8 @@ func _start_finale() -> void:
 	_finale_shots.a_on = false
 	_finale_shots.dj_pos = disc + Vector3(2.4, 1.9, 4.6)
 	_finale_shots.dj_look = disc + Vector3(0, 1.25, 0)
-	_finale_shots.c_pos = disc + Vector3(-2.6, 1.3, 5.6)
-	_finale_shots.c_look = disc + Vector3(0.5, 3.4, 0)
+	_finale_shots.c_pos = disc + Vector3(-1.8, 2.0, 10.5)
+	_finale_shots.c_look = disc + Vector3(0.9, 4.4, 0)
 	_finale_update()
 
 ## 收尾播放中按 Enter：先跳到卡片，卡片出來之後再按才回地圖
@@ -798,7 +798,7 @@ func _finale_update() -> void:
 		_cut_cam.look_at(b_pos + dirb * 60.0, Vector3.UP)
 		_cut_look = b_look
 	else:
-		_cut_cam.fov = 50.0
+		_cut_cam.fov = 56.0
 		_cut_cam.global_position = sh.c_pos
 		_cut_cam.look_at(sh.c_look, Vector3.UP)
 		_cut_look = _finale_bird + Vector3(0, 1.2, 0)

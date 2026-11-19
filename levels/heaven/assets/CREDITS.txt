@@ -7,7 +7,9 @@ blender/          全部是本組用 Blender 4.5 腳本建模，自製（blender
                   終點：南天門 sky_gate、唱盤 turntable、圓門 ring_gate、金環 gold_ring、結局的鳳凰金光 phoenix_light
                   場景：水墨松 pine_a／b、花樹 blossom、銀杏 ginkgo_a／b、山石 scholar_rock、亭子 pavilion、迴廊 corridor、
                         木樓 house、樓閣 tower、宮燈 palace_lantern、石碑 stele、小拱橋 bridge
-                  重新產生：Blender --background --factory-startup --python blender/src/build_heaven_props.py -- <輸出資料夾>
+                  第二批（山海畫卷）：紅梅 plum_a／b（枝上有積雪）、小吃攤 stall、幌子 banner、小燈籠 mini_lantern、
+                        星碑 star_stele、紋章盤 medallion；畫門 picture_gate 改成掛在木架上的立軸
+                  重新產生：Blender --background --factory-startup --python blender/src/build_heaven_props.py -- <輸出資料夾> [只重做的名字，例如 plum stall astral]
 
 （地面——白玉地、四周的地面、步道、雲階——是 heaven_world.gd 在遊戲裡算出來的網格，質感靠 levels/heaven/shaders/ 的著色器；
   遠山、畫門裡的山水、紅綢帶、小河也都是著色器畫的。這些不是外部素材。）
