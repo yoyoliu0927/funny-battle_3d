@@ -68,6 +68,8 @@ const STAGES := {
 		"chests": [Vector2(-2.0, -11.0), Vector2(37.0, -2.0)],
 		"routes": [
 			{"route": [Vector3(-8.0, 0, 2.0), Vector3(-4.0, 0, 4.5)], "loop": false, "pause": 1.3},
+			# 自爆農夫：背火藥桶，正面碰到會炸；搶先啄倒他就不會爆，用巨石／砲彈砸他會炸到旁邊的人
+			{"route": [Vector3(1.0, 0, -3.0), Vector3(3.5, 0, 1.0)], "loop": false, "pause": 1.2, "kind": "bomber"},
 			{"route": [Vector3(19.0, 0, -6.0), Vector3(20.0, 0, 0.0)], "loop": false, "pause": 1.2}]},
 }
 const FUSE_TIME := 4.0            # 引信從點燃到發射的秒數（= 瞄準時間）
@@ -825,7 +827,7 @@ func _build_chests() -> void:
 	for cp in STAGES[stage].chests:
 		var to_c: Vector2 = (R2_C if in_east(cp.x, cp.y) else FORT_C) - cp
 		var yaw := atan2(to_c.x, to_c.y)
-		var ch := _place_model(node, M_PIRATE + "chest.glb", Vector3(cp.x, 0, cp.y), yaw, 1.6, 0.6)
+		var ch := _place_model(node, M_PIRATE + "chest.glb", Vector3(cp.x, 0, cp.y), yaw, 1.6, 0.85)   # 擋路的半徑跟箱子一樣大，家豪不會鑽進箱子裡
 		chests.append({"pos": cp, "node": ch, "yaw": yaw})
 
 # ---------------------------------------------------------------- 雜物
@@ -890,7 +892,7 @@ func _place_player() -> void:
 ## 進場的三個鏡頭（battle.gd 播）：入口推進 → 西南邊俯瞰 → 東北邊俯瞰
 func intro_shots() -> Array:
 	var c := Vector3(12.0, 0.0, -5.0) if east else Vector3(0.0, 0.0, -3.0)
-	var hint: String = ["", "提示：在大砲口前撒飼料，把家豪射上炮塔", "提示：三座炮塔各有不同的拆法", "提示：兩個院子靠南邊的通道相連；指揮官的高台要用大砲射上去"][stage]
+	var hint: String = ["", "提示：在大砲口前撒飼料，把家豪射上炮塔", "提示：三座炮塔各有不同的拆法", "提示：小心背火藥桶的自爆農夫——搶先啄倒他就不會爆；指揮官的高台要用大砲射上去"][stage]
 	var g := Vector3(gate_pos.x, 0, gate_pos.y)
 	var out := Vector3(gate_dir.x, 0, gate_dir.y)
 	var sw := Vector3(-26, 24, 20) if not east else Vector3(-22, 32, 26)
