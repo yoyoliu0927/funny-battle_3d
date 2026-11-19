@@ -856,6 +856,10 @@ func try_cast() -> bool:
 		return super()
 	return cast(selected, p)
 
+## 開場預覽、星星特寫、跟拍時，Tab 的俯看切換先不作用（共用的 scripts/battle/view_toggle.gd）
+func _view_blocked() -> bool:
+	return _camera_borrowed() or super()
+
 ## 鏡頭現在是不是被過場借走了（這時候神的手收起來）。小關有自己的過場就覆寫，記得 or super()
 func _camera_borrowed() -> bool:
 	return _cut_t > 0.0 or _follow_pos != null or _intro_t >= 0.0

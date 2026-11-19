@@ -197,7 +197,7 @@ var _napoleon_tex: Texture2D
 # 新手教學：第一次進關卡時跳出教學彈窗（左邊播示範動畫、右邊說明），H 可以再叫出來
 const TUT_PAGES := [
 	{"title": "操作方式", "controls": [["W／A／S／D", "飄移"], ["Space", "上升"], ["Shift", "下降"], ["MOUSE", "轉視角"],
-		["1／2／3", "選神蹟"], ["LMB", "施放"], ["Enter", "開打"], ["R", "重試"], ["M", "回地圖"], ["H", "再看一次說明"]],
+		["1／2／3", "選神蹟"], ["LMB", "施放"], ["Enter", "開打"], ["R", "重試"], ["M", "回地圖"], ["Tab", "俯看全場／回到家豪旁邊"], ["H", "再看一次說明"]],
 		"body": "你是一個飄在空中的幽靈，只能從旁觀察、偷偷降下神蹟幫家豪。
 
 準備階段先把神蹟佈置好，再按 Enter 開打。"},
@@ -674,7 +674,10 @@ func _ready() -> void:
 	_build_defeat()
 	add_child(preload("res://levels/fort/closeup_cam.gd").new())   # 搞笑特寫鏡頭（射出去、落水）
 	_build_pause_menu()
+	_build_view_toggle()
 	reset()
+	if view:
+		view.snap_to_hero()   # 開場就在家豪旁邊（進場鏡頭播完會飛回這裡）
 	if _want_intro():
 		_start_intro()
 	elif not _auto_run():
@@ -1160,7 +1163,34 @@ func select_skill(i: int) -> void:
 	_refresh_slots()
 
 func _update_aim() -> void:
+	if view and view.overview:
+		var ray: Array = view.mouse_ray()   # 俯看時用滑鼠指的位置瞄準
+		aim_point = world.ray_ground(ray[0], ray[1], 160.0)
+		return
 	aim_point = world.ray_ground(camera.global_position, -camera.global_basis.z, 70.0)
+
+# ------------------------------------------------------------------ 兩種視角（Tab）：家豪旁邊 ↔ 俯看全場（共用的 scripts/battle/view_toggle.gd）
+
+var view: Node
+
+func _build_view_toggle() -> void:
+	view = preload("res://scripts/battle/view_toggle.gd").new()
+	view.name = "ViewToggle"
+	view.setup(player, camera, func() -> Vector3: return bird.pos, _view_area)
+	view.on_click = func() -> void: try_cast()
+	view.changed.connect(func(on: bool) -> void:
+		if crosshair:
+			crosshair.visible = not on)
+	add_child(view)
+
+## 俯看要裝進畫面的範圍：要塞的橢圓院子（2-3 再加上東邊的院子）
+func _view_area() -> Rect2:
+	var c: Vector2 = world.FORT_C
+	var r := Rect2(c.x - world.FORT_RX, c.y - world.FORT_RZ, world.FORT_RX * 2.0, world.FORT_RZ * 2.0)
+	if world.get("east"):
+		var c2: Vector2 = world.R2_C
+		r = r.merge(Rect2(c2.x - world.R2_RX, c2.y - world.R2_RZ, world.R2_RX * 2.0, world.R2_RZ * 2.0))
+	return r
 
 ## 在準心指到的地面施放目前選的神蹟
 func try_cast() -> bool:
@@ -1602,6 +1632,8 @@ func _step(dt: float) -> void:
 		_tick_towers(dt)   # 勝負已分，但正在倒的水塔和穀倉要照樣倒完
 
 func _process(dt: float) -> void:
+	if view:
+		view.enabled = _intro_i < 0 and _exit_t < 0.0 and _exit_delay <= 0.0
 	if _intro_i >= 0:
 		_tick_intro(dt)
 		_fade_near_camera(dt)

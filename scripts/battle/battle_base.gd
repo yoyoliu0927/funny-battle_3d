@@ -27,6 +27,7 @@ const PauseMenu := preload("res://scripts/ui/pause_menu.gd")
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術（手帳風格）
 const HeartBar := preload("res://scripts/ui/heart_bar.gd")
 const TutorialPopup := preload("res://scripts/ui/tutorial_popup.gd")
+const ViewToggle := preload("res://scripts/battle/view_toggle.gd")
 const Progress := preload("res://scripts/progress.gd")
 const LEVEL_SELECT_SCENE := "res://scenes/level_select.tscn"
 
@@ -124,6 +125,10 @@ var _hearts: HeartBar
 var _hero_card: Control
 var _start_btn: Control
 var help_popup: TutorialPopup  # 按 H 打開的教學彈窗（頁面來自 _tutorial_pages()）
+# 兩種視角（按 Tab）：家豪旁邊 ↔ 俯看全場。關卡自己有俯視功能的可以在 _level_setup() 把 use_view_toggle 設成 false
+var use_view_toggle := true
+var start_beside_hero := true  # 開場把幽靈放在家豪旁邊
+var view: ViewToggle
 # 輸了的畫面
 var defeat_room: Node3D
 var defeat_shown := false
@@ -202,6 +207,8 @@ func _update_highlights(_path: PackedVector3Array, _on: bool) -> void:
 ## 預設：操作方式 → 家豪會自己做什麼 → 每個道具一頁。關卡可以覆寫，例如改 _hero_logic_text() 或多加一頁機關說明。
 func _tutorial_pages() -> Array:
 	var ctl: Array = help_list().duplicate()
+	if use_view_toggle:
+		ctl.append(["Tab", "俯看全場／回到家豪旁邊"])
 	ctl.append(["H", "再看一次教學"])
 	var pages: Array = [
 		{"title": "操作方式", "controls": ctl,
@@ -274,7 +281,10 @@ func _ready() -> void:
 	_build_hud()
 	_build_defeat()
 	_build_pause()
+	_build_view_toggle()
 	reset()
+	if view and start_beside_hero:
+		view.snap_to_hero()
 	# 開場教學：第一次進這個大關時自動打開教學彈窗（跟要塞一樣）；之後按 H 隨時再看。
 	# 自動測試、smoke test 不跳（彈窗會暫停整個遊戲）
 	if show_tutorial and not _automated_run():
@@ -570,6 +580,11 @@ func select_skill(i: int) -> void:
 	_refresh_slots()
 
 func _update_aim() -> void:
+	if view and view.overview:
+		# 俯看時用滑鼠指的位置瞄準（游標放出來了）
+		var ray: Array = view.mouse_ray()
+		aim_point = world.ray_ground(ray[0], ray[1], 160.0)
+		return
 	aim_point = world.ray_ground(camera.global_position, -camera.global_basis.z, 70.0)
 
 ## 在準心指到的地面施放目前選的道具
@@ -1790,6 +1805,34 @@ func _build_start_button(layer: CanvasLayer) -> void:
 			start())
 	layer.add_child(p)
 	_start_btn = p
+
+## 兩種視角切換（Tab）
+func _build_view_toggle() -> void:
+	if not use_view_toggle:
+		return
+	view = ViewToggle.new()
+	view.name = "ViewToggle"
+	view.setup(player, camera, func() -> Vector3: return bird.pos if bird else player.global_position, _view_area)
+	view.on_click = func() -> void: try_cast()
+	view.blocked = _view_blocked
+	view.changed.connect(func(on: bool) -> void:
+		if crosshair:
+			crosshair.visible = not on)
+	add_child(view)
+
+## 關卡的過場正在借鏡頭時回傳 true（Tab 先不作用）；有自己過場的關卡覆寫
+func _view_blocked() -> bool:
+	return phase == Phase.ENDED and defeat_shown
+
+## 俯看時要裝進畫面的場地範圍（x, z）。預設用場地的遊玩範圍；關卡可以覆寫
+func _view_area() -> Rect2:
+	var a = world.get("play_min")
+	var b = world.get("play_max")
+	if a is Vector2 and b is Vector2:
+		return Rect2(a, b - a)
+	var c = world.get("camera_look")
+	var cc: Vector3 = c if c is Vector3 else Vector3.ZERO
+	return Rect2(cc.x - 15.0, cc.z - 15.0, 30.0, 30.0)
 
 func _automated_run() -> bool:
 	if "--autotest" in OS.get_cmdline_user_args():
