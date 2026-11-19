@@ -51,7 +51,16 @@ const PASS_HALF_W := 2.2
 const PASS_L := Vector3(13.5, 0, 0.0)        # 通道兩頭的路點（左院／右院）
 const PASS_R := Vector3(19.5, 0, -0.5)
 ## 每個小關的擺設：炮塔、我方大砲（aim = 一開始砲口對著哪裡）、寶箱、守衛路線
+## 0 = 教學：一個守衛站在城門內側、面向城門（南邊），不會左右張望。
+##   家豪自己走：一進城門就正對著守衛衝過去 → 被看到、被先踢（教學關家豪只有一顆心）。
+##   在城門內的西邊（守衛的側面）撒飼料：家豪一進門就聞到、先繞去吃，再從側面過去偷襲 → 一下打倒。
+##   西邊那一片空地擺幾個木箱和稻草堆，看起來就像一條可以繞過去的小路。
 const STAGES := {
+	0: {"towers": [],
+		"cannons": [],
+		"chests": [],
+		"routes": [
+			{"route": [Vector3(-4.0, 0, -2.3), Vector3(-4.0, 0, -2.0)], "loop": false, "pause": 9999.0}]},
 	1: {"towers": [Vector2(0.0, -4.0)],
 		"cannons": [{"pos": Vector2(-9.0, 3.0), "aim": Vector2(0.0, -4.0)}],
 		"chests": [],
@@ -78,7 +87,7 @@ const M_CASTLE := "res://levels/fort/assets/castle/"
 const M_PIRATE := "res://levels/fort/assets/pirate/"
 const M_TD := "res://levels/fort/assets/tdkit/"
 
-var stage := 3                    # 現在是第幾個小關（1~3）
+var stage := 3                    # 現在是第幾個小關（0 = 教學，1~3）
 var east := false                 # 有沒有東邊的第二個院子（2-3）
 var stage_name := ""              # 進場鏡頭和介面上顯示的小關名稱
 var stage_goal := ""
@@ -109,14 +118,14 @@ func _ready() -> void:
 	# 平常照存檔從還沒過的小關開始；--fortstage=N 可指定（自動測試用）
 	stage = clampi(preload("res://levels/fort/fort_progress.gd").fort_stages() + 1, 1, 3)
 	if Engine.has_meta("fort_stage"):   # 地圖上選的小關（或在要塞裡按 F1~F3 切換）
-		stage = clampi(int(Engine.get_meta("fort_stage")), 1, 3)
+		stage = clampi(int(Engine.get_meta("fort_stage")), 0, 3)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--fortstage="):
-			stage = clampi(int(a.substr(12)), 1, 3)
+			stage = clampi(int(a.substr(12)), 0, 3)
 	farmer_routes = stage_routes(stage)
 	east = stage >= 3
-	stage_name = ["", "第 1 小關　學大砲", "第 2 小關　三座炮塔", "第 3 小關　指揮官的院子"][stage]
-	stage_goal = ["", "目標：佔領炮塔、打倒兩個農夫", "目標：拿下三座炮塔（撞倒或佔領）", "目標：拿下炮塔、打倒農夫和指揮官"][stage]
+	stage_name = ["教學　從背後偷襲", "第 1 小關　學大砲", "第 2 小關　三座炮塔", "第 3 小關　指揮官的院子"][stage]
+	stage_goal = ["目標：打倒守衛（正面衝過去會被他先踢）", "目標：打倒兩個農夫（炮塔可以不管）", "目標：拿下三座炮塔（撞倒或佔領）", "目標：拿下炮塔、打倒農夫和指揮官"][stage]
 	demo_rock_start = null      # 這關沒有示範石頭
 	tower_chain = false         # 炮塔不是骨牌：被巨石撞到就順著巨石的方向倒
 	_rng.seed = world_seed
@@ -146,6 +155,8 @@ func _ready() -> void:
 	_build_fort_grass()
 	_build_farm_forest()
 	_build_side_gate()
+	if stage == 0:
+		_build_tutorial_props()
 	_build_fort_characters()
 	_place_player()
 
@@ -238,6 +249,14 @@ func _build_side_gate() -> void:
 	wall_segments.append([p - tan * SIDE_GATE_HALF_W, p + tan * SIDE_GATE_HALF_W])
 	if stage < 3:
 		next_door = gate
+
+## 教學關：城門內西邊擺幾個木箱、稻草堆，標出「繞過去」的那條小路（只是擺設，不擋路）
+func _build_tutorial_props() -> void:
+	var node := Node3D.new()
+	node.name = "TutorialProps"
+	add_child(node)
+	for pp in [[Vector2(-9.0, 8.0), 0.3], [Vector2(-12.5, 1.0), -0.5], [Vector2(-8.0, 4.5), 0.9]]:
+		_place_model(node, M_PIRATE + "crate.glb" if ResourceLoader.exists(M_PIRATE + "crate.glb") else M_CASTLE + "wall.glb", Vector3(pp[0].x, 0, pp[0].y), pp[1], 1.4, 0.0)
 
 # ---------------------------------------------------------------- 形狀
 
@@ -655,6 +674,8 @@ func _build_cannon() -> void:
 
 ## 換成第 i 門大砲（之後 cannon_muzzle() 等介面都是指這一門）
 func select_cannon(i: int) -> void:
+	if i < 0 or i >= cannons.size():
+		return   # 這一關沒有大砲（教學關）
 	var c: Dictionary = cannons[i]
 	cannon_node = c.node
 	fuse_segs = c.segs
@@ -892,7 +913,7 @@ func _place_player() -> void:
 ## 進場的三個鏡頭（battle.gd 播）：入口推進 → 西南邊俯瞰 → 東北邊俯瞰
 func intro_shots() -> Array:
 	var c := Vector3(12.0, 0.0, -5.0) if east else Vector3(0.0, 0.0, -3.0)
-	var hint: String = ["", "提示：在大砲口前撒飼料，把家豪射上炮塔", "提示：三座炮塔各有不同的拆法", "提示：小心背火藥桶的自爆農夫——搶先啄倒他就不會爆；指揮官的高台要用大砲射上去"][stage]
+	var hint: String = ["提示：在守衛背後撒飼料，家豪會繞過去，從後面偷襲", "提示：在大砲口前撒飼料，把家豪射上炮塔", "提示：三座炮塔各有不同的拆法", "提示：小心背火藥桶的自爆農夫——搶先啄倒他就不會爆；指揮官的高台要用大砲射上去"][stage]
 	var g := Vector3(gate_pos.x, 0, gate_pos.y)
 	var out := Vector3(gate_dir.x, 0, gate_dir.y)
 	var sw := Vector3(-26, 24, 20) if not east else Vector3(-22, 32, 26)
