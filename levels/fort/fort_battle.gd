@@ -205,30 +205,44 @@ var _dialog: DialogBox
 var _napoleon_tex: Texture2D
 # 新手教學：第一次進關卡時跳出教學彈窗（左邊播示範動畫、右邊說明），H 可以再叫出來
 const TUT_PAGES := [
-	{"title": "操作方式", "controls": [["W／A／S／D", "飄移"], ["Space", "上升"], ["Shift", "下降"], ["MOUSE", "轉視角"],
+	{"id": "controls", "title": "操作方式", "controls": [["W／A／S／D", "飄移"], ["Space", "上升"], ["Shift", "下降"], ["MOUSE", "轉視角"],
 		["1／2／3", "選神蹟"], ["LMB", "施放"], ["Enter", "開打"], ["R", "重試"], ["M", "回地圖"], ["Tab", "俯看全場／回到家豪旁邊"], ["H", "再看一次說明"]],
 		"body": "你是一個飄在空中的幽靈，只能從旁觀察、偷偷降下神蹟幫家豪。
 
 準備階段先把神蹟佈置好，再按 Enter 開打。"},
-	{"title": "家豪會自己行動", "icon": preload("res://assets/ui/jiahao_portrait.png"),
+	{"id": "auto", "title": "家豪會自己行動", "icon": preload("res://assets/ui/jiahao_portrait.png"),
 		"body": "不用畫路線，家豪會自己往最近的目標衝過去。
 
 其他的，玩玩看就知道了。"},
-	{"title": "飼料", "clip": "feed", "keys": [["1", "選擇"], ["LMB", "對準地面撒下"]],
+	{"id": "feed", "title": "飼料", "clip": "feed", "keys": [["1", "選擇"], ["LMB", "對準地面撒下"]],
 		"body": "撒在地上，家豪會忍不住跑過去吃，吃一把回一點血。
 
 用它把家豪引到你想要的地方，或拖住他、讓他避開農夫。"},
-	{"title": "香蕉皮", "clip": "banana", "keys": [["2", "選擇"], ["LMB", "對準地面丟下"]],
+	{"id": "banana", "title": "香蕉皮", "clip": "banana", "keys": [["2", "選擇"], ["LMB", "對準地面丟下"]],
 		"body": "丟在路上，誰走過去踩到就會滑倒，躺在地上好一陣子。
 
 放在農夫巡邏的路線上最有效。小心，家豪自己也會踩到。"},
-	{"title": "巨石", "clip": "rock", "keys": [["3", "選擇"], ["LMB", "斜坡滾、平地擋"]],
+	{"id": "rock", "title": "巨石", "clip": "rock", "keys": [["3", "選擇"], ["LMB", "斜坡滾、平地擋"]],
 		"body": "一顆圓滾滾的大石頭。放在斜坡上會自己滾下去，一路撞倒擋路的東西；放在平地上就是一塊路障，誰都過不去。\n\n瞄準時會畫出滾動路線，撞得到的東西會亮綠色。"},
+	# 下面是各小關才有的機制：這關有、而且玩家還沒看過，才會自動跳出（_tut_pages() 挑）
+	{"id": "vision", "title": "農夫的視線",
+		"body": "農夫腳下的紅色扇形是他看得到的範圍。家豪走進去就會被發現，附近的農夫聽到打鬥聲也會圍過來。\n\n城牆、炮塔、建築會擋住視線，躲在後面就看不到。從背後偷襲，農夫會嚇一跳。"},
+	{"id": "first_strike", "title": "先攻決勝負",
+		"body": "家豪先啄到農夫，農夫一下就倒，家豪毫髮無傷；被農夫先踢到，家豪會掉一顆心（但還是打得贏他）。\n\n家豪的心比農夫少一顆，全部正面硬碰會輸。用香蕉皮、偷襲幫他搶先手。"},
+	{"id": "bomber", "title": "自爆農夫",
+		"body": "背著紅色火藥桶的農夫。走到家豪身邊就會點引信，炸到家豪掉一顆心，旁邊的農夫也會被炸倒。\n\n讓家豪搶先啄倒他，引信就熄了；用巨石或砲彈砸他，可以順便炸掉他身邊的同伴。"},
+	{"id": "cannon", "title": "大砲", "keys": [["LMB", "提早發射"]],
+		"body": "在砲口前撒飼料，家豪吃完會鑽進砲管。引信燒完（或按左鍵）就把家豪射向準心指的地方，可以直接射上炮塔或高台。"},
+	{"id": "turret", "title": "炮塔",
+		"body": "塔頂的砲手看到家豪會開砲；地上出現紅圈就是要炸下來了，讓家豪動起來就躲得掉。\n\n在梯子腳下撒飼料，家豪會爬上去把砲手踢下去，炮塔就換邊幫你打人類。巨石也撞得倒炮塔。"},
+	{"id": "chest", "title": "寶箱",
+		"body": "家豪走過去就會打開：補滿血，神蹟冷卻全部清空。"},
 ]
 var tutorial_step: int:       # 教學彈窗現在在第幾頁（-1 = 沒開）
 	get:
 		return _tut.page if _tut else -1
 var _tut_seen := false
+var _tut_fresh: Array = []     # 這次自動跳出的是哪幾頁（關掉時記成「已經學會」）
 var _tut: Node                 # 教學彈窗（scripts/tutorial_popup.gd）
 var _hud_layer: CanvasLayer
 # 換階段的通知卡（像 Mac 的通知：右上角滑進來、停一下、滑出去）
@@ -1139,6 +1153,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		get_tree().change_scene_to_file("res://scenes/level_select.tscn")
 	elif event.is_action_pressed("tutorial"):
+		if _tut and not _tut.is_open():
+			_tut.set_pages(_tut_pages())   # H：這關用得到的每一頁都看得到（包括已經學會的）
 		_set_tut_step(0)
 	elif event.is_action_pressed("skill_1"):
 		select_skill(0)
@@ -2214,7 +2230,48 @@ func sees_bird(f: Fighter) -> bool:
 	if d < 0.01:
 		return true
 	var fwd := Vector2(sin(f.yaw), cos(f.yaw))
-	return fwd.angle_to(to.normalized()) <= VISION_HALF and fwd.angle_to(to.normalized()) >= -VISION_HALF
+	if absf(fwd.angle_to(to.normalized())) > VISION_HALF:
+		return false
+	# 中間有牆、炮塔、建築擋住就看不到
+	return _sight_len(f.pos, atan2(to.x, to.y), d) >= d - 0.05
+
+## 視線從 from 往 a 方向（yaw）最遠看得到多遠：碰到城牆、還站著的炮塔、建築就停
+func _sight_len(from: Vector3, a: float, maxd: float) -> float:
+	var o := Vector2(from.x, from.z)
+	var dir := Vector2(sin(a), cos(a))
+	var best := maxd
+	var tip := o + dir * maxd
+	for seg in world.wall_segments:
+		var t := _seg_hit(o, tip, seg[0], seg[1])
+		if t >= 0.0:
+			best = minf(best, t * maxd)
+	for c in _sight_blockers():
+		var cen: Vector2 = c[0]
+		var r: float = c[1]
+		var oc := o - cen
+		var cc := oc.length_squared() - r * r
+		if cc <= 0.0:
+			continue   # 自己就站在障礙物範圍裡（貼著牆角），不算擋住
+		var b := oc.dot(dir)
+		var disc := b * b - cc
+		if b >= 0.0 or disc < 0.0:
+			continue
+		best = minf(best, -b - sqrt(disc))
+	return maxf(best, 0.0)
+
+## 擋視線的圓形障礙物：建築、塔等（world.obstacles），被撞倒的炮塔不算
+func _sight_blockers() -> Array:
+	var fallen: Array = []
+	for t in towers:
+		if t.state != "stand":
+			fallen.append(t.pos)
+	if fallen.is_empty():
+		return world.obstacles
+	return world.obstacles.filter(func(ob):
+		for p in fallen:
+			if (ob[0] as Vector2).distance_to(p) < 0.5:
+				return false
+		return true)
 
 func _make_cone() -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
@@ -2242,14 +2299,18 @@ func _draw_cone(f: Fighter, focus := true) -> void:
 	f.cone.visible = show
 	if not show:
 		return
-	var segs := 20
+	var segs := 36
 	var rings := 8
+	# 每個方向看得到多遠（被牆、炮塔、建築擋住的地方扇形就缺一塊）
+	var reach := []
+	for k in segs + 1:
+		reach.append(_sight_len(f.pos, f.yaw - VISION_HALF + 2.0 * VISION_HALF * float(k) / segs, VISION_RANGE))
 	var pts := []
 	for r in rings + 1:
 		var row := []
-		var rad := VISION_RANGE * float(r) / rings
 		for k in segs + 1:
 			var a := f.yaw - VISION_HALF + 2.0 * VISION_HALF * float(k) / segs
+			var rad := minf(VISION_RANGE * float(r) / rings, reach[k])
 			var x := f.pos.x + sin(a) * rad
 			var z := f.pos.z + cos(a) * rad
 			row.append(Vector3(x, world.height_at(x, z) + 0.15, z))
@@ -3645,7 +3706,7 @@ func _build_hud() -> void:
 	_tut.clip_dir = "res://levels/fort/assets/tutorial"
 	_tut.kicker_text = "新手教學"
 	add_child(_tut)
-	_tut.set_pages(TUT_PAGES)
+	_tut.set_pages(_tut_pages())
 	_tut.closed.connect(_on_tut_closed)
 
 	# 右上角敵人欄（米色小紙片）：老闆一張（頭像＋血條，他是過關目標）；
@@ -4071,11 +4132,34 @@ func _show_summary() -> void:
 
 # ------------------------------------------------------------------ 開場教學
 
-## 第一次玩才自動跳出（記在存檔裡）；之後按 H 隨時可以再看
+## 這關用得到的教學頁：神蹟只放這關有的；小關機制（視線、先攻、自爆農夫、大砲、炮塔、寶箱）這關有才放
+func _tut_pages() -> Array:
+	var skills := SKILLS.map(func(sk): return String(sk.id))
+	var crew := farmers.filter(func(f): return not f.is_boss)
+	var has := {
+		"vision": not crew.is_empty(),
+		"first_strike": not crew.is_empty(),
+		"bomber": crew.any(func(f): return f.kind == "bomber"),
+		"cannon": has_cannon,
+		"turret": towers.any(func(t): return t.gun != null),
+		"chest": not (world.get("chests") if world.get("chests") != null else []).is_empty(),
+	}
+	return TUT_PAGES.filter(func(pg):
+		var id: String = pg.id
+		if id in ["feed", "banana", "rock"]:
+			return id in skills
+		return has.get(id, true))
+
+## 只自動跳出「這關有、玩家還沒學會」的頁面（記在存檔的 [mechanics]）；按 H 隨時可以看這關全部的頁面
 func start_tutorial() -> void:
-	if _tut_seen or FortProgress.tutorial_seen():
+	if _tut_seen:
 		return
 	_tut_seen = true
+	var fresh := _tut_pages().filter(func(pg): return not FortProgress.known(pg.id))
+	if fresh.is_empty():
+		return
+	_tut_fresh = fresh.map(func(pg): return pg.id)
+	_tut.set_pages(fresh)
 	_set_tut_step(0)
 
 ## i >= 0：打開教學彈窗到第 i 頁；-1：關掉
@@ -4090,8 +4174,11 @@ func _set_tut_step(i: int) -> void:
 func _on_tut_closed() -> void:
 	if _tut_seen and casts.is_empty() and phase == Phase.PREPARE:
 		_show_first_hint(true)   # 第一次自動跳出的教學看完 → 提示先放一個試試
-	if not _auto_run():
-		FortProgress.mark_tutorial_seen()
+	if not _tut_fresh.is_empty():
+		if not _auto_run():
+			FortProgress.mark_known(_tut_fresh)   # 看過的機制記下來，其他小關不再自動跳出
+		_tut_fresh = []
+		_tut.set_pages(_tut_pages())
 	if player.has_method("_set_looking"):
 		player._set_looking(true)
 	if _hotbar:
