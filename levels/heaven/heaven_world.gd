@@ -66,6 +66,7 @@ var _turntable_node: Node3D
 var _flock: CPUParticles3D     # 結局：百鳥朝鳳
 ## 仙境的氛圍（純裝飾）：貼著地面的雲、浮在半空的仙山、繞著飛的仙鶴。數量每一關可以改。
 var cloud_count := 16
+var lantern_nodes: Array = []  # 宮燈（特寫鏡頭貼著的時候戰局會先把它藏起來）
 var peak_count := 6
 var crane_count := 4
 var _hv_drift: Array = []         # 會慢慢飄的雲／仙山 {node, home, amp, sp, ph}
@@ -116,14 +117,14 @@ const HEAVEN_MOODS := {
 	"astral": {"sun": Color(0.78, 0.84, 1.0), "energy": 0.9, "rot": Vector3(-0.85, 0.4, 0), "amb": Color(0.48, 0.52, 0.80), "amb_e": 1.1,
 		"top": Color(0.02, 0.03, 0.12), "hor": Color(0.10, 0.13, 0.32), "band": Color(1.0, 0.82, 0.42), "glow_band": 0.95, "band_thin": 30.0,
 		"cloud": Color(0.58, 0.56, 0.78), "cloud_sh": Color(0.16, 0.17, 0.40), "sun_glow": Color(0.7, 0.78, 1.0), "stars": 1.0, "aurora": 0.0,
-		"snow_lit": Color(0.10, 0.11, 0.27), "snow_shade": Color(0.045, 0.05, 0.15), "ground_far": Color(0.42, 0.31, 0.16), "exposure": 1.05,
+		"snow_lit": Color(0.10, 0.11, 0.27), "snow_shade": Color(0.045, 0.05, 0.15), "ground_far": Color(0.16, 0.17, 0.42), "exposure": 1.05, "mist_c": Color(0.50, 0.52, 1.0),
 		"walk": Color(1.0, 0.80, 0.36), "paving": 0.22, "sparkle": 1.0, "walk_style": 1, "mist": 0.8, "mist_far": 1.0,
 		"ice_glow": 0.34, "ice_lit": 0.72, "sky_tint": Color(0.60, 0.68, 1.0), "water": 1.2, "lamp": 2.4, "center_lift": 0.10,
 		"jade": [Color(0.90, 0.90, 1.0), Color(0.58, 0.60, 0.88), Color(0.22, 0.24, 0.52)], "trim": Color(1.0, 0.80, 0.30),
 		"hole": [Color(0.01, 0.01, 0.06), Color(0.30, 0.34, 0.80)],
 		"sea_deep": Color(0.04, 0.05, 0.18), "sea_near": Color(0.20, 0.22, 0.46), "sea_stroke": Color(1.0, 0.88, 0.56), "sea_stroke2": Color(0.20, 0.22, 0.46),
 		"sea_far": Color(0.10, 0.12, 0.30), "fog": Color(0.10, 0.11, 0.28), "fog_density": 0.007,
-		"hills": [Color(0.03, 0.04, 0.12), Color(0.06, 0.08, 0.20), Color(0.10, 0.13, 0.30)], "hill_mist": Color(0.50, 0.38, 0.20), "hill_h": 0.30,
+		"hills": [Color(0.03, 0.04, 0.12), Color(0.06, 0.08, 0.20), Color(0.10, 0.13, 0.30)], "hill_mist": Color(0.26, 0.26, 0.56), "hill_h": 0.30,
 		"petal": Color(1.0, 0.88, 0.50), "petal_n": 90,
 		"cliff": [Color(0.62, 0.66, 0.90), Color(0.22, 0.26, 0.52), Color(0.06, 0.08, 0.22)], "cliff_glow": 0.30},
 }
@@ -465,6 +466,23 @@ func _build_door(root: Node3D, i: int) -> void:
 	carpet.material_override = cm
 	carpet.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	root.add_child(carpet)
+	var chev := ImmediateMesh.new()
+	chev.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var cc := Color(pc.r * 0.62, pc.g * 0.42, pc.b * 0.42, 0.9)
+	for cd in [0.95, 1.75]:
+		var apex: Vector3 = g + face * (float(cd) + 0.40)
+		for sg2 in [-1.0, 1.0]:
+			var tip: Vector3 = g + face * float(cd) + sd * 0.52 * float(sg2)
+			for v2 in [apex, tip, tip - face * 0.18, apex, tip - face * 0.18, apex - face * 0.18]:
+				chev.surface_set_color(cc)
+				chev.surface_add_vertex(Vector3((v2 as Vector3).x, _ground_y((v2 as Vector3).x, (v2 as Vector3).z) + 0.048, (v2 as Vector3).z))
+	chev.surface_end()
+	var chev_mi := MeshInstance3D.new()
+	chev_mi.name = "DoorArrows"
+	chev_mi.mesh = chev
+	chev_mi.material_override = cm
+	chev_mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(chev_mi)
 	# 兩根門柱會擋路
 	var side := Vector3(-face.z, 0, face.x)
 	for sg in [-1.0, 1.0]:
@@ -816,8 +834,11 @@ func _zone_item(root: Node3D, z: Dictionary) -> void:
 			_prop(root, HM + "tower.glb", g, yaw, sc)
 			_blob_shadow(root, g, 3.4 * sc, 0.55)
 			_warm_light(root, g + Vector3(sin(yaw), 0, cos(yaw)) * 2.4 * sc + Vector3(0, 2.2, 0), 1.0, 6.0)
+		"peak":
+			# 手排的仙山："pos"（x、z）、"y"（浮多高）、"scale"
+			_add_peak(root, Vector3(g.x, float(z.get("y", 8.0)), g.z), yaw, sc, int(absf(g.x)), 0.5, 0.09, g.x)
 		"lantern":
-			_prop(root, HM + "palace_lantern.glb", g, yaw, sc)
+			lantern_nodes.append(_prop(root, HM + "palace_lantern.glb", g, yaw, sc))
 			_warm_light(root, g + Vector3(0, 2.2 * sc, 0), 1.2, 4.8)
 		"stele":
 			var stl := _prop(root, HM + ("star_stele.glb" if mood == "astral" else "stele.glb"), g, yaw, sc)
@@ -1191,6 +1212,8 @@ func _wheel_place(w: Dictionary) -> void:
 		var z := sin(a) * r
 		var y := (height_at(c.x + x, c.z + z) + 0.06) if w.flat else 0.0
 		(hs[k] as Node3D).position = Vector3(x, y, z)
+		var lit_k := clampf((_fin_t - 0.17 * k) / 0.3, 0.0, 1.0) if _fin_on else 0.0
+		(hs[k] as Node3D).scale = Vector3.ONE * (1.0 + 0.24 * lit_k)
 	(w.mat as ShaderMaterial).set_shader_parameter("spin", float(w.spin))
 
 ## 鳳羽靈光：從終點上空飛下來，沿著黃線到家豪面前，再從東邊繞回去
@@ -1331,11 +1354,19 @@ func finale_show(on: bool) -> void:
 		_flock.emitting = false
 		_flock.visible = on
 	if on and _phoenix == null and _cage_root:
-		_phoenix = _prop(_cage_root, HM + "phoenix_light.glb", Vector3(0, 1.5, 0.0), 0.0, 1.0)
-		if _phoenix:
+		# 三層疊起來：最後面大一圈的朱紅（輪廓和羽尖）、中間朱紅到金的漸層、最前面小一圈的亮金（胸口和翅膀內側）
+		_phoenix = Node3D.new()
+		_phoenix.name = "Phoenix"
+		_cage_root.add_child(_phoenix)
+		for layer in [[1.10, -0.07, Color(0.80, 0.12, 0.04), 0.0], [1.0, 0.0, Color(1, 1, 1), 1.0], [0.74, 0.07, Color(1.0, 0.93, 0.62), 0.0]]:
+			var ly := _prop(_phoenix, HM + "phoenix_light.glb", Vector3(0, 0.24 * (1.0 - float(layer[0])), float(layer[1])), 0.0, float(layer[0]))
+			if ly == null:
+				continue
 			var pm := ShaderMaterial.new()
 			pm.shader = load(HS + "phoenix_solid.gdshader")
-			for m in _phoenix.find_children("*", "MeshInstance3D", true, false):
+			pm.set_shader_parameter("tone", layer[2])
+			pm.set_shader_parameter("grad", float(layer[3]))
+			for m in ly.find_children("*", "MeshInstance3D", true, false):
 				(m as MeshInstance3D).material_override = pm
 				(m as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	if _phoenix:
@@ -1438,16 +1469,11 @@ func _build_celestial(root: Node3D) -> void:
 		var d2 := rng.randf_range(27.0, 34.0) if near else rng.randf_range(48.0, 70.0)
 		var y := rng.randf_range(8.5, 10.5) if near else rng.randf_range(15.0, 26.0)
 		var sc2 := rng.randf_range(1.0, 1.4) if near else rng.randf_range(2.0, 3.2)
+		# 正北（終點正後方）那條中軸留空：不要有一座山或一條瀑布豎在圓門正中間
+		if absf(a2 + PI * 0.5) < 0.30:
+			a2 += 0.48 * (1.0 if k % 2 == 0 else -1.0)
 		var home2 := Vector3(c.x + cos(a2) * d2, y, c.y + sin(a2) * d2 - 4.0)
-		var pk := _prop(root, HM + "float_peak.glb", home2, rng.randf() * TAU, sc2)
-		if pk:
-			_restyle(pk, false)
-			var under := _prop(pk, MB + "cloud_puff_" + ["a", "b", "c"][k % 3] + ".glb", Vector3(0, -5.6, 0), 0.0, 2.2)
-			if under:
-				under.scale = Vector3(2.2, 0.9, 2.2)
-				_restyle(under, false)
-				_swap_mat(under, "cloud", _mist_cloud_mat(0.7))
-			_hv_drift.append({"node": pk, "home": home2, "amp": 0.5 * sc2 * 4.0, "sp": rng.randf_range(0.06, 0.12), "ph": rng.randf() * TAU})
+		_add_peak(root, home2, rng.randf() * TAU, sc2, k, 0.5 * sc2 * 4.0, rng.randf_range(0.06, 0.12), rng.randf() * TAU)
 	# 仙鶴：在場地北半邊的上空繞圈（不飛到鏡頭和家豪中間）
 	var ccen := Vector3(cage.x, 0.0, cage.z + 3.0)
 	for k in crane_count:
@@ -1478,3 +1504,21 @@ func _mist_cloud_mat(alpha: float) -> StandardMaterial3D:
 	m.disable_receive_shadows = true
 	_mist_cloud_mats[key] = m
 	return m
+
+## 一座浮在半空的仙山：瀑布換成半透明的水，底下拖一朵雲，慢慢地飄
+func _add_peak(root: Node3D, home: Vector3, yaw: float, sc: float, k: int, amp: float, sp: float, ph: float) -> void:
+	var pk := _prop(root, HM + "float_peak.glb", home, yaw, sc)
+	if pk == null:
+		return
+	_restyle(pk, false)
+	if _fall_mat == null:
+		_fall_mat = ShaderMaterial.new()
+		_fall_mat.shader = load(HS + "waterfall.gdshader")
+	_swap_mat(pk, "lantern_glow_fall", _fall_mat)
+	var under := _prop(pk, MB + "cloud_puff_" + ["a", "b", "c"][k % 3] + ".glb", Vector3(0, -5.6, 0), 0.0, 2.2)
+	if under:
+		under.scale = Vector3(2.2, 0.9, 2.2)
+		_restyle(under, false)
+		_swap_mat(under, "cloud", _mist_cloud_mat(0.7))
+	_hv_drift.append({"node": pk, "home": home, "amp": amp, "sp": sp, "ph": ph})
+var _fall_mat: ShaderMaterial

@@ -3,6 +3,7 @@ extends SceneTree
 ##   open -g -n -a <Godot.app> --args --path <專案> --resolution 1280x720 -s res://levels/heaven/tests/shots.gd -- --out=<資料夾> [--only=2] [--run] [--strategy="banana,-6,-4;rock,2.4,-12"]
 ## 每一關拍：play（開場鏡頭）、top（正上方）、幾個地標的近景；加 --run 會放好保底解法、開打，每隔一段時間拍一張。
 const STILL := preload("res://levels/heaven/tests/still_player.gd")
+const Wardrobe := preload("res://scripts/wardrobe.gd")
 ## 每一關另外拍的鏡頭：[名字, 鏡頭位置, 看哪裡]
 const VIEWS := {
 	1: [["wide", Vector3(0, 26, 44), Vector3(0, 0, -6)], ["gate", Vector3(6, 5, -2), Vector3(0, 2.5, -12)], ["door", Vector3(-1, 3.2, -1), Vector3(5, 1.5, -4)],
@@ -15,7 +16,7 @@ const VIEWS := {
 const SOLVE := {
 	1: [["banana", -6.0, -4.0], ["banana", -5.0, -6.67], ["rock", 2.4, -12.0]],
 	2: [["banana", -6.0, -6.5], ["banana", 5.5, -6.25]],
-	3: [["banana", -9.0, -1.75], ["banana", -3.53, 1.65], ["bait", 0.0, -11.8]],
+	3: [["banana", -8.35, -1.43], ["banana", -3.53, 1.65], ["bait", 0.0, -11.8]],
 }
 
 func _initialize() -> void:
@@ -51,6 +52,7 @@ func _go() -> void:
 				if v.size() >= 3:
 					custom.append([String(v[0]).strip_edges(), float(v[1]), float(v[2])])
 	DirAccess.make_dir_recursive_absolute(out)
+	Wardrobe.preview = {"body": "hoodie"}        # 截圖固定用家豪原本的黑色帽 T（玩家衣櫃裡穿什麼不影響截圖；不存檔）
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	for n in [1, 2, 3]:
 		if only != 0 and only != n:

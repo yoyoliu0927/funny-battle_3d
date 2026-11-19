@@ -2,6 +2,7 @@
 # 仙境截圖：在背景開 Godot（不會跳到前面、不搶滑鼠），拍完自己關掉。
 #   bash levels/heaven/tests/shots.sh <輸出資料夾> [--only=N] [--run]
 # 環境變數 GODOT_APP 可以指定 Godot.app 的位置。
+# 截圖裡的家豪固定穿原本的黑色帽 T（shots.gd 設了 Wardrobe.preview；不看玩家衣櫃裡穿什麼，也不存檔）。
 set -e
 OUT="$1"; shift || true
 APP="${GODOT_APP:-/Applications/Godot.app}"

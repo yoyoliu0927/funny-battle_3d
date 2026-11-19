@@ -22,11 +22,11 @@ func _checklist() -> Array:
 	return [
 		{"id": "rescue", "text": "走過迴廊"},
 		{"id": "luwu_blow", "text": "陸吾吹走一個人", "hint": "哪一條紅線通到金光？"},
-		{"id": "luwu_idle", "text": "陸吾睡到最後", "hint": "黃線繞遠一點"},
+		{"id": "luwu_idle", "text": "陸吾整局沒吹氣", "hint": "黃線繞遠一點"},
 	]
 
 func _how_to() -> String:
-	return "陸吾只吹一口氣：誰先走進金光，誰被吹走"
+	return "陸吾只吹一口氣：先到先吹"
 
 func _defeat_tip() -> String:
 	return "陸吾只吹一口氣：讓別人先走進金光"
@@ -35,6 +35,7 @@ func _defeat_tip_for(who: String) -> String:
 	match who:
 		"守衛": return "守衛會被什麼撞到？"
 		"阿水": return "他的紅線有兩段"
+		"阿土": return "阿土還在：香蕉皮放在他的紅線上"
 	return super(who)
 
 func _level_setup() -> void:

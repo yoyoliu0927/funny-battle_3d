@@ -83,7 +83,7 @@ func _level_setup() -> void:
 	for di in dn:
 		_door_labels.append(_tag("畫門" if dn <= 2 else "畫門" + "甲乙丙丁戊己"[di]))
 	if _needs_turntable():
-		_disc_label = _tag("還差一步")
+		_disc_label = _tag("唱盤上要放飼料")
 	for p in world.snow_piles:
 		var pl := _tag(_word("pile_word", "落葉堆"))
 		pl.position = ground(p) + Vector3(0, 1.9, 0)
@@ -698,6 +698,20 @@ func log_event(text: String) -> void:
 func toast(text: String, dur: float) -> void:
 	super(text.replace("雪地上不會滑", _word("rough_word", "這裡") + "上不會滑"), dur)
 
+## 失敗提示分兩層：同一種死法（被同一個人抓到）第一次只點方向，第二次起才講明白。
+## 關卡的 _defeat_tip_for() 裡用 _t2("只點方向的那一句", "講明白的那一句")。
+static var _fail_counts := {}
+var _tip_level := 0            # 0＝這種死法第一次；1＝第二次以後（測試工具會直接設這個值，兩句都印出來）
+
+func _t2(first: String, later: String) -> String:
+	return later if _tip_level >= 1 else first
+
+func _show_defeat() -> void:
+	var k := "%s/%s" % [_stage_key(), _caught_by]
+	_fail_counts[k] = int(_fail_counts.get(k, 0)) + 1
+	_tip_level = 1 if int(_fail_counts[k]) >= 2 else 0
+	super()
+
 func _defeat_tip_for(who: String) -> String:
 	match who:
 		"陸吾": return "陸吾只吹一口氣：讓別人先走進金光"
@@ -790,7 +804,8 @@ func _update_tags() -> void:
 		var lb: Label3D = _door_labels[i]
 		lb.visible = prep and i < ds.size()
 		if lb.visible:
-			lb.position = (ds[i].pos as Vector3) + Vector3(0, 4.3, 0)
+			# 名牌掛在門的背面那一側（正面那邊常常站著人，名牌才不會疊在一起）
+			lb.position = (ds[i].pos as Vector3) - (ds[i].face as Vector3) * 1.1 + Vector3(0, 4.3, 0)
 	for pl in _pile_labels:
 		(pl as Label3D).visible = prep
 	if _disc_label:
@@ -807,6 +822,15 @@ func _make_finale_card() -> Control:
 	for l in panel.find_children("*", "Label", true, false):
 		if String((l as Label).text).contains("完成"):
 			(l as Label).text = "山海畫卷　全破！"
+	# 全遊戲的最後一張卡：多一行收尾的話
+	var vb := panel.get_child(0) as VBoxContainer
+	if vb:
+		var thanks := Label.new()
+		thanks.text = "家豪回家了。感謝遊玩！"
+		thanks.label_settings = UISkin.ls(24, UISkin.INK)
+		thanks.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		vb.add_child(thanks)
+		vb.move_child(thanks, 1)
 	return panel
 
 ## 這一章先不顯示家豪的血量（使用者 2026-11-19 的要求）：道具欄旁邊那張愛心紙片不蓋
@@ -872,8 +896,13 @@ func _level_visuals() -> void:
 			"arm-left": Vector3(0.3, -1.45, 0.45 + sin(t) * 0.08),
 			"arm-right": Vector3(0.3, 1.45, -0.45 - sin(t) * 0.08),
 		})
-	# 特寫鏡頭貼著畫門的時候，先把那扇門藏起來（不然木架會擋掉半個畫面）
+	# 特寫鏡頭貼著畫門、宮燈的時候，先把它藏起來（不然木架、燈柱會擋掉半個畫面）
 	var cut := _cut_cam != null and _cut_cam.current
+	var lns = world.get("lantern_nodes")
+	if lns is Array:
+		for ln in lns:
+			if ln != null and is_instance_valid(ln):
+				(ln as Node3D).visible = not (cut and _cut_cam.global_position.distance_to((ln as Node3D).global_position + Vector3(0, 1.5, 0)) < 3.4)
 	for d in _doors():
 		var dn = d.get("node")
 		if dn != null and is_instance_valid(dn):
@@ -890,6 +919,9 @@ const HFIN_LINE := 6.2        # 家豪說話
 const HFIN_CARD := 7.4        # 卡片出現
 const HFIN_SFX := ["嚓！", "♪", "嚓嚓！", "♫", "嚓！", "嚓嚓嚓！", "♪"]
 var _hfin_beat := -1
+var _hfin_gag = null           # 最後一鏡說話的那個人（泡在星洞裡的）
+var _hfin_gag_said := false
+var _hfin_card_t := 7.4        # 卡片第幾秒出現（有最後一鏡的話晚一點）
 
 func _start_finale() -> void:
 	super()
@@ -902,12 +934,37 @@ func _start_finale() -> void:
 	_finale_shots.dj_look = disc + Vector3(0, 1.25, 0)
 	_finale_shots.c_pos = disc + Vector3(-1.6, 2.6, 8.2)
 	_finale_shots.c_look = disc + Vector3(0.7, 4.0, 0)
+	# 唱盤上那把飼料已經吃掉了
+	if _disc_node != null and is_instance_valid(_disc_node):
+		_disc_node.visible = false
+	# 最後一個鏡頭：泡在星洞裡的人抬頭看鳳凰（沒有人泡在洞裡就沒有這一鏡）
+	_hfin_gag = null
+	_hfin_gag_said = false
+	_hfin_card_t = HFIN_CARD
+	var sunk2: Array = enemies.filter(func(e): return e.data.get("sunk", false))
+	if not sunk2.is_empty():
+		var ctr := Vector3.ZERO
+		for e in sunk2:
+			ctr += e.pos
+		ctr /= float(sunk2.size())
+		var away := ctr - disc
+		away.y = 0.0
+		away = away.normalized() if away.length() > 0.5 else Vector3(0, 0, 1)
+		var side := Vector3(-away.z, 0, away.x)
+		# 鏡頭退到洞的外側、高一點：畫面下緣是泡在洞裡回頭看鏡頭的人，後面遠處是天上的鳳凰
+		_finale_shots.d_pos = ctr + away * 5.4 + side * 1.4 + Vector3(0, 2.7, 0)
+		_finale_shots.d_look = disc + Vector3(0, 2.3, 0)
+		for e in sunk2:
+			e.data.sunk_yaw = atan2(away.x, away.z)
+			e.yaw = e.data.sunk_yaw
+		_hfin_gag = sunk2[0]
+		_hfin_card_t = HFIN_CARD + 2.4
 	_finale_update()
 
 ## 收尾播放中按 Enter：先跳到卡片，卡片出來之後再按才回地圖
 func _go_next() -> void:
-	if _finale_t >= 0.0 and _finale_t < HFIN_CARD:
-		_finale_t = HFIN_CARD
+	if _finale_t >= 0.0 and _finale_t < _hfin_card_t:
+		_finale_t = _hfin_card_t
 		return
 	super()
 
@@ -942,6 +999,15 @@ func _finale_update() -> void:
 		_cut_cam.global_position = b_pos - dirb * 2.0 + dirb * (k * 3.0)
 		_cut_cam.look_at(b_pos + dirb * 60.0, Vector3.UP)
 		_cut_look = b_look
+	elif t >= HFIN_CARD + 0.4 and sh.has("d_pos") and _hfin_gag != null:
+		# 泡在星洞裡的人，從他們背後看出去是天上的鳳凰
+		_cut_cam.fov = 52.0
+		_cut_cam.global_position = (sh.d_pos as Vector3) + Vector3(0, minf((t - HFIN_CARD - 0.4) * 0.12, 0.4), 0)
+		_cut_cam.look_at(sh.d_look, Vector3.UP)
+		_cut_look = sh.d_look
+		if t >= HFIN_CARD + 1.0 and not _hfin_gag_said:
+			_hfin_gag_said = true
+			bubble("……那我們可以下班了嗎", _hfin_gag, 1.7, 60000)
 	else:
 		# 家豪在鳳凰的胸口，浮在半空；鏡頭慢慢往後退
 		var c_pos: Vector3 = sh.c_pos
@@ -954,7 +1020,7 @@ func _finale_update() -> void:
 	if t >= HFIN_LINE and not _finale_said:
 		_finale_said = true
 		bubble("……這次真的有聲音", bird, 1.7, 60000)
-	if t >= HFIN_CARD and (_finale_card == null or not is_instance_valid(_finale_card)):
+	if t >= _hfin_card_t and (_finale_card == null or not is_instance_valid(_finale_card)):
 		_finale_card = _make_finale_card()
 
 ## 收尾時家豪站在唱盤上：打碟的時候身體跟著拍子晃、面向鏡頭
@@ -970,6 +1036,11 @@ func _bird_visuals(vcam: Camera3D) -> void:
 	var up: float = world.fin_rise(t) if world.has_method("fin_rise") else 0.0
 	n.global_position = _finale_bird + Vector3(0, bob + up + (0.12 * sin(t * 2.2) if up > 0.1 else 0.0), 0)
 	n.rotation = Vector3(0.10 * sin(t * 9.2) if t < HFIN_DJ else -0.10, atan2(d.x, d.z), 0.16 * sin(t * 4.6) if t < HFIN_DJ else 0.0)
+	# 打碟：身體壓低、往前傾，跟著拍子左右搓（蓋掉過關歡呼的跳）
+	var body = bird.get("body")
+	if body is Node3D and t < HFIN_DJ:
+		(body as Node3D).position.y = 0.0
+		(body as Node3D).rotation = Vector3(0.42 + 0.10 * sin(t * 18.4), sin(t * 9.2) * 0.35, sin(t * 9.2) * 0.22)
 	n.visible = true
 
 ## 工人：跟冰雪島一樣，多幾個可以寫的欄位（_enemy_specs() 裡用）

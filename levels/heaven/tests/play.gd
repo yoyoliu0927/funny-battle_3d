@@ -96,10 +96,16 @@ func _go() -> void:
 		if why != "":
 			print("  放不下去：%s %s → %s" % [v[0], _p(p), why])
 			continue
+		if String(v[0]).strip_edges() == "banana":
+			# 遊戲裡瞄準的時候會畫出來的滑行預告線（這一關是「只畫到第一個碰到的東西」）
+			for r in bt.peel_outcome(p):
+				var pts: Array = r.get("pts", [])
+				var sg = r.get("segs")
+				var route := ""
+				if sg != null:
+					route = "，穿過畫門（%s 進、%s 出）" % [_p((sg[0] as Array).back()), _p((sg[1] as Array)[0])]
+				print("  [瞄準時的預告線] 香蕉皮 %s：%s滑到 %s%s → 標示「%s」" % [_p(p), "" if pts.is_empty() else "從 %s " % _p(pts[0]), _p(r.end), route, String(r.get("terrain_text", r.text))])
 		bt.cast(idx, p)
-	if bt.has_method("predict_all"):
-		for r in bt.predict_all(bt.trail()):
-			print("  [預告線] %s：%s %s，在 %s" % [r.f.name, r.kind, r.text, _p(r.pos)])
 	bt.start()
 	while bt.phase == bt.Phase.RUNNING and bt.time < 60.0:
 		bt._tick_cooldowns(DT)
@@ -109,19 +115,29 @@ func _go() -> void:
 		print("  %5.1f 秒  %s" % [e.t, e.text])
 	var got: Array = bt._done.keys()
 	print("---------------- 結果：%s（%.1f 秒）" % [{"win": "過關", "lose": "失敗"}.get(String(bt.outcome), "沒結束"), bt.time])
+	var won := String(bt.outcome) == "win"
 	for c in bt._checklist():
-		print("  %s %s" % ["★" if got.has(c.id) else "☆", c.text])
+		print("  %s %s%s" % ["★" if (won and got.has(c.id)) else "☆", c.text, "（這一局有做到，但沒過關不算）" if (not won and got.has(c.id)) else ""])
 	if String(bt.outcome) == "lose":
 		# 跟遊戲裡失敗卡同一套：照抓到家豪的是誰給提示；時機差一點的話說香蕉皮該往哪邊挪
 		var who := String(bt._caught_by)
-		var tip: String = bt._defeat_tip()
-		if who != "" and bt._defeat_tip_for(who) != "":
-			tip = bt._defeat_tip_for(who)
-		var miss := String(bt._miss_text)
-		if miss != "":
-			var late := miss.contains("晚")
-			var mw := miss.substr(0, miss.find("晚") if late else miss.find("早"))
-			tip = ("香蕉皮往%s那邊挪一點" % mw) if late else ("香蕉皮離%s遠一點" % mw)
 		print("  失敗的原因：%s" % (("被%s%s" % [who, "吹走了" if who == "陸吾" else ("擋住了（沒放飼料）" if who == "唱盤" else "抓住了")]) if who != "" else "時間到"))
-		print("  失敗卡上的提示：%s" % tip)
+		# 提示分兩層：同一種死法第一次只點方向，第二次起才講明白（遊戲會自己記次數；這裡兩句都印）
+		var tips: Array = []
+		for lv in [0, 1]:
+			bt.set("_tip_level", lv)
+			var tip: String = bt._defeat_tip()
+			if who != "" and bt._defeat_tip_for(who) != "":
+				tip = bt._defeat_tip_for(who)
+			var miss := String(bt._miss_text)
+			if miss != "":
+				var late := miss.contains("晚")
+				var mw := miss.substr(0, miss.find("晚") if late else miss.find("早"))
+				tip = ("香蕉皮往%s那邊挪一點" % mw) if late else ("香蕉皮離%s遠一點" % mw)
+			tips.append(tip)
+		if tips[0] == tips[1]:
+			print("  失敗卡上的提示：%s" % tips[0])
+		else:
+			print("  失敗卡上的提示（這種死法第一次）：%s" % tips[0])
+			print("  失敗卡上的提示（同一種死法第二次起）：%s" % tips[1])
 	quit()
