@@ -1,2 +1,4 @@
 Farmer.gltf：Quaternius「Ultimate Modular Men」(https://quaternius.com/packs/ultimatemodularcharacters.html)，CC0。
 主角公雞：放入 styloo「CHICKEN ESCAPE ASSET PACK」中檔名含 rooster 或 chicken 的 .glb/.gltf 後會自動取代替身。
+
+家豪的手繪大眼 hero_eyes.png：跟 levels/ice/assets/faces/face_bird.png 同一張（來源寫在 levels/ice/CREDITS.txt：從 Codex 生成的表情圖裁出眼睛再蓋上眼皮顏色），商店的「眼睛」選項用。
