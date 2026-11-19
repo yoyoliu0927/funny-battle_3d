@@ -47,9 +47,11 @@ func _ice_configure() -> void:
 		[Vector3(0.0, 0, 26.0), Vector3(0.0, 0, 5.0), 3.4],
 		[Vector3(0.0, 0, -10.0), Vector3(0.0, 0, -13.2), 3.4],
 		[Vector3(-34.0, 0, -4.4), Vector3(-11.0, 0, -4.4), 3.0],
-		[Vector3(11.0, 0, -4.4), Vector3(34.0, 0, -4.4), 3.0],
+		[Vector3(34.0, 0, -4.4), Vector3(11.0, 0, -4.4), 3.0],
 	]
 	front_props = false
+	# 地上的山海轉盤：圍著圓壇的一圈金光，十二塊紋章盤寫著山海經的異獸，慢慢地轉
+	wheel = {"c": Vector2(0.0, -2.5), "r": 13.3, "w": 2.5}
 	rim_kinds = [["stele", 1.4], ["lantern", 1.2], ["rock", 0.5]]
 	rim_count = 22
 	rim_far = 34.0
@@ -62,12 +64,12 @@ func _ice_configure() -> void:
 		{"type": "lantern", "pos": Vector3(-3.2, 0, -11.2), "scale": 1.0},
 		{"type": "lantern", "pos": Vector3(3.2, 0, -11.2), "scale": 1.0},
 		# 兩邊立著寫滿字的石碑（一排大的）
-		{"type": "stele", "pos": Vector3(-14.5, 0, -10.5), "yaw": 0.6, "scale": 2.0},
-		{"type": "stele", "pos": Vector3(14.5, 0, -10.5), "yaw": -0.6, "scale": 2.0},
-		{"type": "stele", "pos": Vector3(-17.5, 0, -1.0), "yaw": 1.0, "scale": 1.6},
-		{"type": "stele", "pos": Vector3(17.5, 0, -1.0), "yaw": -1.0, "scale": 1.6},
-		{"type": "stele", "pos": Vector3(-15.0, 0, 7.0), "yaw": 1.3, "scale": 1.3},
-		{"type": "stele", "pos": Vector3(15.0, 0, 7.0), "yaw": -1.3, "scale": 1.3},
+		{"type": "stele", "pos": Vector3(-16.5, 0, -12.5), "yaw": 0.6, "scale": 1.9},
+		{"type": "stele", "pos": Vector3(16.5, 0, -12.5), "yaw": -0.6, "scale": 1.9},
+		{"type": "stele", "pos": Vector3(-19.0, 0, -1.0), "yaw": 1.0, "scale": 1.6},
+		{"type": "stele", "pos": Vector3(19.0, 0, -1.0), "yaw": -1.0, "scale": 1.6},
+		{"type": "stele", "pos": Vector3(-16.5, 0, 9.0), "yaw": 1.2, "scale": 1.3},
+		{"type": "stele", "pos": Vector3(16.5, 0, 9.0), "yaw": -1.2, "scale": 1.3},
 		# 遠處一圈一圈的大金環（立著，圍著圓壇）
 		{"type": "ring", "pos": Vector3(0.0, 0, -26.0), "y": 9.0, "scale": 4.2},
 		{"type": "ring", "pos": Vector3(0.0, 0, -40.0), "y": 13.0, "scale": 6.5},

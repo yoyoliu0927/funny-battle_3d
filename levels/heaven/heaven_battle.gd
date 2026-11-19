@@ -639,6 +639,12 @@ const WORDS := {"喀喀喀…": "咕嚕嚕…"}
 func pop_label(text: String, pos: Vector3, color: Color, ms: int, follow: Fighter = null) -> void:
 	super(String(WORDS.get(text, text)), pos, color, ms, follow)
 
+## 事件紀錄的字也換成仙境的說法（冰雪島的程式寫的是冰上、冰洞、雪堆）
+func log_event(text: String) -> void:
+	var t := text.replace("在冰上一路滑出去", "在白玉地上一路滑出去").replace("掉進冰洞，凍成冰棒了", "掉進" + _word("hole_word", "洞") + "，出局了")
+	t = t.replace("冰洞", _word("hole_word", "洞")).replace("雪堆", _word("pile_word", "落葉堆")).replace("雪地", _word("rough_word", "地上")).replace("冰上", "白玉地上")
+	super(t)
+
 func toast(text: String, dur: float) -> void:
 	super(text.replace("雪地上不會滑", _word("rough_word", "這裡") + "上不會滑"), dur)
 
@@ -732,6 +738,90 @@ func _make_finale_card() -> Control:
 ## 冰雪島收尾時有企鵝滑去撞人，仙境沒有
 func _plan_bumps() -> void:
 	pass
+
+## 仙境的收尾（三個鏡頭）：家豪站上唱盤打碟（狀聲字一拍一個）→ 拉遠：山海轉盤轉起來、鳳凰金光升起、百鳥飛起 → 家豪和背後的鳳凰
+const HFIN_DJ := 2.4          # 打碟的特寫到第幾秒（跟 heaven_world.gd 的 FIN_DJ 一樣）
+const HFIN_WIDE := 5.6        # 拉遠看轉盤和鳳凰到第幾秒
+const HFIN_LINE := 6.2        # 家豪說話
+const HFIN_CARD := 7.4        # 卡片出現
+const HFIN_SFX := ["嚓！", "♪", "嚓嚓！", "♫", "嚓！", "嚓嚓嚓！", "♪"]
+var _hfin_beat := -1
+
+func _start_finale() -> void:
+	super()
+	_hfin_beat = -1
+	var dp = world.get("disc")
+	var disc: Vector3 = dp if dp is Vector3 else ground(bird.pos)
+	_finale_bird = disc + Vector3(0, 0.22, 0)
+	_finale_shots.a_on = false
+	_finale_shots.dj_pos = disc + Vector3(2.4, 1.9, 4.6)
+	_finale_shots.dj_look = disc + Vector3(0, 1.25, 0)
+	_finale_shots.c_pos = disc + Vector3(-2.6, 1.3, 5.6)
+	_finale_shots.c_look = disc + Vector3(0.5, 3.4, 0)
+	_finale_update()
+
+## 收尾播放中按 Enter：先跳到卡片，卡片出來之後再按才回地圖
+func _go_next() -> void:
+	if _finale_t >= 0.0 and _finale_t < HFIN_CARD:
+		_finale_t = HFIN_CARD
+		return
+	super()
+
+func _finale_update() -> void:
+	if _finale_t < 0.0 or _cut_cam == null or not is_inside_tree():
+		return
+	var sh := _finale_shots
+	if not sh.has("dj_pos"):
+		return
+	var t := _finale_t
+	_cut_cam.make_current()
+	_cut_t = 99.0
+	if t < HFIN_DJ:
+		var dj_pos: Vector3 = sh.dj_pos
+		var dj_look: Vector3 = sh.dj_look
+		_cut_cam.fov = 44.0
+		_cut_cam.global_position = dj_pos + (dj_look - dj_pos).normalized() * (t * 0.3)
+		_cut_cam.look_at(dj_look, Vector3.UP)
+		_cut_look = dj_look
+		var beat := int(t / 0.34)
+		if beat != _hfin_beat:
+			_hfin_beat = beat
+			var side := 1.0 if beat % 2 == 0 else -1.0
+			pop_label(HFIN_SFX[beat % HFIN_SFX.size()], _finale_bird + Vector3(0.9 * side, 1.5 + 0.25 * (beat % 3), 0.4), Color(1.0, 0.84, 0.36), 520)
+	elif t < HFIN_WIDE:
+		var k := (t - HFIN_DJ) / (HFIN_WIDE - HFIN_DJ)
+		var b_pos: Vector3 = sh.b_pos
+		var b_look: Vector3 = sh.b_look
+		var dirb := (b_look - b_pos).normalized()
+		_cut_cam.fov = 54.0
+		_cut_cam.global_position = b_pos - dirb * 2.0 + dirb * (k * 3.0)
+		_cut_cam.look_at(b_pos + dirb * 60.0, Vector3.UP)
+		_cut_look = b_look
+	else:
+		_cut_cam.fov = 50.0
+		_cut_cam.global_position = sh.c_pos
+		_cut_cam.look_at(sh.c_look, Vector3.UP)
+		_cut_look = _finale_bird + Vector3(0, 1.2, 0)
+	if t >= HFIN_LINE and not _finale_said:
+		_finale_said = true
+		bubble("……這次真的有聲音", bird, 1.7, 60000)
+	if t >= HFIN_CARD and (_finale_card == null or not is_instance_valid(_finale_card)):
+		_finale_card = _make_finale_card()
+
+## 收尾時家豪站在唱盤上：打碟的時候身體跟著拍子晃、面向鏡頭
+func _bird_visuals(vcam: Camera3D) -> void:
+	super(vcam)
+	if _finale_t < 0.0 or not _finale_shots.has("dj_pos") or bird.node == null:
+		return
+	var n: Node3D = bird.node
+	var t := _finale_t
+	var cam_p: Vector3 = _finale_shots.dj_pos if t < HFIN_DJ else (_finale_shots.b_pos if t < HFIN_WIDE else _finale_shots.c_pos)
+	var d := cam_p - _finale_bird
+	var bob := absf(sin(t * 9.2)) * 0.10 if t < HFIN_DJ else 0.0
+	var rise := clampf((t - HFIN_DJ) / 2.4, 0.0, 1.0)
+	n.global_position = _finale_bird + Vector3(0, bob + 0.5 * rise * rise, 0)
+	n.rotation = Vector3(0.10 * sin(t * 9.2) if t < HFIN_DJ else -0.12 * rise, atan2(d.x, d.z), 0.16 * sin(t * 4.6) if t < HFIN_DJ else 0.0)
+	n.visible = true
 
 ## 工人：跟冰雪島一樣，多幾個可以寫的欄位（_enemy_specs() 裡用）
 ##   slow_rusher：走得慢、晚出發的人（大老闆那一批）。boss＝穿金釘鞋不怕香蕉皮

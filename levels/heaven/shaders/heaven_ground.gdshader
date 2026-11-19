@@ -31,6 +31,14 @@ uniform float jade_lit = 0.85;
 uniform float center_lift = 0.0;
 uniform vec4 stairs = vec4(0.0);  // 雲階：x0, x1, z0（腳下）, z1（最高）；全 0＝沒有
 uniform float stair_steps = 6.0;
+uniform float snow_z = 999.0;     // 這條線以南（z 比較大）是雪地，往北慢慢融成青綠；999＝沒有雪
+uniform vec3 snow_c : source_color = vec3(0.94, 0.97, 1.0);
+uniform vec3 snow_shade_c : source_color = vec3(0.66, 0.80, 0.90);
+uniform float ink_lines = 0.0;    // 地面上水墨的勾線（像畫在紙上的山水）
+uniform int walk_style = 0;       // 1＝星空長廊：深色的路面、兩邊發光的金邊、一路往前流動的箭頭
+uniform vec3 walk_body : source_color = vec3(0.17, 0.17, 0.27);
+uniform vec3 mist_c : source_color = vec3(1.0, 0.76, 0.34);
+uniform float mist = 0.0;         // 地面上飄的金色霧氣
 
 varying vec3 wpos;
 varying vec3 wnrm;
@@ -143,6 +151,23 @@ void fragment() {
 		gc = mix(gc, gc * (0.90 + 0.20 * stone), paving);
 		gc = mix(gc, ground_shade * 0.66, sj * paving * (1.0 - smoothstep(26.0, 54.0, cam_d)));
 	}
+	// 水墨的筆觸：沿著深淺色塊的邊勾幾道淡墨線
+	if (ink_lines > 0.0) {
+		float lv = patch * 5.0;
+		float line = 1.0 - smoothstep(0.0, fwidth(lv) * 1.4 + 0.02, abs(fract(lv) - 0.5));
+		gc = mix(gc, ground_shade * 0.60, line * ink_lines * (1.0 - smoothstep(22.0, 46.0, cam_d)));
+	}
+	// 雪地：南邊積雪，往北一塊一塊融掉露出青綠（融雪的邊緣是一圈濕濕的深色）
+	float snow = 0.0;
+	if (snow_z < 900.0) {
+		float sn_n = texture(grain_tex, p * 0.035 + 0.17).r - 0.5;
+		float sd_s = p.y - snow_z + sn_n * 11.0;
+		snow = smoothstep(-1.2, 1.2, sd_s);
+		float drift = texture(grain_tex, p * 0.07 + 0.43).r;
+		vec3 sn = mix(snow_shade_c, snow_c, smoothstep(0.28, 0.58, drift));
+		gc = mix(gc, ground_shade * 0.78, (1.0 - smoothstep(0.0, 1.6, abs(sd_s + 1.2))) * 0.5);
+		gc = mix(gc, sn, snow);
+	}
 	// 白玉地投在旁邊地上的影子（緊貼邊緣一圈）
 	gc = mix(gc, ground_shade * 0.72, (1.0 - smoothstep(0.0, 0.9, sd)) * step(0.0, sd) * 0.55);
 	gc = mix(gc, ground_lit, hole_edge * 0.25 * (1.0 - jade));
@@ -153,6 +178,9 @@ void fragment() {
 	// ---- 步道：比地面亮一點的鋪面，兩邊各一條深色的邊石
 	float walk = 0.0;
 	float curb = 0.0;
+	float w_best = 99.0;       // 最近那條步道：離邊多遠、沿路走了幾公尺、偏中線幾公尺
+	float w_along = 0.0;
+	float w_side = 0.0;
 	for (int i = 0; i < walk_count; i++) {
 		vec2 a = walks[i].xy;
 		vec2 ab = walks[i].zw - a;
@@ -161,6 +189,12 @@ void fragment() {
 		float wfw = max(fwidth(d), 0.002);
 		walk = max(walk, 1.0 - smoothstep(-wfw, wfw, d));
 		curb = max(curb, (1.0 - smoothstep(0.0, 0.05 + wfw, abs(d + 0.14) - 0.07)));
+		if (d < w_best) {
+			w_best = d;
+			float len = length(ab);
+			w_along = t * len;
+			w_side = length(p - (a + ab * t));
+		}
 	}
 	vec3 wc = walk_c * (0.92 + 0.14 * grain);
 	vec2 wt = p / 1.2;
@@ -168,6 +202,18 @@ void fragment() {
 	float wj = 1.0 - smoothstep(0.0, 0.03 + fwidth(wt.x) + fwidth(wt.y), 0.5 - max(wf.x, wf.y));
 	wc = mix(wc, walk_c * 0.70, wj * 0.6 * (1.0 - smoothstep(26.0, 54.0, cam_d)));
 	wc = mix(wc, walk_c * 0.55, curb);
+	float walk_glow = 0.0;
+	if (walk_style == 1) {
+		// 星空長廊：深色的石板路，兩邊各一條發光的金邊，中間一個一個往前流的箭頭
+		wc = walk_body * (0.90 + 0.20 * grain);
+		wc = mix(wc, walk_body * 0.62, wj * 0.7 * (1.0 - smoothstep(26.0, 54.0, cam_d)));
+		float edge = smoothstep(-0.42, -0.36, w_best) * (1.0 - smoothstep(-0.14, -0.08, w_best));
+		float edge_soft = smoothstep(-1.3, -0.3, w_best) * (1.0 - smoothstep(-0.14, 0.0, w_best));
+		float cv = fract((w_along + w_side * 0.9 - TIME * 0.8) / 3.4);
+		float chev = (1.0 - smoothstep(0.0, 0.035, abs(cv - 0.5) - 0.035)) * (1.0 - smoothstep(0.55, 0.62, w_side));
+		walk_glow = edge * 1.5 + edge_soft * 0.22 + chev * 0.75;
+		wc = mix(wc, walk_c, clamp(edge + chev * 0.8, 0.0, 1.0));
+	}
 	gc = mix(gc, wc, walk * (1.0 - jade));
 
 	// ---- 雲階：斜坡畫成一階一階的玉階（每階前緣一條鑲邊色的線，踏面由淺到深）
@@ -188,11 +234,19 @@ void fragment() {
 	// ---- 遠處：融進霧的顏色（地面一直鋪出去，看不到盡頭）
 	gc = mix(gc, ground_far, smoothstep(34.0, 110.0, cam_d) * 0.85);
 
+	// 金色的霧氣：貼著地面慢慢流動，越遠越濃
+	float mist_k = 0.0;
+	if (mist > 0.0) {
+		float m1 = texture(grain_tex, p * 0.018 + vec2(TIME * 0.006, TIME * 0.004)).r;
+		float m2 = texture(grain_tex, p * 0.041 - vec2(TIME * 0.008, 0.0) + 0.37).r;
+		mist_k = smoothstep(0.38, 0.72, m1 * 0.6 + m2 * 0.4) * mist * (0.35 + 0.65 * smoothstep(10.0, 60.0, cam_d));
+		mist_k *= (1.0 - jade) * (1.0 - walk * 0.6);
+	}
 	float solid = max(jade, on_st);
 	float soft = max(solid, walk);
 	ALBEDO = mix(gc, jc * jade_lit, jade);
 	ROUGHNESS = mix(mix(1.0, 0.55, sparkle), 0.30, jade);
 	ROUGHNESS = mix(ROUGHNESS, 0.5, on_st);
 	SPECULAR = mix(mix(0.08, 0.5, sparkle), 0.45, solid);
-	EMISSION = jc * jade_glow * jade + vec3(glint) * 0.9 * (1.0 - solid) + walk_c * 0.35 * walk * sparkle * (1.0 - jade) + gc * 0.04 * (1.0 - soft);
+	EMISSION = jc * jade_glow * jade + vec3(glint) * 0.9 * (1.0 - solid) + walk_c * 0.35 * walk * sparkle * (1.0 - jade) * float(walk_style == 0) + walk_c * walk_glow * walk * (1.0 - jade) + mist_c * mist_k * 0.55 + gc * 0.04 * (1.0 - soft);
 }

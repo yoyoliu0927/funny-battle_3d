@@ -68,8 +68,19 @@ func _ice_configure() -> void:
 		{"type": "ginkgo", "pos": Vector3(19.0, 0, 11.0), "yaw": 4.0, "scale": 1.3},
 		# ---- 紅綢帶：橫過北邊的街、從樓閣拉到對面
 		{"type": "ribbon", "from": Vector3(-11.5, 0, -14.6), "to": Vector3(12.6, 0, -14.4), "h": 7.6, "sag": 1.8},
-		{"type": "ribbon", "from": Vector3(-10.4, 0, 3.6), "to": Vector3(-12.0, 0, -14.6), "h": 6.0, "sag": 1.2},
-		{"type": "ribbon", "from": Vector3(14.2, 0, 5.2), "to": Vector3(13.2, 0, -14.2), "h": 6.0, "sag": 1.2},
+		# ---- 一串一串的小燈籠：兩邊的街、北邊的街
+		{"type": "lanterns", "from": Vector3(-14.4, 0, 3.6), "to": Vector3(-13.6, 0, -14.6), "h": 5.4, "sag": 1.2, "n": 9},
+		{"type": "lanterns", "from": Vector3(14.6, 0, 5.2), "to": Vector3(14.0, 0, -14.2), "h": 5.4, "sag": 1.2, "n": 9},
+		{"type": "lanterns", "from": Vector3(-10.5, 0, -15.6), "to": Vector3(10.5, 0, -15.6), "h": 6.4, "sag": 1.0, "n": 10},
+		# ---- 小吃攤和幌子：街口四個角
+		{"type": "stall", "pos": Vector3(-7.6, 0, 3.0), "yaw": 1.5708, "scale": 1.0},
+		{"type": "stall", "pos": Vector3(9.2, 0, 5.0), "yaw": -1.5708, "scale": 1.0},
+		{"type": "stall", "pos": Vector3(-6.0, 0, -12.2), "yaw": 0.0, "scale": 1.0},
+		{"type": "stall", "pos": Vector3(5.6, 0, -12.4), "yaw": 0.0, "scale": 1.0},
+		{"type": "banner", "pos": Vector3(-9.6, 0, 1.2), "yaw": 0.3, "text": "餅"},
+		{"type": "banner", "pos": Vector3(-13.0, 0, -11.0), "yaw": 0.0, "text": "茶"},
+		{"type": "banner", "pos": Vector3(12.6, 0, -11.2), "yaw": 0.0, "text": "酒"},
+		{"type": "banner", "pos": Vector3(10.6, 0, 7.4), "yaw": -0.3, "text": "麵"},
 		# ---- 街邊的宮燈
 		{"type": "lantern", "pos": Vector3(-3.4, 0, 9.6), "scale": 0.95},
 		{"type": "lantern", "pos": Vector3(3.4, 0, 9.6), "scale": 0.95},

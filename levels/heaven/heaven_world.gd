@@ -60,6 +60,18 @@ var _hill_mats: Array = []
 var _fin_t := 0.0
 var _fin_on := false
 var _phoenix: Node3D
+## 雪線：這條 z 以南是雪地（紅梅、飄雪），往北融成青綠；999＝沒有雪（只有第 1 關用）
+var snow_line := 999.0
+var _turntable_node: Node3D
+var _flock: CPUParticles3D     # 結局：百鳥朝鳳
+## 地上的山海轉盤：{"c": Vector2 圓心, "r": 半徑, "w": 環的寬度}；空的＝沒有（第 3 關用）
+var wheel: Dictionary = {}
+var _wheels: Array = []        # {spin: Node3D, mat: ShaderMaterial, speed: float, medals: Array}
+var _spirit: Node3D            # 鳳羽靈光（art/spirit.gd）
+var _hv_snowfall: CPUParticles3D
+const SPIRIT := preload("res://levels/heaven/art/spirit.gd")
+## 山海經裡的十二種異獸（轉盤上的紋章；鳳凰在最上面）
+const BEASTS := ["鳳凰", "燭龍", "九尾", "陸吾", "畢方", "精衛", "帝江", "夔牛", "旋龜", "應龍", "英招", "鹿蜀"]
 
 ## 每一關的顏色（鍵跟冰雪島的 MOODS 一樣，所以冰雪島的程式可以直接用；多的鍵是仙境自己的）。
 ##   snow_lit／snow_shade = 四周地面的亮面／暗面；ground_far = 地面遠處融進去的顏色；walk = 步道；paving = 地面上石板縫的深淺（0＝草地）
@@ -70,7 +82,7 @@ const HEAVEN_MOODS := {
 		"top": Color(0.34, 0.60, 0.66), "hor": Color(0.74, 0.90, 0.88), "band": Color(0.84, 0.95, 0.92), "glow_band": 0.75, "band_thin": 6.0,
 		"cloud": Color(0.92, 0.98, 0.96), "cloud_sh": Color(0.56, 0.76, 0.78), "sun_glow": Color(0.9, 1.0, 0.96), "stars": 0.0, "aurora": 0.0,
 		"snow_lit": Color(0.50, 0.72, 0.62), "snow_shade": Color(0.26, 0.50, 0.50), "ground_far": Color(0.62, 0.84, 0.82), "exposure": 0.98,
-		"walk": Color(0.78, 0.86, 0.80), "paving": 0.0, "sparkle": 0.0,
+		"walk": Color(0.78, 0.86, 0.80), "paving": 0.0, "sparkle": 0.0, "ink_lines": 0.55,
 		"ice_glow": 0.14, "ice_lit": 0.90, "sky_tint": Color(0.80, 0.95, 0.93), "water": 1.0, "lamp": 1.9,
 		"jade": [Color(0.90, 0.97, 0.93), Color(0.66, 0.87, 0.82), Color(0.34, 0.62, 0.60)], "trim": Color(0.93, 0.80, 0.40),
 		"hole": [Color(0.06, 0.26, 0.32), Color(0.40, 0.72, 0.72)],
@@ -97,14 +109,14 @@ const HEAVEN_MOODS := {
 	"astral": {"sun": Color(0.78, 0.84, 1.0), "energy": 0.9, "rot": Vector3(-0.85, 0.4, 0), "amb": Color(0.48, 0.52, 0.80), "amb_e": 1.1,
 		"top": Color(0.02, 0.03, 0.12), "hor": Color(0.10, 0.13, 0.32), "band": Color(1.0, 0.82, 0.42), "glow_band": 0.95, "band_thin": 30.0,
 		"cloud": Color(0.36, 0.40, 0.62), "cloud_sh": Color(0.08, 0.10, 0.26), "sun_glow": Color(0.7, 0.78, 1.0), "stars": 1.0, "aurora": 0.0,
-		"snow_lit": Color(0.16, 0.19, 0.40), "snow_shade": Color(0.07, 0.08, 0.22), "ground_far": Color(0.10, 0.11, 0.28), "exposure": 1.05,
-		"walk": Color(1.0, 0.82, 0.40), "paving": 0.45, "sparkle": 1.0,
+		"snow_lit": Color(0.10, 0.11, 0.27), "snow_shade": Color(0.045, 0.05, 0.15), "ground_far": Color(0.42, 0.31, 0.16), "exposure": 1.05,
+		"walk": Color(1.0, 0.80, 0.36), "paving": 0.30, "sparkle": 1.0, "walk_style": 1, "mist": 1.0,
 		"ice_glow": 0.34, "ice_lit": 0.72, "sky_tint": Color(0.60, 0.68, 1.0), "water": 1.2, "lamp": 2.4, "center_lift": 0.10,
-		"jade": [Color(0.82, 0.86, 1.0), Color(0.44, 0.50, 0.84), Color(0.16, 0.20, 0.48)], "trim": Color(1.0, 0.84, 0.36),
+		"jade": [Color(0.90, 0.90, 1.0), Color(0.58, 0.60, 0.88), Color(0.22, 0.24, 0.52)], "trim": Color(1.0, 0.80, 0.30),
 		"hole": [Color(0.01, 0.01, 0.06), Color(0.30, 0.34, 0.80)],
 		"sea_deep": Color(0.04, 0.05, 0.18), "sea_near": Color(0.20, 0.22, 0.46), "sea_stroke": Color(1.0, 0.88, 0.56), "sea_stroke2": Color(0.20, 0.22, 0.46),
 		"sea_far": Color(0.10, 0.12, 0.30), "fog": Color(0.10, 0.11, 0.28), "fog_density": 0.007,
-		"hills": [Color(0.03, 0.04, 0.12), Color(0.06, 0.08, 0.20), Color(0.10, 0.13, 0.30)], "hill_mist": Color(0.16, 0.16, 0.36), "hill_h": 0.30,
+		"hills": [Color(0.03, 0.04, 0.12), Color(0.06, 0.08, 0.20), Color(0.10, 0.13, 0.30)], "hill_mist": Color(0.50, 0.38, 0.20), "hill_h": 0.30,
 		"petal": Color(1.0, 0.88, 0.50), "petal_n": 90,
 		"cliff": [Color(0.62, 0.66, 0.90), Color(0.22, 0.26, 0.52), Color(0.06, 0.08, 0.22)], "cliff_glow": 0.30},
 }
@@ -247,6 +259,10 @@ func _snow_material() -> ShaderMaterial:
 		m.set_shader_parameter("stair_steps", maxf(roundf(absf(float(stairs.z1) - float(stairs.z0)) / 0.55), 2.0))
 	if md.has("center_lift"):
 		m.set_shader_parameter("center_lift", md.center_lift)
+	m.set_shader_parameter("snow_z", snow_line)
+	m.set_shader_parameter("ink_lines", float(md.get("ink_lines", 0.0)))
+	m.set_shader_parameter("walk_style", int(md.get("walk_style", 0)))
+	m.set_shader_parameter("mist", float(md.get("mist", 0.0)))
 	return m
 
 # ================================================================== 蓋場地
@@ -279,8 +295,12 @@ func _build_extra() -> void:
 		_build_stair_rails(root)
 	if decor:
 		_build_decor(root)
+	if not wheel.is_empty():
+		var wc: Vector2 = wheel.c
+		_build_wheel(root, Vector3(wc.x, height_at(wc.x, wc.y) + 0.04, wc.y), float(wheel.r), float(wheel.get("w", 2.6)), true, 0.02)
 	_weather()
 	_build_cage()
+	_build_spirit(root)
 
 ## 地面：中間一塊細的網格（跟著地形起伏、雲階是斜的），外面接一大片平的，一路鋪到霧裡
 func _build_ground(root: Node3D) -> void:
@@ -408,6 +428,30 @@ func _build_door(root: Node3D, i: int) -> void:
 					mi.set_surface_override_material(k, pm)
 		_blob_shadow(root, g, 1.6, 0.45)
 		_warm_light(root, g + face * 1.0 + Vector3(0, 1.8, 0), 0.7, 3.6)
+	# 正面的地上鋪一塊從畫裡透出來的光：看得出哪一面是正面（滑進去的那一面，也是滑出來的方向）
+	var im := ImmediateMesh.new()
+	var sd := Vector3(-face.z, 0, face.x)
+	im.surface_begin(Mesh.PRIMITIVE_TRIANGLES)
+	var c_near := Color(1.0, 0.62, 0.20, 0.62)
+	var c_far := Color(1.0, 0.62, 0.20, 0.0)
+	var lq := [g + face * 0.12 - sd * 1.15, g + face * 0.12 + sd * 1.15, g + face * 3.0 + sd * 0.75, g + face * 3.0 - sd * 0.75]
+	var qc := [c_near, c_near, c_far, c_far]
+	for k in [0, 1, 2, 0, 2, 3]:
+		var v: Vector3 = lq[k]
+		im.surface_set_color(qc[k])
+		im.surface_add_vertex(Vector3(v.x, _ground_y(v.x, v.z) + 0.035, v.z))
+	im.surface_end()
+	var carpet := MeshInstance3D.new()
+	carpet.name = "DoorLight"
+	carpet.mesh = im
+	var cm := StandardMaterial3D.new()
+	cm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	cm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	cm.vertex_color_use_as_albedo = true
+	cm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	carpet.material_override = cm
+	carpet.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(carpet)
 	# 兩根門柱會擋路
 	var side := Vector3(-face.z, 0, face.x)
 	for sg in [-1.0, 1.0]:
@@ -498,13 +542,15 @@ func _build_cage() -> void:
 	match goal:
 		"disc":
 			disc = _cage_root.position
-			_prop(_cage_root, HM + "turntable.glb", Vector3.ZERO, 0.0, 1.0)
+			_turntable_node = _prop(_cage_root, HM + "turntable.glb", Vector3.ZERO, 0.0, 1.0)
 			_gate_node = _prop(_cage_root, HM + "ring_gate.glb", Vector3(0, 0.0, -3.4), 0.0, 1.0)
 			# 一圈一圈往裡收的金環（越後面越大、越淡）
+			# 圓門外面套一圈立著的山海轉盤（跟地上那一圈是一對）
+			_build_wheel(_cage_root, Vector3(0, 4.25, -4.3), 5.5, 1.5, false, 0.05, 0.9)
 			for k in 3:
-				var rn := _prop(_cage_root, HM + "gold_ring.glb", Vector3(0, 3.6, -6.0 - k * 5.0), 0.0, 1.0)
+				var rn := _prop(_cage_root, HM + "gold_ring.glb", Vector3(0, 4.25, -7.0 - k * 5.0), 0.0, 1.0)
 				if rn:
-					rn.scale = Vector3.ONE * (1.6 + k * 0.9)
+					rn.scale = Vector3.ONE * (2.4 + k * 0.9)
 					_restyle(rn, false)
 					_ring_nodes.append(rn)
 		"steps":
@@ -539,9 +585,13 @@ func open_cage(target: Vector3, cam := Vector3.ZERO) -> void:
 	_free_cam = cam
 	_free_t = 0.0
 	_cage_label.text = ""
+	if _spirit:
+		_spirit.orbit(_cage_root.position + Vector3(0, 3.4, 0.6), 2.2)
 
 func reset_cage() -> void:
 	_freed = false
+	if _spirit:
+		_spirit.release()
 	if _cage_label:
 		_cage_label.text = goal_text
 	for g in _goal_glow:
@@ -662,8 +712,11 @@ func _build_decor(root: Node3D) -> void:
 			# 鏡頭在南邊往北看：南邊（鏡頭和場地之間）、還有緊貼白玉地的東西都矮一點，才不會擋住人
 			var south := z > hero_start.z - 9.0
 			var close := lake_weight(x + 4.0, z) > 0.0 or lake_weight(x - 4.0, z) > 0.0 or lake_weight(x, z - 4.0) > 0.0
+			# 雪線以南的樹換成紅梅
+			if snow_line < 900.0 and z > snow_line - 3.0 and (kind == "pine" or kind == "blossom"):
+				kind = "plum"
 			_zone_item(root, {"type": kind, "pos": Vector3(x, 0, z), "yaw": rng.randf() * TAU,
-				"scale": rng.randf_range(0.5, 0.7) if (south or close) else rng.randf_range(0.9, 1.3)})
+				"scale": (rng.randf_range(0.5, 0.7) if kind != "plum" else rng.randf_range(0.75, 0.95)) if (south or close) else rng.randf_range(0.9, 1.3)})
 			placed += 1
 	_petal_fall(root)
 
@@ -707,6 +760,7 @@ func _decor_ok(x: float, z: float, room := 3.4) -> bool:
 ##   "pavilion" 亭子　"corridor" 一段迴廊（yaw＝走向）　"tower" 樓閣（三層，約 9 公尺高）
 ##   "house" 兩層的木樓（街邊的房子）　"gate" 一座牌樓（純裝飾，跟終點的南天門同一個模型）
 ##   "lantern" 宮燈（有一圈暖光）　"stele" 石碑　"ribbon" 紅綢帶："from"、"to"（兩頭掛多高："h"）
+##   "plum" 紅梅（枝上有積雪）　"stall" 小吃攤　"banner" 幌子（"text"：上面的字）　"lanterns" 一串小燈籠："from"、"to"、"h"、"sag"、"n"
 ##   "river" 小河："pts": [Vector3, ...]、"w": 寬（鋪在地面上的一條水，不擋路）　"bridge" 小拱橋　"ring" 立著的金環（"scale"）
 func _zone_item(root: Node3D, z: Dictionary) -> void:
 	var yaw: float = z.get("yaw", 0.0)
@@ -742,8 +796,39 @@ func _zone_item(root: Node3D, z: Dictionary) -> void:
 			_prop(root, HM + "palace_lantern.glb", g, yaw, sc)
 			_warm_light(root, g + Vector3(0, 2.2 * sc, 0), 1.2, 4.8)
 		"stele":
-			_prop(root, HM + "stele.glb", g, yaw, sc)
+			var stl := _prop(root, HM + ("star_stele.glb" if mood == "astral" else "stele.glb"), g, yaw, sc)
+			if mood == "astral":
+				# 星碑：深色的琉璃、發光的金字（不吃環境光，夜裡才不會變成亮藍色）
+				_swap_mat(stl, "star_glass", _flat_mat(Color(0.045, 0.05, 0.14)))
+				_swap_mat(stl, "lantern_glow_gold", _flat_mat(Color(1.0, 0.72, 0.26), 1.0))
 			_blob_shadow(root, g, 1.2 * sc, 0.45)
+		"plum":
+			_prop(root, HM + "plum_" + ["a", "b"][int(absf(g.x * 5.0 + g.z * 3.0)) % 2] + ".glb", g - Vector3(0, 0.05, 0), yaw, sc)
+			_blob_shadow(root, g, 1.3 * sc, 0.35)
+		"stall":
+			_prop(root, HM + "stall.glb", g, yaw, sc)
+			_blob_shadow(root, g, 1.7 * sc, 0.45)
+			_warm_light(root, g + Vector3(sin(yaw), 0, cos(yaw)) * 0.8 * sc + Vector3(0, 1.6, 0), 0.7, 3.6)
+		"banner":
+			var bn := _prop(root, HM + "banner.glb", g, yaw, sc)
+			if bn:
+				for sg in [1.0, -1.0]:
+					var lb := Label3D.new()
+					lb.text = String(z.get("text", "茶"))
+					lb.font_size = 96
+					lb.pixel_size = 0.0058
+					lb.modulate = Color("7a1a12")
+					lb.outline_size = 0
+					lb.shaded = false
+					lb.double_sided = false
+					lb.autowrap_mode = TextServer.AUTOWRAP_ARBITRARY
+					lb.width = 100.0
+					lb.line_spacing = -18.0
+					lb.position = Vector3(0.55, 2.05, 0.022 * float(sg))
+					lb.rotation.y = 0.0 if sg > 0.0 else PI
+					bn.add_child(lb)
+		"lanterns":
+			_lantern_string(root, z.from, z.to, float(z.get("h", 4.0)), float(z.get("sag", 1.0)), int(z.get("n", 6)))
 		"house":
 			_prop(root, HM + "house.glb", g, yaw, sc)
 			_blob_shadow(root, g, 3.0 * sc, 0.5)
@@ -814,6 +899,34 @@ func _river(root: Node3D, pts: Array, width: float) -> void:
 	root.add_child(mi)
 
 ## 紅綢帶：兩頭掛在高處、中間垂下來的一條布（會輕輕飄）
+## 一串小燈籠：一條細繩，上面等距掛 n 盞
+func _lantern_string(root: Node3D, a: Vector3, b: Vector3, h: float, sag: float, n: int) -> void:
+	var p0 := Vector3(a.x, height_at(a.x, a.z) + h, a.z)
+	var p1 := Vector3(b.x, height_at(b.x, b.z) + h, b.z)
+	var im := ImmediateMesh.new()
+	im.surface_begin(Mesh.PRIMITIVE_TRIANGLE_STRIP)
+	for i in 25:
+		var t := float(i) / 24.0
+		var p := p0.lerp(p1, t) - Vector3(0, sag * 4.0 * t * (1.0 - t), 0)
+		im.surface_add_vertex(p + Vector3(0, 0.025, 0))
+		im.surface_add_vertex(p - Vector3(0, 0.025, 0))
+	im.surface_end()
+	var rope := MeshInstance3D.new()
+	rope.name = "LanternRope"
+	rope.mesh = im
+	var rm := StandardMaterial3D.new()
+	rm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	rm.albedo_color = Color(0.30, 0.12, 0.08)
+	rm.cull_mode = BaseMaterial3D.CULL_DISABLED
+	rope.material_override = rm
+	rope.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(rope)
+	for k in n:
+		var t2 := (float(k) + 0.5) / float(n)
+		var q := p0.lerp(p1, t2) - Vector3(0, sag * 4.0 * t2 * (1.0 - t2), 0)
+		var ln := _prop(root, HM + "mini_lantern.glb", q, float(k) * 1.3, 1.7)
+		_restyle(ln, false)
+
 func _ribbon(root: Node3D, a: Vector3, b: Vector3, h: float, sag: float) -> void:
 	var p0 := Vector3(a.x, height_at(a.x, a.z) + h, a.z)
 	var p1 := Vector3(b.x, height_at(b.x, b.z) + h, b.z)
@@ -897,10 +1010,184 @@ func _petal_fall(root: Node3D) -> void:
 	ps.position = Vector3(isle.c.x, 16, isle.c.y)
 	root.add_child(ps)
 	_petals = ps
+	if snow_line < 900.0:
+		# 雪線以南飄雪（跟花瓣同一套粒子，白色、慢一點）
+		var sn := ps.duplicate() as CPUParticles3D
+		sn.name = "Snowfall"
+		sn.amount = 110
+		sn.emission_box_extents = Vector3(24, 0.5, 11)
+		sn.position = Vector3(isle.c.x, 14, snow_line + 12.0)
+		sn.direction = Vector3(0.2, -1, 0.1)
+		sn.initial_velocity_min = 1.0
+		sn.initial_velocity_max = 1.8
+		var q2 := QuadMesh.new()
+		q2.size = Vector2(0.13, 0.13)
+		var m2 := m.duplicate() as StandardMaterial3D
+		m2.albedo_color = Color(1, 1, 1)
+		q2.material = m2
+		sn.mesh = q2
+		root.add_child(sn)
+		_hv_snowfall = sn
 
 func set_snow(on: bool) -> void:
 	if _petals:
 		_petals.visible = on
+	if _hv_snowfall:
+		_hv_snowfall.visible = on
+
+# ================================================================== 山海轉盤、鳳羽靈光
+
+## 一圈扁的環（XZ 平面）：UV.x 繞一圈 0～1、UV.y 由內到外 0～1
+func _annulus(r0: float, r1: float, segs := 120) -> ArrayMesh:
+	var verts := PackedVector3Array()
+	var uvs := PackedVector2Array()
+	var idx := PackedInt32Array()
+	for i in segs + 1:
+		var a := i * TAU / segs
+		verts.append(Vector3(cos(a) * r0, 0, sin(a) * r0))
+		verts.append(Vector3(cos(a) * r1, 0, sin(a) * r1))
+		uvs.append(Vector2(float(i) / segs, 0.0))
+		uvs.append(Vector2(float(i) / segs, 1.0))
+		if i > 0:
+			var b := i * 2
+			idx.append_array([b - 2, b, b - 1, b - 1, b, b + 1])
+	var arrays := []
+	arrays.resize(Mesh.ARRAY_MAX)
+	arrays[Mesh.ARRAY_VERTEX] = verts
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_INDEX] = idx
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	return mesh
+
+## 把模型裡某個名字的材質換成自己的（星碑的琉璃、紋章盤的底：卡通材質在夜裡會被環境光照成亮藍色）
+func _swap_mat(n: Node3D, mat_name: String, to: Material) -> void:
+	if n == null:
+		return
+	for m in n.find_children("*", "MeshInstance3D", true, false):
+		var mi := m as MeshInstance3D
+		for k in mi.mesh.get_surface_count():
+			var src := mi.mesh.surface_get_material(k)
+			if src and String(src.resource_name) == mat_name:
+				mi.set_surface_override_material(k, to)
+
+var _flat_mats := {}
+func _flat_mat(col: Color, glow := 0.0) -> StandardMaterial3D:
+	var key := "%s/%.2f" % [col.to_html(), glow]
+	if _flat_mats.has(key):
+		return _flat_mats[key]
+	var m := StandardMaterial3D.new()
+	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	m.albedo_color = col
+	if glow > 0.0:
+		m.emission_enabled = true
+		m.emission = col
+		m.emission_energy_multiplier = glow
+	_flat_mats[key] = m
+	return m
+
+## 山海轉盤：一圈金色的光環，十二格各嵌一塊紋章盤，寫著山海經的異獸；慢慢地轉（字永遠是正的）。
+## flat＝平放在地上（貼著地形）；不是的話立起來（正面朝南，放在終點後面）。center 是世界座標（flat）或 parent 裡的位置（立著的）。
+func _build_wheel(parent: Node3D, center: Vector3, r: float, width: float, flat: bool, speed: float, strength := 1.0) -> Node3D:
+	var node := Node3D.new()
+	node.name = "Wheel"
+	node.position = Vector3(center.x, 0.0, center.z) if flat else center
+	if not flat:
+		node.rotation.x = PI * 0.5
+	parent.add_child(node)
+	var ring := MeshInstance3D.new()
+	var mesh := _annulus(r - width * 0.5, r + width * 0.5, 160)
+	if flat:
+		# 貼著地形：每個頂點放到地面上一點點
+		var arr := mesh.surface_get_arrays(0)
+		var vs: PackedVector3Array = arr[Mesh.ARRAY_VERTEX]
+		for i in vs.size():
+			vs[i].y = _ground_y(center.x + vs[i].x, center.z + vs[i].z) + 0.05
+		arr[Mesh.ARRAY_VERTEX] = vs
+		mesh = ArrayMesh.new()
+		mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	ring.mesh = mesh
+	var wm := ShaderMaterial.new()
+	wm.shader = load(HS + "astral_wheel.gdshader")
+	wm.set_shader_parameter("strength", strength)
+	wm.set_shader_parameter("fade_near", 0.0 if flat else 9.0)
+	ring.material_override = wm
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	node.add_child(ring)
+	var holders: Array = []
+	var mr := width * 0.37
+	for k in 12:
+		var holder := Node3D.new()
+		node.add_child(holder)
+		var md := _prop(holder, HM + "medallion.glb", Vector3.ZERO, 0.0, mr)
+		_restyle(md, false)
+		_swap_mat(md, "medal_base", _flat_mat(Color(0.05, 0.05, 0.13)))
+		_swap_mat(md, "lantern_glow_gold", _flat_mat(Color(1.0, 0.74, 0.28), 1.0))
+		var lb := Label3D.new()
+		lb.text = String(BEASTS[k]).substr(0, 1) + "\n" + String(BEASTS[k]).substr(1, 1)
+		lb.font_size = 72
+		lb.line_spacing = -16.0
+		lb.pixel_size = mr * 0.0070
+		lb.modulate = Color(1.0, 0.84, 0.42)
+		lb.outline_size = 0
+		lb.shaded = false
+		lb.double_sided = true
+		lb.rotation.x = -PI * 0.5
+		lb.position = Vector3(0, 0.085 * mr + 0.01, 0)
+		holder.add_child(lb)
+		holders.append(holder)
+	var w := {"node": node, "mat": wm, "speed": speed, "holders": holders, "flat": flat, "c": center, "r": r, "spin": 0.0}
+	_wheels.append(w)
+	_wheel_place(w)
+	return node
+
+## 紋章盤跟著轉盤繞圈（第 0 塊「鳳凰」一開始在北邊／最上面）
+func _wheel_place(w: Dictionary) -> void:
+	var hs: Array = w.holders
+	var r: float = w.r
+	var c: Vector3 = w.c
+	for k in hs.size():
+		var a := -PI * 0.5 + k * TAU / 12.0 + float(w.spin)
+		var x := cos(a) * r
+		var z := sin(a) * r
+		var y := (height_at(c.x + x, c.z + z) + 0.06) if w.flat else 0.0
+		(hs[k] as Node3D).position = Vector3(x, y, z)
+	(w.mat as ShaderMaterial).set_shader_parameter("spin", float(w.spin))
+
+## 鳳羽靈光：從終點上空飛下來，沿著黃線到家豪面前，再從東邊繞回去
+func _build_spirit(root: Node3D) -> void:
+	var gy := height_at(cage.x, cage.z)
+	var pts: Array = [Vector3(cage.x, gy + 5.6, cage.z), Vector3(cage.x - 1.0, gy + 3.6, cage.z + 2.6)]
+	for i in range(bird_path.size() - 1, -1, -1):
+		var b: Vector3 = bird_path[i]
+		pts.append(Vector3(b.x + (0.9 if i % 2 == 0 else -0.9), height_at(b.x, b.z) + 3.0, b.z))
+	pts.append(Vector3(hero_start.x - 1.6, 2.7, hero_start.z - 0.5))
+	pts.append(Vector3(hero_start.x, 3.0, hero_start.z + 2.2))
+	pts.append(Vector3(hero_start.x + 3.2, 3.6, hero_start.z + 0.4))
+	var mz := (hero_start.z + cage.z) * 0.5
+	pts.append(Vector3(hero_start.x + 13.5, 6.0, mz + 5.0))
+	pts.append(Vector3(hero_start.x + 15.5, 7.5, mz - 6.0))
+	pts.append(Vector3(cage.x + 8.0, gy + 8.0, cage.z - 4.0))
+	pts.append(Vector3(cage.x - 5.0, gy + 7.0, cage.z - 2.0))
+	var head: Node3D = null
+	var ps := load(HM + "phoenix_light.glb") as PackedScene
+	if ps:
+		head = ps.instantiate() as Node3D
+		var pm: Material
+		if mood == "astral":
+			pm = ShaderMaterial.new()
+			(pm as ShaderMaterial).shader = load(HS + "phoenix_light.gdshader")
+		else:
+			pm = _flat_mat(Color(1.0, 0.62, 0.10), 0.6)
+			(pm as StandardMaterial3D).cull_mode = BaseMaterial3D.CULL_DISABLED
+		for m in head.find_children("*", "MeshInstance3D", true, false):
+			(m as MeshInstance3D).material_override = pm
+			(m as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_spirit = Node3D.new()
+	_spirit.name = "Spirit"
+	_spirit.set_script(SPIRIT)
+	root.add_child(_spirit)
+	_spirit.setup(pts, head, mood == "astral")
 
 # ================================================================== 每一畫面：畫門的光、陸吾、金環
 
@@ -934,6 +1221,10 @@ func _process(dt: float) -> void:
 					head.rotation.x = lerpf(head.rotation.x, 0.0, 1.0 - exp(-dt * 6.0))
 		if tails:
 			tails.rotation.y = sin(now * (0.5 if _luwu_state == "sleep" else 1.6)) * 0.12
+	for w in _wheels:
+		w.spin = fmod(float(w.spin) + dt * float(w.speed) * (1.0 + 16.0 * clampf(_fin_t / 2.0, 0.0, 1.0) if _fin_on else 1.0), TAU)
+		_wheel_place(w)
+		(w.mat as ShaderMaterial).set_shader_parameter("lit", clampf(_fin_t / 1.5, 0.0, 1.0) if _fin_on else 0.0)
 	for k in _ring_nodes.size():
 		(_ring_nodes[k] as Node3D).rotation.z = now * (0.10 + 0.05 * k) * (1.0 if k % 2 == 0 else -1.0) * (4.0 if _fin_on else 1.0)
 	# 到終點：門的光慢慢亮起來
@@ -943,15 +1234,36 @@ func _process(dt: float) -> void:
 			(g.mat as ShaderMaterial).set_shader_parameter("emission_c", (g.base as Color) * (1.0 + 2.2 * k2))
 	if _fin_on:
 		_fin_t += dt
+		# 前 2.4 秒家豪在打碟：唱盤來回搓；之後唱盤自己轉起來，鳳凰金光升起、百鳥飛起，引路的靈光併進去
+		if _turntable_node:
+			if _fin_t < FIN_DJ:
+				_turntable_node.rotation.y = sin(_fin_t * 10.0) * 0.55
+			else:
+				_turntable_node.rotation.y += dt * 7.0
 		if _phoenix:
-			var s := 1.0 - pow(1.0 - clampf(_fin_t / 2.2, 0.0, 1.0), 3.0)
-			_phoenix.scale = Vector3.ONE * (0.2 + 2.6 * s)
-			_phoenix.position.y = 1.5 + 5.5 * s
+			_phoenix.visible = _fin_t >= FIN_DJ
+			var s := 1.0 - pow(1.0 - clampf((_fin_t - FIN_DJ) / 2.4, 0.0, 1.0), 3.0)
+			_phoenix.scale = Vector3.ONE * (0.2 + 2.0 * s)
+			_phoenix.position = Vector3(0, 1.5 + 4.2 * s, -1.6)
+		if _spirit:
+			_spirit.visible = _fin_t < FIN_DJ
+		if _flock:
+			_flock.emitting = _fin_t >= FIN_DJ - 0.2
 
 ## 全章收尾（規格第 5 節）：唱盤和圓門大亮、金環轉快、家豪身上展開一道鳳凰形狀的金光
+const FIN_DJ := 2.4
 func finale_show(on: bool) -> void:
 	_fin_on = on
 	_fin_t = 0.0
+	if _spirit:
+		_spirit.visible = true
+	if _turntable_node and not on:
+		_turntable_node.rotation.y = 0.0
+	if on and _flock == null and _cage_root:
+		_flock = _make_flock()
+	if _flock:
+		_flock.emitting = false
+		_flock.visible = on
 	if on and _phoenix == null and _cage_root:
 		_phoenix = _prop(_cage_root, HM + "phoenix_light.glb", Vector3(0, 1.5, 0.0), 0.0, 1.0)
 		if _phoenix:
@@ -961,6 +1273,41 @@ func finale_show(on: bool) -> void:
 				(m as MeshInstance3D).material_override = pm
 				(m as MeshInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	if _phoenix:
-		_phoenix.visible = on
+		_phoenix.visible = false
 	if _petals:
 		_petals.amount = int(_mood().get("petal_n", 80)) * (3 if on else 1)
+
+## 百鳥朝鳳：一圈小小的金色鳥影繞著唱盤往上飛
+func _make_flock() -> CPUParticles3D:
+	var ps := CPUParticles3D.new()
+	ps.name = "Flock"
+	ps.amount = 54
+	ps.lifetime = 5.0
+	ps.emission_shape = CPUParticles3D.EMISSION_SHAPE_RING
+	ps.emission_ring_axis = Vector3.UP
+	ps.emission_ring_radius = 9.0
+	ps.emission_ring_inner_radius = 3.5
+	ps.emission_ring_height = 1.0
+	ps.direction = Vector3(0, 1, 0)
+	ps.spread = 22.0
+	ps.initial_velocity_min = 2.2
+	ps.initial_velocity_max = 4.2
+	ps.gravity = Vector3(0, 0.4, 0)
+	ps.tangential_accel_min = 1.2
+	ps.tangential_accel_max = 2.6
+	ps.scale_amount_min = 0.16
+	ps.scale_amount_max = 0.34
+	var src := load(HM + "phoenix_light.glb") as PackedScene
+	if src:
+		var inst := src.instantiate()
+		for m in inst.find_children("*", "MeshInstance3D", true, false):
+			var mesh := ((m as MeshInstance3D).mesh as Mesh).duplicate() as Mesh
+			var pm := ShaderMaterial.new()
+			pm.shader = load(HS + "phoenix_light.gdshader")
+			mesh.surface_set_material(0, pm)
+			ps.mesh = mesh
+			break
+		inst.free()
+	ps.position = Vector3(0, 0.5, -1.0)
+	_cage_root.add_child(ps)
+	return ps

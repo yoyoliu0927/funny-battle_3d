@@ -386,33 +386,41 @@ def palette():
     }
 
 
-# ------------------------------------------------------------------ 畫門：朱紅的畫框（兩根柱子＋橫樑＋小屋頂），正面是畫，背面是一面牆
+# ------------------------------------------------------------------ 畫門：掛在木架上的一幅立軸（山海畫卷）。兩根柱子會擋路（±1.42）；正面是畫，背面是裱紙和一方朱印
 def build_picture_gate():
     clear()
     P = palette()
     painting = mat("painting", (0.9, 0.86, 0.74), 0.9)
+    silk = mat("silk_teal", (0.14, 0.40, 0.44), 0.7)
+    silk2 = mat("silk_gold", (0.90, 0.68, 0.24), 0.55)
+    dark = mat("wood_dark", (0.24, 0.13, 0.10), 0.7)
     for sx in (-1.42, 1.42):
-        box((0.26, 0.26, 3.3), (sx, 0, 1.65), P["red"], "Post", 0.03)
-        box((0.40, 0.40, 0.22), (sx, 0, 0.11), P["stone"], "PostBase", 0.03)
-        cyl(0.07, 0.10, (sx, -0.14, 2.75), P["gold"], "Stud", 10, rot=(math.radians(90), 0, 0))
-    box((3.5, 0.24, 0.26), (0, 0, 3.22), P["red_dark"], "Lintel", 0.03)
-    box((3.1, 0.20, 0.16), (0, 0, 0.08), P["red_dark"], "Sill", 0.03)
-    box((3.0, 0.16, 0.18), (0, 0, 2.98), P["gold"], "Trim", 0.02)
-    gable_roof(4.0, 1.25, 0.42, 0.22, 3.36, P["tile"], "Roof")
-    box((4.0, 0.12, 0.12), (0, 0, 3.80), P["tile_light"], "Ridge", 0.03)
-    for sx in (-2.0, 2.0):
-        ball(0.09, (sx, 0, 3.86), 1.0, P["gold"], "Finial", None, amp=0.0, sub=2)
-    # 畫（正面，Blender 的 -Y）和背面的牆
-    bpy.ops.mesh.primitive_plane_add(size=1, location=(0, -0.04, 1.56), rotation=(math.radians(90), 0, 0))
+        box((0.20, 0.20, 3.5), (sx, 0, 1.75), dark, "Post", 0.03)
+        box((0.46, 0.80, 0.18), (sx, 0, 0.09), P["stone"], "Foot", 0.04)
+        ball(0.13, (sx, 0, 3.58), 1.0, P["gold"], "Knob", None, amp=0.0, sub=2)
+    path = [Vector((-2.05, 0, 3.52)), Vector((-1.6, 0, 3.30)), Vector((0, 0, 3.25)), Vector((1.6, 0, 3.30)), Vector((2.05, 0, 3.52))]
+    setmat(tube(path, [0.05, 0.08, 0.09, 0.08, 0.05], 8, "Bar"), dark, True)
+    for sx in (-0.9, 0.9):
+        cyl(0.016, 0.22, (sx, 0, 3.13), P["gold"], "Cord", 6)
+    # 立軸：天杆、綾邊（青綠）、上下兩條金色的錦眉、畫心、地杆（兩頭金色的軸頭）
+    cyl(0.055, 2.66, (0, 0, 3.02), dark, "TopRod", 10, rot=(0, math.radians(90), 0))
+    box((2.60, 0.05, 2.86), (0, 0, 1.59), silk, "Mount", 0.008)
+    box((2.60, 0.06, 0.15), (0, 0, 2.86), silk2, "BandTop", 0.004)
+    box((2.60, 0.06, 0.11), (0, 0, 0.36), silk2, "BandBot", 0.004)
+    bpy.ops.mesh.primitive_plane_add(size=1, location=(0, -0.034, 1.60), rotation=(math.radians(90), 0, 0))
     pl = bpy.context.object
-    pl.scale = (2.58, 2.78, 1)
+    pl.scale = (2.26, 2.24, 1)
     apply_scale(pl)
     pl.name = "Painting"
     setmat(pl, painting, False)
-    box((2.62, 0.10, 2.82), (0, 0.04, 1.56), P["plaster"], "Back", 0.01)
-    box((2.62, 0.04, 0.10), (0, 0.10, 1.0), P["red_dark"], "BackBar1", 0.01)
-    box((2.62, 0.04, 0.10), (0, 0.10, 2.1), P["red_dark"], "BackBar2", 0.01)
-    box((0.10, 0.04, 2.82), (0, 0.10, 1.56), P["red_dark"], "BackBar3", 0.01)
+    cyl(0.09, 2.50, (0, 0, 0.14), dark, "BotRod", 12, rot=(0, math.radians(90), 0))
+    for sx in (-1.27, 1.27):
+        cyl(0.115, 0.10, (sx, 0, 0.14), P["gold"], "RodCap", 12, rot=(0, math.radians(90), 0))
+    # 背面：裱紙＋一方朱印＋兩條驚燕（垂下來的細帶）
+    box((2.40, 0.02, 2.40), (0, 0.035, 1.60), P["paper"], "BackPaper", 0.004)
+    box((0.46, 0.02, 0.46), (0.78, 0.05, 0.78), P["red"], "Seal", 0.01)
+    for sx in (-0.5, 0.5):
+        box((0.10, 0.02, 0.9), (sx, -0.04, 2.56), P["paper"], "Swallow", 0.004)
     export("picture_gate")
 
 
@@ -951,15 +959,140 @@ def build_disc_and_rings():
     export("phoenix_light")
 
 
-build_picture_gate()
-build_sky_gate()
-build_censer()
-build_pillar()
-build_piles_and_rims()
-build_luwu()
-build_trees()
-build_pavilion()
-build_corridor()
-build_house_tower()
-build_small()
-build_disc_and_rings()
+# ------------------------------------------------------------------ 第二批（山海畫卷）：紅梅、攤子、幌子、小燈籠、星碑、紋章盤
+def build_plum():
+    rnd = random.Random(77)
+    for variant in ("a", "b"):
+        clear()
+        bark = mat("bark_ink", (0.16, 0.12, 0.12), 0.9)
+        red = mat("plum_red", (0.88, 0.10, 0.18), 0.85)
+        red2 = mat("plum_pink", (0.99, 0.36, 0.42), 0.85)
+        snow = mat("snow_cap", (0.96, 0.98, 1.0), 0.9)
+        lean = 0.4 if variant == "a" else -0.32
+        path = [Vector((0, 0, 0)), Vector((lean * 0.5, 0.05, 0.7)), Vector((-lean * 0.35, -0.05, 1.35)), Vector((lean * 0.5, 0.05, 1.95)), Vector((lean * 0.2, 0, 2.5))]
+        setmat(tube(path, [0.18, 0.15, 0.11, 0.07, 0.03], 8, "Trunk"), bark, True)
+        nb = 7 if variant == "a" else 6
+        for i in range(nb):
+            a = i * math.tau / nb + rnd.uniform(-0.3, 0.3)
+            base = path[1 + i % 3]
+            d = Vector((math.cos(a), math.sin(a), 0))
+            p1 = base + d * rnd.uniform(0.5, 0.8) + Vector((0, 0, rnd.uniform(0.2, 0.45)))
+            a2 = a + rnd.choice((-1, 1)) * rnd.uniform(0.5, 0.9)
+            p2 = p1 + Vector((math.cos(a2), math.sin(a2), 0)) * rnd.uniform(0.45, 0.75) + Vector((0, 0, rnd.uniform(0.1, 0.4)))
+            p3 = p2 + d * rnd.uniform(0.25, 0.45) + Vector((0, 0, rnd.uniform(0.15, 0.3)))
+            setmat(tube([base, p1, p2, p3], [0.06, 0.045, 0.03, 0.012], 5, "Branch%d" % i), bark, True)
+            # 花：沿著枝一朵一朵（小球），枝頭多幾朵
+            for seg, (q0, q1) in enumerate(((p1, p2), (p2, p3), (base, p1))):
+                for k in range(4 if seg < 2 else 2):
+                    t = rnd.uniform(0.2, 1.0)
+                    q = q0.lerp(q1, t) + Vector((rnd.uniform(-0.1, 0.1), rnd.uniform(-0.1, 0.1), rnd.uniform(0.0, 0.12)))
+                    ball(rnd.uniform(0.09, 0.15), tuple(q), 0.8, red if rnd.random() < 0.65 else red2, "Bloom", None, amp=0.0, sub=1)
+            # 枝上的積雪
+            mid = p1.lerp(p2, 0.5) + Vector((0, 0, 0.07))
+            sn = ball(0.2, tuple(mid), 0.38, snow, "Snow%d" % i, None, amp=0.0, sub=2)
+            sn.scale = (1.5, 1.0, 1.0)
+            sn.rotation_euler = (0, 0, a2)
+        export("plum_" + variant)
+
+
+def build_stall():
+    clear()
+    P = palette()
+    cloth_r = mat("awning_red", (0.82, 0.17, 0.12), 0.8)
+    cloth_w = mat("awning_cream", (0.98, 0.93, 0.78), 0.8)
+    bamboo = mat("bamboo", (0.86, 0.70, 0.40), 0.8)
+    bun = mat("bun", (0.99, 0.97, 0.90), 0.9)
+    box((2.3, 1.0, 0.10), (0, 0, 0.90), P["wood"], "Top", 0.03)
+    for sx in (-1.05, 1.05):
+        for sy in (-0.42, 0.42):
+            box((0.10, 0.10, 2.35 if sy > 0 else 2.0), (sx, sy, 1.175 if sy > 0 else 1.0), P["wood"], "Post", 0.02)
+    box((2.3, 0.05, 0.55), (0, -0.50, 0.58), cloth_r, "Skirt", 0.01)
+    box((2.3, 0.055, 0.10), (0, -0.50, 0.36), cloth_w, "SkirtHem", 0.005)
+    # 條紋的遮陽棚（前低後高）
+    for k in range(7):
+        x = -1.2 + (k + 0.5) * 2.4 / 7
+        box((2.4 / 7, 1.55, 0.05), (x, -0.12, 2.24), cloth_r if k % 2 == 0 else cloth_w, "Awning%d" % k, 0.008, rot=(math.radians(15), 0, 0))
+        box((2.4 / 7, 0.04, 0.20), (x, -0.87, 1.96), cloth_r if k % 2 == 0 else cloth_w, "Flap%d" % k, 0.008)
+    # 貨：兩疊蒸籠、一盤包子、一把茶壺
+    for sx, n in ((-0.65, 3), (-0.05, 2)):
+        for k in range(n):
+            cyl(0.27, 0.13, (sx, 0.05, 1.02 + k * 0.14), bamboo, "Steamer", 16)
+        cyl(0.28, 0.05, (sx, 0.05, 1.0 + n * 0.14), P["wood"], "Lid", 16, r2=0.12)
+    cyl(0.30, 0.03, (0.62, -0.05, 0.965), P["plaster"], "Plate", 16)
+    for k in range(6):
+        a = k * math.tau / 5
+        rr = 0.17 if k < 5 else 0.0
+        ball(0.095, (0.62 + math.cos(a) * rr, -0.05 + math.sin(a) * rr, 1.04 if k < 5 else 1.13), 0.8, bun, "Bun", None, amp=0.0, sub=2)
+    ball(0.15, (0.2, -0.3, 1.07), 0.85, P["bronze"], "Pot", None, amp=0.0, sub=2)
+    cyl(0.015, 0.5, (1.08, -0.72, 1.72), P["gold"], "Cord", 6)
+    ball(0.17, (1.08, -0.72, 1.40), 1.15, P["glow"], "Lantern", None, amp=0.0, sub=2)
+    export("stall")
+    # 幌子：一根竿子、橫出去一根桿，掛一塊布（字由 Godot 貼）；布的中心在 x=0.55、z=2.05
+    clear()
+    P = palette()
+    cloth_r = mat("awning_red", (0.82, 0.17, 0.12), 0.8)
+    box((0.36, 0.36, 0.16), (0, 0, 0.08), P["stone"], "Base", 0.03)
+    cyl(0.05, 3.3, (0, 0, 1.65), P["wood"], "Pole", 8)
+    cyl(0.03, 0.95, (0.45, 0, 3.0), P["wood"], "Arm", 6, rot=(0, math.radians(90), 0))
+    ball(0.08, (0, 0, 3.34), 1.0, P["gold"], "Knob", None, amp=0.0, sub=2)
+    box((0.74, 0.03, 1.86), (0.55, 0, 2.05), P["paper"], "Cloth", 0.006)
+    box((0.80, 0.035, 0.14), (0.55, 0, 2.93), cloth_r, "ClothTop", 0.006)
+    for k in range(3):
+        box((0.20, 0.03, 0.26), (0.55 - 0.26 + k * 0.26, 0, 1.02), cloth_r, "Tail%d" % k, 0.006)
+    export("banner")
+    # 小燈籠（掛在一串上的）：原點在頂端
+    clear()
+    P = palette()
+    cyl(0.008, 0.16, (0, 0, -0.08), P["gold"], "Cord", 5)
+    ball(0.2, (0, 0, -0.36), 1.1, P["glow"], "Lantern", None, amp=0.0, sub=2)
+    cyl(0.10, 0.05, (0, 0, -0.15), P["gold"], "CapTop", 8)
+    cyl(0.10, 0.05, (0, 0, -0.57), P["gold"], "CapBot", 8)
+    cyl(0.02, 0.22, (0, 0, -0.70), P["red"], "Tassel", 5, r2=0.045)
+    export("mini_lantern")
+
+
+def build_astral():
+    # 星碑：一塊立著的深色琉璃板，金框，兩面刻滿發光的金字
+    clear()
+    P = palette()
+    glass = mat("star_glass", (0.08, 0.10, 0.24), 0.25)
+    box((1.9, 0.9, 0.22), (0, 0, 0.11), P["stone_dark"], "Plinth", 0.04)
+    box((1.6, 0.6, 0.16), (0, 0, 0.30), P["gold"], "Plinth2", 0.03)
+    box((1.36, 0.14, 3.3), (0, 0, 2.03), glass, "Slab", 0.02)
+    for sx in (-0.70, 0.70):
+        box((0.07, 0.18, 3.36), (sx, 0, 2.03), P["glow_gold"], "Frame", 0.01)
+    for z in (0.38, 3.70):
+        box((1.47, 0.18, 0.07), (0, 0, z), P["glow_gold"], "Frame", 0.01)
+    rnd = random.Random(21)
+    for side in (-1, 1):
+        for col in range(6):
+            x = -0.5 + col * 0.2
+            z = 3.5
+            while z > 0.62:
+                ln = rnd.choice((0.07, 0.10, 0.14, 0.14))
+                if rnd.random() < 0.9:
+                    box((0.085, 0.02, ln), (x, side * 0.078, z - ln / 2), P["glow_gold"], "Glyph", 0.004)
+                z -= ln + 0.05
+    export("star_stele")
+    # 紋章盤：平放的一塊圓牌（半徑 1），深色的底、金色的邊；中間的字或紋由 Godot 貼
+    clear()
+    P = palette()
+    base = mat("medal_base", (0.10, 0.10, 0.22), 0.35)
+    cyl(1.0, 0.06, (0, 0, 0.03), base, "Disc", 40)
+    torus(0.96, 0.045, (0, 0, 0.06), P["glow_gold"], "Rim", seg=48, minor=6)
+    torus(0.80, 0.015, (0, 0, 0.065), P["glow_gold"], "RimIn", seg=48, minor=4)
+    for k in range(8):
+        a = k * math.tau / 8
+        ball(0.035, (math.cos(a) * 0.88, math.sin(a) * 0.88, 0.07), 1.0, P["glow_gold"], "Dot%d" % k, None, amp=0.0, sub=1)
+    export("medallion")
+
+
+BUILDERS = [("picture_gate", build_picture_gate), ("sky_gate", build_sky_gate), ("censer", build_censer), ("pillar", build_pillar),
+            ("piles", build_piles_and_rims), ("luwu", build_luwu), ("trees", build_trees), ("pavilion", build_pavilion),
+            ("corridor", build_corridor), ("house", build_house_tower), ("small", build_small), ("disc", build_disc_and_rings),
+            ("plum", build_plum), ("stall", build_stall), ("astral", build_astral)]
+# 後面可以接要重做的名字（不接＝全部重做）：... -- <輸出資料夾> plum stall
+want = argv[1:]
+for name, fn in BUILDERS:
+    if not want or name in want:
+        fn()

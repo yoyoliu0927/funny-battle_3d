@@ -37,6 +37,8 @@ func _ice_configure() -> void:
 	camera_fov = 45.0
 	mood = "ink"
 	isle = {"seed": 2.7}
+	# 雪梅化青山：家豪從冰雪島走過來，南邊還積著雪、開著紅梅；越往北雪越融，露出青綠的山水
+	snow_line = 4.5
 	clear_paths = [[Vector3(-22.0, 0, -4.0), Vector3(-2.0, 0, -4.0), Vector3(5.0, 0, -4.0)],
 		[Vector3(-16.0, 0, -10.3), Vector3(-9.0, 0, -8.0), Vector3(-3.0, 0, -6.0), Vector3(5.0, 0, -3.3)],
 		[Vector3(-3.0, 0, -6.0), Vector3(-1.0, 0, -3.0), Vector3(4.7, 0, 5.5), Vector3(5.6, 0, 6.8)],
@@ -60,11 +62,21 @@ func _ice_configure() -> void:
 		{"type": "pavilion", "pos": Vector3(-15.5, 0, -15.5), "yaw": 0.8, "scale": 1.0},
 		{"type": "pine", "pos": Vector3(-18.5, 0, -9.5), "yaw": 0.4, "scale": 1.5},
 		{"type": "pine", "pos": Vector3(-12.0, 0, -19.0), "yaw": 2.0, "scale": 1.7},
-		{"type": "blossom", "pos": Vector3(-13.4, 0, 4.6), "yaw": 0.3, "scale": 1.2},
-		{"type": "pine", "pos": Vector3(-16.5, 0, 2.0), "yaw": 5.0, "scale": 1.3},
+		{"type": "plum", "pos": Vector3(-13.4, 0, 4.6), "yaw": 0.3, "scale": 1.5},
+		{"type": "pine", "pos": Vector3(-16.5, 0, 0.5), "yaw": 5.0, "scale": 1.3},
+		# 南邊雪地上的紅梅（離黃線遠一點、矮一點，不擋家豪）
+		{"type": "plum", "pos": Vector3(-7.2, 0, 9.4), "yaw": 1.2, "scale": 1.15},
+		{"type": "plum", "pos": Vector3(7.6, 0, 9.0), "yaw": 4.1, "scale": 1.2},
+		{"type": "plum", "pos": Vector3(-11.5, 0, 12.5), "yaw": 2.6, "scale": 1.5},
+		{"type": "plum", "pos": Vector3(12.0, 0, 13.0), "yaw": 0.6, "scale": 1.5},
+		{"type": "plum", "pos": Vector3(-18.0, 0, 9.0), "yaw": 3.3, "scale": 1.7},
+		{"type": "plum", "pos": Vector3(17.0, 0, 9.5), "yaw": 5.2, "scale": 1.6},
+		{"type": "plum", "pos": Vector3(-5.6, 0, 15.5), "yaw": 0.2, "scale": 0.9},
+		{"type": "plum", "pos": Vector3(5.8, 0, 16.0), "yaw": 2.2, "scale": 0.9},
+		{"type": "rock", "pos": Vector3(-9.4, 0, 7.6), "yaw": 1.0, "scale": 0.8},
 		# 東岸：山石和斜出去的松，花樹在水邊
 		{"type": "rock", "pos": Vector3(12.6, 0, -10.6), "yaw": 0.8, "scale": 1.6},
-		{"type": "pine", "pos": Vector3(13.4, 0, 3.5), "yaw": 3.5, "scale": 1.4},
+		{"type": "plum", "pos": Vector3(13.4, 0, 4.4), "yaw": 3.5, "scale": 1.4},
 		{"type": "blossom", "pos": Vector3(14.2, 0, -0.6), "yaw": 1.9, "scale": 1.0},
 		{"type": "blossom", "pos": Vector3(22.4, 0, 4.4), "yaw": 4.2, "scale": 1.3},
 		# 平台四個凹進去的角：石頭、宮燈
