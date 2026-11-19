@@ -311,6 +311,8 @@ func _make_round_chicken(hoodie := HERO_HOODIE) -> Node3D:
 		_w_mark(body, Vector3(0, 0.3, 0.36), 0.055, white)
 		_part(body, _sphere(0.016, 8), red, Vector3(0.05, 0.24, 0.35))
 	if is_hero:
+		if Wardrobe.eye_style() == "drawn":
+			Wardrobe.draw_eyes(root, "round", hoodie)
 		Wardrobe.dress(root, "round", look)
 
 	_standin_parts.append({"body": body, "head": head, "kind": "bird"})
@@ -398,6 +400,7 @@ func _make_standin_rooster(hoodie := HERO_HOODIE) -> Node3D:
 	eye_mesh.rings = 6
 	for sx in [-1.0, 1.0]:
 		var eye := Node3D.new()
+		eye.name = "EyeL" if sx < 0.0 else "EyeR"      # 換眼睛（商店、冰雪島）靠這個名字找
 		eye.position = Vector3(0.066 * sx, 0.035, 0.092)
 		eye.rotation = Vector3(0, 0.35 * sx, 0)
 		head.add_child(eye)
@@ -406,6 +409,8 @@ func _make_standin_rooster(hoodie := HERO_HOODIE) -> Node3D:
 	if hoodie:
 		_dress_hoodie(upper, head, body, Wardrobe.hood_up(look) if is_hero else true)
 	if is_hero:
+		if Wardrobe.eye_style() == "drawn":
+			Wardrobe.draw_eyes(root, "rooster")
 		Wardrobe.dress(root, "rooster", look)
 
 	_standin_parts.append({"body": body, "head": head, "kind": "bird"})

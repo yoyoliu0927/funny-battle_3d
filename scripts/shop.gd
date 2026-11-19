@@ -21,17 +21,19 @@ const GREEN := Color("5cb85c")
 const RED := Color("e2483d")
 
 const COLS := 3                        # 卡片一排幾張
-const CARD := Vector2(190, 186)        # 一張卡片多大
+const CARD := Vector2(190, 176)        # 一張卡片多大
 const PANEL_W := 656.0                 # 右邊那塊面板佔多寬（含邊距）
 ## 每件服裝的縮圖從哪個角度拍
-const THUMB_VIEW := {"tag": "chest", "mask": "head", "slippers": "full", "bag": "headwide", "allnighter": "full", "silver": "head",
-	"delivery": "back", "azhi": "back", "cleanroom": "full", "colonel": "tall", "leather": "full", "gown": "tall"}
+const THUMB_VIEW := {"tag": "bust", "mask": "head", "slippers": "full", "bag": "headwide", "allnighter": "full", "silver": "head",
+	"delivery": "back34", "azhi": "full", "cleanroom": "full", "colonel": "tall", "leather": "full", "gown": "tall"}
 ## 角度：[鏡頭看哪裡, 距離, 左右轉幾度（弧度）, 往上抬幾度]
 const VIEWS := {
 	"full": [Vector3(0, 0.74, 0.05), 3.05, 0.5, 0.14],
 	"tall": [Vector3(0, 0.9, 0.05), 3.7, 0.5, 0.12],
 	"head": [Vector3(0, 1.17, 0.18), 1.95, 0.45, 0.1],
 	"headwide": [Vector3(0, 1.25, 0.12), 2.3, 0.45, 0.1],
+	"bust": [Vector3(-0.03, 0.98, 0.2), 2.35, 0.2, 0.1],
+	"back34": [Vector3(0, 0.76, -0.12), 3.1, PI - 1.0, 0.16],
 	"back": [Vector3(0, 0.74, -0.2), 3.0, PI - 0.45, 0.16],
 	"chest": [Vector3(-0.1, 0.86, 0.3), 1.5, -0.3, 0.08],
 }
@@ -39,6 +41,8 @@ const VIEWS := {
 var sel := 0
 var _thumbs := {}            # 服裝 id -> 拍縮圖的小畫面（SubViewport）
 var _name: Label
+var _state: Label            # 說明卡上的小標籤：試穿中／穿著中
+var _swap: Label             # 說明卡上的提醒：穿上會換掉哪一件
 var _slots: Label
 var _cam: Camera3D
 var _stand: Node3D           # 試衣台上會轉的那一層
@@ -59,6 +63,12 @@ var _toast: Label
 var _toast_t := 0.0
 var _snd := {}
 var _leaving := false
+var _burst: CPUParticles3D   # 買到時噴的星星
+var _say := ""               # 鴨老闆臨時說的話（買到、買不起）；換一件就收掉
+var _enter_key: Control      # 主按鈕旁邊的 Enter 鍵帽（不能按的時候變淡）
+var _combo: Label            # 「隱藏組合 2／6」
+var _try: Label              # 試衣台上方的大標籤：試穿中／穿著中
+var _eye_btns: Array = []    # 眼睛的三顆選項 {id, label}
 
 func _ready() -> void:
 	_build_stage()
@@ -69,6 +79,8 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--shopshots="):
 			_shots.call_deferred(a.substr(12))
+		if a.begins_with("--shopboard="):
+			_board.call_deferred(a.substr(12))
 
 func _exit_tree() -> void:
 	Wardrobe.preview = {}
@@ -164,7 +176,7 @@ func _build_stage() -> void:
 	_cam = Camera3D.new()
 	_cam.fov = 38.0
 	add_child(_cam)
-	_cam.look_at_from_position(Vector3(2.2, 1.9, 7.0), Vector3(2.2, 0.95, 0.0))
+	_cam.look_at_from_position(Vector3(1.6, 1.95, 7.2), Vector3(1.6, 1.0, 0.0))
 
 	# 地面：一塊草地
 	var ground := MeshInstance3D.new()
@@ -179,13 +191,13 @@ func _build_stage() -> void:
 	ground.position.y = -0.1
 	add_child(ground)
 	# 後面的店面和擺設（共用的農場素材）
-	_spawn_fit("res://assets/farm/OpenBarn.glb", Vector3(-0.4, 0, -7.5), 9.0, 0.0)
+	_spawn_fit("res://assets/farm/OpenBarn.glb", Vector3(-0.4, 0, -8.6), 11.5, 0.0)
 	_spawn_fit("res://assets/farm/Hay.glb", Vector3(-4.4, 0, -2.4), 1.5, 0.4)
-	_spawn_fit("res://assets/farm/Hay.glb", Vector3(3.4, 0, -2.8), 1.5, -0.3)
 	_spawn_fit("res://assets/nature/BirchTree.glb", Vector3(-6.2, 0, -4.4), 6.0, 0.8)
 	_spawn_fit("res://assets/nature/AutumnTree.glb", Vector3(6.0, 0, -5.0), 6.0, 2.0)
 
-	# 試衣台：木頭圓台，上面一圈亮色
+	var W0 := Wardrobe
+	# 試衣台：木頭圓台，上面一圈亮色、金色的邊
 	var wood := Color(0.62, 0.42, 0.26)
 	_mesh(self, _cyl(1.25, 0.22), wood.darkened(0.25), Vector3(0, 0.11, 0))
 	_stand = Node3D.new()
@@ -200,7 +212,12 @@ func _build_stage() -> void:
 	_mini.rotation.y = -0.3
 	add_child(_mini)
 
+	W0._p(_stand, W0._torus(1.06, 1.14), Color(0.96, 0.78, 0.2), Vector3(0, 0.06, 0), Vector3(1, 0.5, 1)).material_override = W0._gloss(Color(0.96, 0.78, 0.2), 0.35, 0.8)
+	for k in 10:
+		W0._p(_stand, W0._sphere(0.035, 8), Color(1.0, 0.95, 0.75), Vector3(cos(k * TAU / 10.0), 0.075, sin(k * TAU / 10.0)) * Vector3(0.95, 1, 0.95))
 	_build_duck()
+	_build_decor()
+	_build_burst()
 	_rebuild_hero()
 
 ## 鴨子老闆：共用的圓滾滾雞模型改成黃色、扁嘴，站在鹹酥雞攤後面
@@ -214,7 +231,12 @@ func _build_duck() -> void:
 	_duck.add_child(chars)
 	var d: Node3D = chars._make_round_chicken(false)
 	chars.add_child(d)
-	chars.scale = Vector3.ONE * 1.55
+	chars.scale = Vector3.ONE * 1.42
+	for mi in d.find_children("*", "MeshInstance3D", true, false):
+		var sph := (mi as MeshInstance3D).mesh as SphereMesh
+		if sph:
+			sph.radial_segments = 36
+			sph.rings = 18
 	for mi in d.find_children("*", "MeshInstance3D", true, false):
 		var m := (mi as MeshInstance3D).material_override as ShaderMaterial
 		if m == null:
@@ -236,22 +258,147 @@ func _build_duck() -> void:
 		puff.radius = 0.23
 		puff.height = 0.3
 		_mesh(head, puff, Color(0.98, 0.98, 0.96), Vector3(0, 0.5, 0))
-	# 攤子：桌子、紅布條、一袋一袋的鹹酥雞
+	# 攤子：木頭櫃檯、紅布條、油鍋、一盤炸好的、兩袋插著竹籤的鹹酥雞，旁邊立一塊菜單
+	var W := Wardrobe
 	var cart := Node3D.new()
 	cart.position = Vector3(0, 0, 1.0)
 	_duck.add_child(cart)
-	_mesh(cart, _box(Vector3(2.0, 0.85, 0.8)), Color(0.72, 0.5, 0.3), Vector3(0, 0.425, 0))
-	_mesh(cart, _box(Vector3(2.1, 0.3, 0.84)), Color(0.86, 0.2, 0.16), Vector3(0, 0.62, 0))
-	for k in 3:
-		_mesh(cart, _box(Vector3(0.24, 0.3, 0.2)), Color(0.80, 0.63, 0.42), Vector3(-0.6 + k * 0.6, 1.0, 0.0), Vector3(0, 0.2 * (k - 1), 0.06 * (k - 1)))
+	var wood := Color(0.72, 0.5, 0.3)
+	W._p(cart, W._rbox(Vector3(2.0, 0.85, 0.8), 0.04), wood, Vector3(0, 0.425, 0))
+	W._p(cart, W._rbox(Vector3(2.12, 0.07, 0.9), 0.03), wood.darkened(0.25), Vector3(0, 0.87, 0))
+	for k in 5:
+		W._p(cart, W._rbox(Vector3(0.03, 0.5, 0.02), 0.008), wood.darkened(0.18), Vector3(-0.8 + k * 0.4, 0.3, 0.405))
+	W._p(cart, W._rbox(Vector3(2.06, 0.3, 0.03), 0.012), Color(0.86, 0.2, 0.16), Vector3(0, 0.66, 0.41))
+	for k in 9:      # 布條下緣的波浪邊
+		W._p(cart, W._sphere(0.115, 14), Color(0.86, 0.2, 0.16) if k % 2 == 0 else Color(0.98, 0.95, 0.88), Vector3(-0.92 + k * 0.23, 0.51, 0.41), Vector3(1, 1, 0.14))
 	var sign := Label3D.new()
 	sign.text = "鹹酥雞"
 	sign.font = UIStyle.font()
 	sign.font_size = 96
-	sign.pixel_size = 0.0028
+	sign.pixel_size = 0.0027
 	sign.modulate = Color(1, 0.95, 0.75)
-	sign.position = Vector3(0, 0.62, 0.43)
+	sign.outline_size = 14
+	sign.outline_modulate = Color(0.45, 0.08, 0.06)
+	sign.position = Vector3(0, 0.67, 0.43)
 	cart.add_child(sign)
+	# 油鍋：鍋子、金黃色的油、撈網
+	var steel := W._gloss(Color(0.75, 0.77, 0.8), 0.35, 0.85)
+	var pot := Node3D.new()
+	pot.position = Vector3(0.62, 0.905, 0.02)
+	cart.add_child(pot)
+	W._p(pot, W._cyl(0.26, 0.22, 0.2, 32), Color(0.7, 0.72, 0.75), Vector3(0, 0.1, 0)).material_override = steel
+	W._p(pot, W._torus(0.245, 0.275), Color(0.7, 0.72, 0.75), Vector3(0, 0.2, 0)).material_override = steel
+	W._p(pot, W._cyl(0.245, 0.245, 0.01, 32), Color(0.98, 0.78, 0.25), Vector3(0, 0.185, 0))
+	for k in 6:
+		W._p(pot, W._sphere(0.045, 10), Color(0.80, 0.52, 0.2), Vector3(cos(k * 1.1) * 0.12, 0.19, sin(k * 1.1) * 0.12), Vector3(1.2, 0.6, 1))
+	W._path(pot, [Vector3(0.2, 0.2, 0.1), Vector3(0.42, 0.32, 0.22), Vector3(0.52, 0.34, 0.26)], 0.014, Color(0.3, 0.2, 0.14))
+	W._p(pot, W._torus(0.07, 0.085), Color(0.7, 0.72, 0.75), Vector3(0.13, 0.215, 0.06), Vector3(1, 0.6, 1)).material_override = steel
+	# 一盤炸好的
+	W._p(cart, W._rbox(Vector3(0.52, 0.04, 0.36), 0.015), Color(0.82, 0.84, 0.86), Vector3(-0.1, 0.925, 0.08)).material_override = steel
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	for k in 16:
+		var nug := Color(0.80, 0.53, 0.2).darkened(rng.randf() * 0.2)
+		W._p(cart, W._sphere(0.05, 10), nug, Vector3(-0.1 + rng.randf_range(-0.19, 0.19), 0.965 + (0.04 if k > 10 else 0.0), 0.08 + rng.randf_range(-0.12, 0.12)), Vector3(rng.randf_range(0.9, 1.3), 0.75, rng.randf_range(0.9, 1.2)), Vector3(0, rng.randf() * 3.0, 0))
+	# 兩袋包好的
+	for k in 2:
+		var bagn := Node3D.new()
+		bagn.position = Vector3(-0.78 + k * 0.3, 0.905, 0.1 - k * 0.12)
+		bagn.rotation.y = 0.3 - k * 0.5
+		cart.add_child(bagn)
+		W._p(bagn, W._rbox(Vector3(0.2, 0.28, 0.14), 0.012), Color(0.80, 0.63, 0.42), Vector3(0, 0.14, 0))
+		W._p(bagn, W._rbox(Vector3(0.205, 0.03, 0.145), 0.008), Color(0.66, 0.5, 0.32), Vector3(0, 0.275, 0))
+		W._p(bagn, W._cyl(0.004, 0.006, 0.2, 6), Color(0.9, 0.8, 0.55), Vector3(0.03, 0.34, 0), Vector3.ONE, Vector3(0, 0, -0.3))
+		W._p(bagn, W._sphere(0.03, 10), Color(0.78, 0.5, 0.2), Vector3(0.06, 0.42, 0), Vector3(1, 0.85, 1))
+		var bl := W._label(bagn, "鹹酥雞", Vector3(0, 0.15, 0.072), 0.0009, Color(0.82, 0.13, 0.1), 56)
+		bl.rotation.z = 0.04
+
+## 後面的佈置：掛著衣服的衣架、一串小燈泡
+func _build_decor() -> void:
+	var W := Wardrobe
+	var metal := W._gloss(Color(0.78, 0.78, 0.8), 0.35, 0.8)
+	var rack := Node3D.new()
+	rack.position = Vector3(2.55, 0, -2.3)
+	rack.rotation.y = -0.18
+	add_child(rack)
+	for sx in [-1.0, 1.0]:
+		W._p(rack, W._cyl(0.035, 0.035, 2.0, 12), Color(0.78, 0.78, 0.8), Vector3(1.05 * sx, 1.0, 0)).material_override = metal
+		W._p(rack, W._rbox(Vector3(0.12, 0.05, 0.7), 0.02), Color(0.3, 0.3, 0.32), Vector3(1.05 * sx, 0.03, 0))
+	W._stroke(rack, Vector3(-1.05, 1.98, 0), Vector3(1.05, 1.98, 0), 0.03, Color(0.78, 0.78, 0.8), metal)
+	var cols := [Color(0.09, 0.09, 0.1), Color(0.15, 0.21, 0.42), Color(1.0, 0.97, 0.87), Color(0.80, 0.90, 0.98), Color(0.93, 0.91, 0.85), Color(0.97, 0.5, 0.1)]
+	for k in cols.size():
+		var g := Node3D.new()
+		g.position = Vector3(-0.85 + k * 0.34, 1.98, 0)
+		g.rotation.y = PI * 0.5 + 0.25 * sin(k * 2.1)
+		rack.add_child(g)
+		W._p(g, W._torus(0.03, 0.042), Color(0.78, 0.78, 0.8), Vector3(0, -0.03, 0), Vector3.ONE, Vector3(PI * 0.5, 0, 0)).material_override = metal
+		W._path(g, [Vector3(-0.2, -0.17, 0), Vector3(0, -0.07, 0), Vector3(0.2, -0.17, 0)], 0.012, Color(0.55, 0.4, 0.28))
+		W._p(g, W._rbox(Vector3(0.4, 0.56, 0.1), 0.045), cols[k], Vector3(0, -0.46, 0))
+		for sx in [-1.0, 1.0]:
+			W._p(g, W._rbox(Vector3(0.11, 0.32, 0.09), 0.04), (cols[k] as Color).darkened(0.07), Vector3(0.235 * sx, -0.36, 0), Vector3.ONE, Vector3(0, 0, 0.3 * sx))
+		W._p(g, W._torus(0.05, 0.075), (cols[k] as Color).darkened(0.2), Vector3(0, -0.19, 0), Vector3(1, 0.5, 0.7))
+	# 吊在衣架上方的菜單黑板
+	var wood := Color(0.72, 0.5, 0.3)
+	var board := Node3D.new()
+	board.position = Vector3(2.2, 2.2, -2.9)
+	board.rotation = Vector3(0.05, -0.2, 0.03)
+	board.scale = Vector3.ONE * 1.25
+	add_child(board)
+	for sx in [-1.0, 1.0]:
+		W._stroke(board, Vector3(0.3 * sx, 1.08, 0), Vector3(0.3 * sx, 2.4, 0), 0.012, Color(0.3, 0.22, 0.16))
+	W._p(board, W._rbox(Vector3(0.82, 1.0, 0.06), 0.02), wood.darkened(0.3), Vector3(0, 0.6, 0))
+	W._p(board, W._rbox(Vector3(0.72, 0.88, 0.02), 0.01), Color(0.13, 0.2, 0.18), Vector3(0, 0.6, 0.03))
+	var lines := [["今日菜單", 70, Color(1, 0.93, 0.6), 0.93], ["鹹酥雞　★1", 52, Color(0.95, 0.97, 0.95), 0.74],
+		["甜不辣　★1", 52, Color(0.95, 0.97, 0.95), 0.58], ["九層塔　免費", 52, Color(0.7, 0.95, 0.75), 0.42], ["家豪　非賣品", 52, Color(1.0, 0.6, 0.55), 0.26]]
+	for ln in lines:
+		var ml := W._label(board, String(ln[0]), Vector3(0, float(ln[3]), 0.045), 0.0019, ln[2], int(ln[1]))
+		ml.rotation.z = 0.015 * (1.0 if int(ln[1]) > 60 else -1.0)
+	# 一串小燈泡，掛在店面前面
+	var wire := []
+	var bulbs := [Color(1.0, 0.85, 0.4), Color(1.0, 0.45, 0.4), Color(0.5, 0.9, 0.8), Color(1.0, 0.97, 0.9)]
+	for k in 21:
+		var t := k / 20.0
+		wire.append(Vector3(-6.0 + t * 12.0, 3.7 - sin(t * PI) * 0.55, -3.6))
+	W._path(self, wire, 0.012, Color(0.2, 0.16, 0.14))
+	for k in range(1, 20):
+		var bm := StandardMaterial3D.new()
+		bm.albedo_color = bulbs[k % bulbs.size()]
+		bm.emission_enabled = true
+		bm.emission = bulbs[k % bulbs.size()]
+		bm.emission_energy_multiplier = 1.6
+		var bulb := W._p(self, W._sphere(0.085, 12), bulbs[k % bulbs.size()], (wire[k] as Vector3) + Vector3(0, -0.11, 0), Vector3(1, 1.25, 1))
+		bulb.material_override = bm
+		bulb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+## 買到的時候在家豪身邊噴一圈金色小星星
+func _build_burst() -> void:
+	_burst = CPUParticles3D.new()
+	_burst.emitting = false
+	_burst.one_shot = true
+	_burst.amount = 70
+	_burst.lifetime = 1.1
+	_burst.explosiveness = 0.92
+	_burst.direction = Vector3.UP
+	_burst.spread = 75.0
+	_burst.initial_velocity_min = 2.6
+	_burst.initial_velocity_max = 5.0
+	_burst.gravity = Vector3(0, -7.5, 0)
+	_burst.scale_amount_min = 0.5
+	_burst.scale_amount_max = 1.2
+	_burst.position = Vector3(0, 1.0, 0)
+	var star := SphereMesh.new()
+	star.radius = 0.035
+	star.height = 0.07
+	star.radial_segments = 8
+	star.rings = 4
+	var sm := StandardMaterial3D.new()
+	sm.albedo_color = Color(1.0, 0.82, 0.2)
+	sm.emission_enabled = true
+	sm.emission = Color(1.0, 0.78, 0.15)
+	sm.emission_energy_multiplier = 1.4
+	star.material = sm
+	_burst.mesh = star
+	add_child(_burst)
 
 func _make_chars(parent: Node3D, round: bool, height: float) -> Node3D:
 	var chars := Node3D.new()
@@ -275,6 +422,10 @@ func _rebuild_hero() -> void:
 	_chars = _make_chars(_stand, false, 1.25)
 	_chars.position.y = 0.07
 	_mini_chars = _make_chars(_mini, true, 0.62)
+	# 小的那一隻不用冒過關的字（大的那一隻冒就好，不然兩行字疊在一起）
+	for l in _mini_chars.find_children("*", "Label3D", true, false):
+		if not (l as Label3D).visible:
+			l.queue_free()
 
 # ================================================================== 縮圖
 
@@ -373,16 +524,25 @@ func _build_ui() -> void:
 	panel.anchor_bottom = 0.5
 	panel.offset_left = -PANEL_W
 	panel.offset_right = -24
-	panel.offset_top = -426
-	panel.offset_bottom = 426
+	panel.offset_top = -438
+	panel.offset_bottom = 438
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 8)
 	panel.add_child(col)
 	var top := HBoxContainer.new()
 	col.add_child(top)
 	var title := _lbl("商店", 40, RED)
-	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	top.add_child(title)
+	var tgap := Control.new()
+	tgap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	top.add_child(tgap)
+	_combo = _lbl("隱藏組合 0／6", 20, Color("7a4b12"))
+	_combo.add_theme_stylebox_override("normal", _style(Color("ffe2a8"), Color("d9a441"), 14, 2))
+	_combo.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	top.add_child(_combo)
+	var tgap2 := Control.new()
+	tgap2.custom_minimum_size.x = 10
+	top.add_child(tgap2)
 	_wallet = _lbl("★ 0", 30, INK)
 	var ws := _style(Color("fff1bf"), Color("d9b84a"), 18, 3)
 	ws.content_margin_left = 16
@@ -390,6 +550,27 @@ func _build_ui() -> void:
 	_wallet.add_theme_stylebox_override("normal", ws)
 	_wallet.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(_wallet)
+	# 眼睛：三選一（不用錢），按 Tab 輪流換
+	var eyes := HBoxContainer.new()
+	eyes.add_theme_constant_override("separation", 8)
+	col.add_child(eyes)
+	eyes.add_child(_lbl("家豪的眼睛", 19, Color(INK, 0.8)))
+	var free := _lbl("免費", 16, Color(1, 1, 1))
+	free.add_theme_stylebox_override("normal", _chip_style(Color("5cb85c"), Color("3d8b3d")))
+	free.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	eyes.add_child(free)
+	var egap := Control.new()
+	egap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	eyes.add_child(egap)
+	for id in Wardrobe.EYES:
+		var b := _lbl(String(Wardrobe.EYE_NAMES[id]), 19)
+		b.mouse_filter = Control.MOUSE_FILTER_STOP
+		b.gui_input.connect(_on_eye_input.bind(String(id)))
+		eyes.add_child(b)
+		_eye_btns.append({"id": String(id), "label": b})
+	var tabk := UIStyle.keycap("Tab", 14)
+	tabk.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	eyes.add_child(tabk)
 	var grid := GridContainer.new()
 	grid.columns = COLS
 	grid.add_theme_constant_override("h_separation", 10)
@@ -407,6 +588,12 @@ func _build_ui() -> void:
 		bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card.add_child(bg)
 		bg.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		var plate := Panel.new()
+		plate.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		plate.add_theme_stylebox_override("panel", _style(Color("b7cbdb"), Color("9fb6c8"), 10, 1))
+		plate.position = Vector2(7, 7)
+		plate.size = Vector2(CARD.x - 14, CARD.y - 50)
+		card.add_child(plate)
 		var tex := TextureRect.new()
 		tex.texture = (_thumbs[String(it.id)] as SubViewport).get_texture()
 		tex.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -439,15 +626,14 @@ func _build_ui() -> void:
 	bs.content_margin_bottom = 12
 	bubble.add_theme_stylebox_override("panel", bs)
 	root.add_child(bubble)
-	bubble.position = Vector2(40, 150)
+	bubble.position = Vector2(28, 132)
 	_quip = _lbl("", 24)
-	_quip.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_quip.custom_minimum_size.x = 300
+	_quip.custom_minimum_size.x = 0
 	bubble.add_child(_quip)
 	var who := _lbl("鴨老闆", 16, Color(1, 1, 1))
 	who.add_theme_stylebox_override("normal", _style(Color("e8963a"), Color("9a5a14"), 10, 2))
 	root.add_child(who)
-	who.position = Vector2(56, 122)
+	who.position = Vector2(44, 104)
 
 	# 左下：現在選的這一件（名字、部位、說明、按 Enter 會怎樣）
 	var info := PanelContainer.new()
@@ -479,16 +665,23 @@ func _build_ui() -> void:
 	_slots.add_theme_stylebox_override("normal", _style(Color("8a7a66"), Color("6b5a48"), 10, 2))
 	_slots.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	ih.add_child(_slots)
+	_state = _lbl("", 16, Color(1, 1, 1))
+	_state.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	ih.add_child(_state)
+	_swap = _lbl("", 17, Color("b8651a"))
+	_swap.visible = false
 	_desc = _lbl("", 19, Color(INK, 0.85))
 	_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_desc.custom_minimum_size = Vector2(430, 0)
+	_desc.custom_minimum_size = Vector2(500, 0)
 	iv.add_child(_desc)
+	iv.add_child(_swap)
 	var act := HBoxContainer.new()
 	act.add_theme_constant_override("separation", 10)
 	iv.add_child(act)
 	_action = UIStyle.go_button("買", 24)
 	act.add_child(_action)
 	var kc := UIStyle.keycap("Enter", 16)
+	_enter_key = kc
 	kc.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	act.add_child(kc)
 
@@ -499,10 +692,11 @@ func _build_ui() -> void:
 	var hrow := HBoxContainer.new()
 	hrow.add_theme_constant_override("separation", 22)
 	hint.add_child(hrow)
-	hrow.add_child(UIStyle.key_hint("方向鍵", "選", 14))
-	hrow.add_child(UIStyle.key_hint("A／D", "轉", 14))
-	hrow.add_child(UIStyle.key_hint("空白鍵", "擺姿勢", 14))
-	hrow.add_child(UIStyle.key_hint("Esc", "回地圖", 14))
+	hrow.add_child(UIStyle.key_hint("方向鍵", "選", 18))
+	hrow.add_child(UIStyle.key_hint("A／D", "轉", 18))
+	hrow.add_child(UIStyle.key_hint("Tab", "換眼睛", 18))
+	hrow.add_child(UIStyle.key_hint("空白鍵", "擺姿勢", 18))
+	hrow.add_child(UIStyle.key_hint("Esc", "回地圖", 18))
 	root.add_child(hint)
 	hint.anchor_top = 1.0
 	hint.anchor_bottom = 1.0
@@ -510,20 +704,28 @@ func _build_ui() -> void:
 	hint.offset_bottom = -12
 	hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
 
-	# 上面（3D 畫面那一半的正中間）：提示字卡
+	# 試衣台正上方：現在是試穿還是真的穿在身上
 	var tbox := CenterContainer.new()
 	tbox.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	root.add_child(tbox)
 	tbox.anchor_right = 1.0
+	tbox.offset_left = 230
 	tbox.offset_right = -PANEL_W
-	tbox.offset_top = 34
-	tbox.offset_bottom = 94
+	tbox.offset_top = 26
+	tbox.offset_bottom = 80
+	_try = _lbl("試穿中", 26, Color(1, 1, 1))
+	tbox.add_child(_try)
+	# 說明卡上面：買到了、星星不夠這類提示
 	_toast = Label.new()
-	_toast.label_settings = UIStyle.ls(28)
-	_toast.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_toast.label_settings = UIStyle.ls(26)
 	UIStyle.pill(_toast)
 	_toast.visible = false
-	tbox.add_child(_toast)
+	root.add_child(_toast)
+	_toast.anchor_top = 1.0
+	_toast.anchor_bottom = 1.0
+	_toast.offset_left = 36
+	_toast.offset_bottom = -272
+	_toast.grow_vertical = Control.GROW_DIRECTION_BEGIN
 
 func _chip_style(bg: Color, edge: Color) -> StyleBoxFlat:
 	var s := _style(bg, edge, 11, 2)
@@ -548,9 +750,9 @@ func _refresh() -> void:
 		if on:
 			chip.text = "穿著中"
 		elif own:
-			chip.text = "已擁有"
-			cbg = Color("a59a8c")
-			cedge = Color("857a6c")
+			chip.text = "✓ 已擁有"
+			cbg = Color("8a6f4d")
+			cedge = Color("6b5438")
 		elif int(it.price) < 0:
 			chip.text = "全三星"
 			cbg = Color("fff1bf")
@@ -565,8 +767,8 @@ func _refresh() -> void:
 		chip.label_settings = UIStyle.ls(16, txt)
 		chip.add_theme_stylebox_override("normal", _chip_style(cbg, cedge))
 		var picked := i == sel
-		var bg := Color("ffe98a") if picked else (Color("e4f4de") if on else Color(1, 1, 1, 0.7))
-		var edge := INK if picked else (Color("8fcf8a") if on else Color(PAPER_EDGE, 0.9))
+		var bg := Color("ffe98a") if picked else (Color("d9f0d2") if on else (Color("f1e3c6") if own else Color(1, 1, 1, 0.75)))
+		var edge := INK if picked else (Color("7cc276") if on else (Color("c9ad7c") if own else Color(PAPER_EDGE, 0.9)))
 		var sb := _style(bg, edge, 14, 4 if picked else 2)
 		if picked:
 			sb.shadow_color = Color(0, 0, 0, 0.25)
@@ -574,26 +776,82 @@ func _refresh() -> void:
 			sb.shadow_offset = Vector2(2, 4)
 		(r.bg as Panel).add_theme_stylebox_override("panel", sb)
 		var card: Control = r.panel
-		card.scale = Vector2.ONE * (1.06 if picked else 1.0)
+		card.scale = Vector2.ONE * (1.03 if picked else 1.0)
 		card.z_index = 1 if picked else 0
 		# 還沒買的縮圖淡一點
 		(r.tex as TextureRect).modulate = Color(1, 1, 1, 1.0 if own or picked else 0.82)
+	var eye_now := Wardrobe.eyes()
+	for eb in _eye_btns:
+		var on_eye: bool = eb.id == eye_now
+		var el: Label = eb.label
+		el.label_settings = UIStyle.ls(19, Color(1, 1, 1) if on_eye else INK)
+		var es := _style(INK if on_eye else Color(1, 1, 1, 0.8), INK if on_eye else PAPER_EDGE, 14, 2)
+		el.add_theme_stylebox_override("normal", es)
 	var cur: Dictionary = Wardrobe.ITEMS[sel]
 	_name.text = String(cur.name)
 	var parts: Array = []
 	for s in cur.slots:
 		parts.append(String(Wardrobe.SLOT_NAMES[s]))
 	_slots.text = "＋".join(parts)
-	_desc.text = String(cur.desc)
-	_quip.text = String(cur.quip)
+	_desc.text = String(cur.desc).replace("。", "。\n").strip_edges()      # 一句一行，才不會剩一個字掉到下一行
+	# 現在是試穿還是真的穿著；穿上這一件會換掉身上的哪一件
+	var cur_on := Wardrobe.is_worn(worn, cur.id)
+	var cur_own := Wardrobe.owned(cur.id)
+	_state.text = "穿著中" if cur_on else ("已擁有・試穿中" if cur_own else "試穿中")
+	_state.add_theme_stylebox_override("normal", _chip_style(Color("5cb85c") if cur_on else Color("e8963a"), Color("3d8b3d") if cur_on else Color("9a5a14")))
+	var out: Array = []
+	if not cur_on:
+		for s in cur.slots:
+			var other := String(worn.get(s, ""))
+			if other != "" and other != Wardrobe.DEFAULT_BODY and other != String(cur.id):
+				var nm := String(Wardrobe.item(other).name)
+				if not out.has(nm):
+					out.append(nm)
+	_swap.visible = not out.is_empty()
+	_swap.text = "穿上會換掉：" + "、".join(out)
+	# 試衣台上方的大標籤
+	_try.text = "穿著中" if cur_on else "試穿中・還沒買" if not cur_own else "試穿中・Enter 穿上"
+	var tsb := _style(Color("4cae4c") if cur_on else Color("e8963a"), Color("2f7d2f") if cur_on else Color("9a5a14"), 20, 3)
+	tsb.content_margin_left = 20
+	tsb.content_margin_right = 20
+	tsb.content_margin_top = 5
+	tsb.content_margin_bottom = 7
+	_try.add_theme_stylebox_override("normal", tsb)
+	# 鴨老闆：臨時的話 > 湊到組合的話 > 這一件的吐槽
+	var combo := Wardrobe.combo_line(Wardrobe.look(), String(cur.id))
+	if combo != "" and Wardrobe.mark_combo(combo):
+		# 第一次湊到：老闆先講組合的話（蓋過「謝謝惠顧」），提示也接在後面
+		_say = ""
+		_show_toast((_toast.text + "　＋ 發現隱藏組合！") if _toast.visible else "發現隱藏組合！")
+		_play("arrive")
+	_combo.text = "隱藏組合 %d／%d" % [Wardrobe.combos_found(), Wardrobe.COMBOS.size()]
+	var line := _say if _say != "" else (combo if combo != "" else String(cur.quip))
+	if line.length() > 13:      # 太長的話在中間的標點後面換一行（不會剩一個字掉下去）
+		for mark in ["，", "？", "。", "、"]:
+			var at := line.find(mark, 4)
+			if at >= 0 and at < line.length() - 3:
+				line = line.substr(0, at + 1) + "\n" + line.substr(at + 1)
+				break
+	_quip.text = line
+	# 主按鈕：買得起是綠的；買不起、還不能拿是灰的，直接寫差多少
 	var a := "買 ★%d" % Wardrobe.price(cur.id)
-	if Wardrobe.is_worn(worn, cur.id):
+	var can_act := true
+	if cur_on:
 		a = "脫掉"
-	elif Wardrobe.owned(cur.id):
+	elif cur_own:
 		a = "穿上"
 	elif int(cur.price) < 0:
-		a = "還不能拿"
+		a = "全部關卡三星才送" if Wardrobe.stars_max() <= 0 else "三星進度 %d／%d" % [mini(Wardrobe.stars_total(), Wardrobe.stars_max()), Wardrobe.stars_max()]
+		can_act = false
+	elif Wardrobe.wallet() < Wardrobe.price(cur.id):
+		a = "還差 ★%d" % (Wardrobe.price(cur.id) - Wardrobe.wallet())
+		can_act = false
 	_action.text = a
+	if can_act:
+		UIStyle.pill(_action, UIStyle.GO, UIStyle.GO_EDGE, Color(1, 1, 1))
+	else:
+		UIStyle.pill(_action, Color("ddd6c8"), Color("a39a8a"), Color("5a4634"))
+	_enter_key.modulate.a = 1.0 if can_act else 0.3
 
 ## 選到第 i 件：家豪先試穿（已經穿在身上的就維持原樣）
 func _select(i: int, quiet := false) -> void:
@@ -601,10 +859,13 @@ func _select(i: int, quiet := false) -> void:
 	var id := String(Wardrobe.ITEMS[sel].id)
 	Wardrobe.preview = Wardrobe.with_item(Wardrobe.saved_look(), id)
 	_rebuild_hero()
+	_say = ""
 	_refresh()
 	# 背後的東西：把家豪轉過去給你看
-	_spin = PI + 0.55 if String(THUMB_VIEW.get(id, "")) == "back" else 0.5
+	_spin = PI + 0.6 if String(THUMB_VIEW.get(id, "")).begins_with("back") else 0.5
 	_spin_hold = 3.0
+	if id == "azhi":      # 正面有耳機和金鍊、背後有圖案：先給正面，馬上慢慢轉一圈
+		_spin_hold = 0.7
 	if not quiet:
 		_play("click")
 
@@ -627,22 +888,47 @@ func act() -> void:
 		Wardrobe.save_look(Wardrobe.without_item(worn, id))
 		Wardrobe.preview = Wardrobe.saved_look()
 		_rebuild_hero()
+		_say = "脫了也好，省得洗。"
 		_play("click")
 	elif Wardrobe.owned(id):
 		Wardrobe.save_look(Wardrobe.with_item(worn, id))
+		Wardrobe.preview = Wardrobe.saved_look()
+		_rebuild_hero()
+		_say = ""
 		_play("arrive")
 	elif int(it.price) < 0:
-		_show_toast("全部關卡三星才拿得到（%d／%d）" % [mini(Wardrobe.stars_total(), Wardrobe.stars_max()), Wardrobe.stars_max()])
+		_show_toast("學士服不賣：全部關卡都拿三星就送你")
+		_say = "先把學分修完再說。"
 		_play("bump")
 	elif Wardrobe.buy(id):
 		Wardrobe.save_look(Wardrobe.with_item(worn, id))
-		_show_toast("買到了：%s" % String(it.name))
+		_show_toast("買到了：%s　★ −%d" % [String(it.name), Wardrobe.price(id)])
+		# 剛好湊成組合的話，讓老闆講組合的那一句
+		_say = "" if Wardrobe.combo_line(Wardrobe.saved_look(), id) != "" else "謝謝惠顧，不找零。"
 		_play("start")
 		_pose_t = 2.5
+		_spin = 0.4
+		_spin_hold = 3.0
+		_burst.restart()
+		_burst.emitting = true
 	else:
 		_show_toast("星星不夠，還差 %d 顆" % (Wardrobe.price(id) - Wardrobe.wallet()))
+		_say = "本攤不賒帳。"
 		_play("bump")
 	_refresh()
+
+## 換眼睛：家豪轉回正面給你看
+func set_eyes(id: String) -> void:
+	Wardrobe.set_eyes(id)
+	_rebuild_hero()
+	_refresh()
+	_spin = 0.35
+	_spin_hold = 3.0
+	_play("click")
+
+func _on_eye_input(ev: InputEvent, id: String) -> void:
+	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+		set_eyes(id)
 
 func _show_toast(t: String) -> void:
 	_toast.text = t
@@ -678,6 +964,9 @@ func _unhandled_input(ev: InputEvent) -> void:
 			KEY_ENTER, KEY_KP_ENTER:
 				if not ev.echo:
 					act()
+			KEY_TAB:
+				if not ev.echo:
+					set_eyes(Wardrobe.EYES[(Wardrobe.EYES.find(Wardrobe.eyes()) + 1) % Wardrobe.EYES.size()])
 			KEY_SPACE:
 				if not ev.echo:
 					_pose_t = 2.5
@@ -703,6 +992,7 @@ func _process(dt: float) -> void:
 	_stand.rotation.y = lerp_angle(_stand.rotation.y, _spin, minf(dt * 8.0, 1.0))
 	_pose_t = maxf(_pose_t - dt, 0.0)
 	Wardrobe.Fx.demo_win = _pose_t > 0.0
+	_try.visible = _pose_t <= 0.0      # 擺姿勢的時候頭上會冒字，標籤先讓開
 	if _chars:
 		_chars.position.y = 0.07 + (absf(sin(_t * 9.0)) * 0.12 if _pose_t > 0.0 else 0.0)
 	if _duck:
@@ -752,4 +1042,71 @@ func _shots(dir: String) -> void:
 			await get_tree().create_timer(0.5).timeout
 			await RenderingServer.frame_post_draw
 			get_viewport().get_texture().get_image().save_png(dir.path_join("shop_%02d_%s_%d.png" % [i, id, view]))
+	get_tree().quit()
+
+# ================================================================== 開發用：照玩家的流程走一遍，每一步截一張圖
+
+## 一定要搭配 -- --wardrobe=user://測試檔名.cfg（用另外的存檔，不動玩家的），建議再加 --stars=6。
+## 流程：進商店 → 每一件看一眼 → 買口罩 → 買皮衣 → 買銀髮（錢花光）→ 星星不夠 → 學士服還不能拿 → 脫口罩 → 換眼睛 → 擺姿勢
+func _board(dir: String) -> void:
+	if Wardrobe.save_path() == Wardrobe.PATH:
+		push_error("--shopboard 要搭配 --wardrobe=（不然會動到玩家的存檔）")
+		get_tree().quit(1)
+		return
+	DirAccess.make_dir_recursive_absolute(dir)
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(Wardrobe.save_path()))
+	var idx := func(id: String) -> int:
+		for i in Wardrobe.ITEMS.size():
+			if Wardrobe.ITEMS[i].id == id:
+				return i
+		return 0
+	var snap := func(name: String, wait: float) -> void:
+		await get_tree().create_timer(wait).timeout
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(dir.path_join(name + ".png"))
+	_select(0, true)
+	await snap.call("01_enter", 0.8)
+	for i in Wardrobe.ITEMS.size():
+		_select(i, true)
+		await snap.call("02_item_%02d_%s" % [i, String(Wardrobe.ITEMS[i].id)], 0.7)
+	_select(idx.call("mask"), true)
+	act()
+	await snap.call("03_buy_mask", 0.5)
+	_pose_t = 0.0
+	_select(idx.call("leather"), true)
+	act()
+	await snap.call("04_buy_leather_pose", 0.9)
+	_pose_t = 0.0
+	_select(idx.call("silver"), true)
+	act()
+	await snap.call("05_buy_silver", 0.5)
+	_pose_t = 0.0
+	_toast.visible = false
+	_select(idx.call("cleanroom"), true)
+	act()
+	await snap.call("06_not_enough", 0.5)
+	_select(idx.call("gown"), true)
+	act()
+	await snap.call("07_gown_locked", 0.5)
+	_toast.visible = false
+	_select(idx.call("mask"), true)
+	await snap.call("08_worn_mask_selected", 0.6)
+	act()
+	await snap.call("09_mask_on", 0.6)
+	act()
+	await snap.call("09b_mask_off", 0.6)
+	act()
+	set_eyes("drawn")
+	await snap.call("10_eyes_drawn", 0.8)
+	set_eyes("dot")
+	await snap.call("11_eyes_dot", 0.8)
+	set_eyes("drawn")
+	_select(idx.call("leather"), true)
+	_pose_t = 2.5
+	await snap.call("12_pose_gpu", 0.9)
+	var f := FileAccess.open(dir.path_join("DONE"), FileAccess.WRITE)
+	if f:
+		f.store_string("ok")
+		f.close()
+	DirAccess.remove_absolute(ProjectSettings.globalize_path(Wardrobe.save_path()))
 	get_tree().quit()
