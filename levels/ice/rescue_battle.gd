@@ -183,11 +183,15 @@ func _level_setup() -> void:
 		head.scale = Vector3.ONE * 1.35           # 頭放大（跟工人一樣的大頭比例，表情才看得到）
 		head.position.y += 0.03
 		# 原本的眼睛是兩顆小黑球（畫面上只有幾個像素）：換成跟工人同一套手繪的眼睛（半閉的厭世眼）
-		for c in head.get_children():
-			if c is Node3D and not (c is MeshInstance3D) and c.get_child_count() > 0:
-				(c as Node3D).visible = false
+		# 眼睛現在由商店的設定決定（小黑眼就不換；手繪大眼共用的 characters.gd 已經換好了）。
+		# 只有共用模型沒換成功（頭上沒有 drawn_eyes 記號）而設定又是手繪大眼時，才用這裡自己的貼圖補上
+		var own_eyes: bool = load("res://scripts/wardrobe.gd").eyes() == "drawn" and not head.has_meta("drawn_eyes")
+		if own_eyes:
+			for c in head.get_children():
+				if String(c.name).begins_with("Eye"):      # 只收眼睛：頭上還可能有商店買的紙袋、帽子
+					(c as Node3D).visible = false
 		var eye_tex := load("res://levels/ice/assets/faces/face_bird.png") as Texture2D
-		for k in 2:
+		for k in (2 if own_eyes else 0):
 			var eye := MeshInstance3D.new()
 			var qm := QuadMesh.new()
 			qm.size = Vector2(0.088, 0.088)
