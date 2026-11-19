@@ -235,11 +235,11 @@ var _dialog: DialogBox
 var _napoleon_tex: Texture2D
 # 新手教學：第一次進關卡時跳出教學彈窗（左邊播示範動畫、右邊說明），H 可以再叫出來
 const TUT_PAGES := [
-	{"id": "controls", "title": "操作方式", "controls": [["W／A／S／D", "飄移"], ["Space", "上升"], ["Shift", "下降"], ["MOUSE", "轉視角"],
-		["1／2／3", "選神蹟"], ["LMB", "施放"], ["Enter", "開打"], ["R", "重試"], ["M", "回地圖"], ["Tab", "俯看全場／回到家豪旁邊"], ["H", "再看一次說明"]],
-		"body": "你是一個飄在空中的幽靈，只能從旁觀察、偷偷降下神蹟幫家豪。
-
-準備階段先把神蹟佈置好，再按 Enter 開打。"},
+	# 按鍵表分成兩頁：基本的五個（第一次進關時用畫面下方的引導一步一步教，不跳這頁）；其他的需要時才提示。按 H 兩頁都看得到
+	{"id": "controls", "title": "基本操作", "controls": [["MOUSE", "轉視角"], ["W／A／S／D", "飄移"], ["1／2／3", "選神蹟"], ["LMB", "施放"], ["Enter", "開打"]],
+		"body": "你是一個飄在空中的幽靈，只能從旁觀察、偷偷降下神蹟幫家豪。\n\n準備階段先把神蹟佈置好，再按 Enter 開打。"},
+	{"id": "controls_more", "title": "其他按鍵", "controls": [["Space", "上升"], ["Shift", "下降"], ["Tab", "俯看全場"], ["R", "重試"], ["M", "回地圖"], ["H", "再看一次說明"]],
+		"body": "這些不用一開始就記住。\n\n用得到的時候，畫面下方會提示一次；忘了就按 H。"},
 	{"id": "auto", "title": "家豪會自己行動", "icon": preload("res://assets/ui/jiahao_portrait.png"),
 		"body": "不用畫路線，家豪會自己往最近的目標衝過去。
 
@@ -1155,7 +1155,8 @@ func start() -> void:
 	_update_phase_label()
 	_refresh_slots()
 	notify_phase("開戰了", "神蹟次數換成戰鬥中的次數")
-	_show_first_hint(false)
+	if _coach in ["look", "move", "cast", "start"]:
+		_coach_set("")
 	phase_changed.emit("running")
 
 func _end(result: String) -> void:
@@ -1366,6 +1367,7 @@ func _wheel_step(d: int) -> void:
 func select_skill(i: int) -> void:
 	selected = clampi(i, 0, SKILLS.size() - 1)
 	_refresh_slots()
+	_explain_skill(String(SKILLS[selected].id))
 
 func _update_aim() -> void:
 	if view and view.overview:
@@ -1469,7 +1471,11 @@ func cast(i: int, p: Vector3) -> bool:
 		"wind":
 			_spawn_gust(p)
 	_refresh_slots()
-	_show_first_hint(false)
+	_learned_skill(id)
+	if _coach == "cast":
+		if not _scripted():
+			FortProgress.mark_known(["first_cast"])
+		_coach_set("start" if _coach_full else "")
 	return true
 
 func _spawn_rock(p: Vector3) -> void:
@@ -1896,6 +1902,7 @@ func _process(dt: float) -> void:
 			_rest_rock(r)
 	_fade_near_camera(dt)
 	_tick_notice(dt)
+	_tick_coach(dt)
 	_tick_cooldowns(dt)
 	if _cut_t >= 0.0:
 		_preview.visible = false   # 過場中：不顯示瞄準
@@ -5065,8 +5072,7 @@ func _build_hud() -> void:
 	fh.add_theme_constant_override("separation", 8)
 	fh.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_first_hint.add_child(fh)
-	fh.add_child(UIStyle.key_hint("1", "選飼料，對準地面", 16))
-	fh.add_child(UIStyle.mouse_hint("left", "撒一把試試看", 16))
+	_hint_row = fh
 
 	_build_notice(layer)
 
@@ -5452,20 +5458,31 @@ func _tut_pages() -> Array:
 		"wind": SKILLS.any(func(sk): return sk.id == "wind"),
 		"chest": not (world.get("chests") if world.get("chests") != null else []).is_empty(),
 	}
+	var keys := "／".join(range(1, SKILLS.size() + 1).map(func(n): return str(n)))   # 這關有幾個神蹟就列幾個數字鍵
 	return TUT_PAGES.filter(func(pg):
 		var id: String = pg.id
 		if id in ["feed", "banana", "rock"]:
 			return id in skills
-		return has.get(id, true))
+		return has.get(id, true)).map(func(pg):
+			if pg.id != "controls":
+				return pg
+			var p2: Dictionary = pg.duplicate(true)
+			for row in p2.controls:
+				if row[0] == "1／2／3":
+					row[0] = keys
+			return p2)
 
 ## 只自動跳出「這關有、玩家還沒學會」的頁面（記在存檔的 [mechanics]）；按 H 隨時可以看這關全部的頁面
 func start_tutorial() -> void:
 	if _tut_seen:
 		return
 	_tut_seen = true
-	var fresh := _tut_pages().filter(func(pg): return not FortProgress.known(pg.id))
+	# 按鍵表和道具頁不在這裡跳：按鍵用畫面下方的引導邊做邊學，道具頁等玩家第一次選到它才跳（_explain_skill）
+	var fresh := _tut_pages().filter(func(pg): return not FortProgress.known(pg.id) and not String(pg.id) in JIT_PAGES)
 	if fresh.is_empty():
+		_start_coach()
 		return
+	_coach_pending = true
 	_tut_fresh = fresh.map(func(pg): return pg.id)
 	_tut.set_pages(fresh)
 	_set_tut_step(0)
@@ -5477,11 +5494,15 @@ func _set_tut_step(i: int) -> void:
 	if i < 0:
 		_tut.close()
 	elif not _tut.is_open():
+		_show_first_hint(false)   # 引導條先收起來，關掉說明再出現
 		_tut.open(i)
 
 func _on_tut_closed() -> void:
-	if _tut_seen and casts.is_empty() and phase == Phase.PREPARE:
-		_show_first_hint(true)   # 第一次自動跳出的教學看完 → 提示先放一個試試
+	if _coach_pending:
+		_coach_pending = false
+		_start_coach()           # 開場的教學看完 → 畫面下方的引導接著教
+	else:
+		_show_first_hint(_coach != "")
 	if not _tut_fresh.is_empty():
 		if not _auto_run():
 			FortProgress.mark_known(_tut_fresh)   # 看過的機制記下來，其他小關不再自動跳出
@@ -5527,6 +5548,158 @@ func _update_edge_arrow() -> void:
 func _show_first_hint(on: bool) -> void:
 	if _first_hint:
 		_first_hint.visible = on
+
+# ------------------------------------------------------------------ 邊做邊學的引導（畫面下方一條）
+# 第一次玩不再一次丟十幾個按鍵：一次只教一件事，玩家做到了才換下一步。
+#   look  移動滑鼠轉視角 → move  W／A／S／D 飄移 → cast  選飼料、左鍵撒下 → start  Enter 開打
+# 學會基本操作（記成 [mechanics] controls）、成功放過一次神蹟（first_cast）之後，開場就不再有引導。
+# 進階的按鍵等用得到才提示一次（記成 tip_xxx）：
+#   tip_tab     開打後家豪跑出畫面 → Tab 俯看全場
+#   tip_height  有炮塔的關卡、準備階段 → Space／Shift 飛高看清楚
+# 道具的說明頁等玩家第一次選到那個神蹟才跳（_explain_skill）。
+
+const JIT_PAGES := ["controls", "controls_more", "feed", "banana", "rock", "wind"]
+const TIP_TIME := 7.0
+var _hint_row: HBoxContainer
+var _coach := ""               # 現在的引導步驟（"" = 沒有）
+var _coach_full := false       # 這關是從第一步教起的（教完放神蹟後再提示 Enter）
+var _coach_pending := false    # 開場教學彈窗關掉後要開始引導
+var _coach_acc := 0.0
+var _coach_fwd := Vector3.ZERO
+var _coach_pos := Vector3.ZERO
+var _coach_t := 0.0
+var _arrow_t := 0.0
+var _asked := {}               # 這次已經判斷過的提示／說明（不用每一畫面讀存檔）
+
+## 自動測試、錄示範動畫、自動截圖的時候：不跳引導和說明
+static func _scripted() -> bool:
+	if _auto_run():
+		return true
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--fortshots=") or a.begins_with("--recordtut="):
+			return true
+	return false
+
+func _start_coach() -> void:
+	if _scripted() or phase != Phase.PREPARE:
+		return
+	if not FortProgress.known("controls"):
+		_coach_full = true
+		_coach_set("look")
+	elif casts.is_empty() and not FortProgress.known("first_cast"):
+		_coach_set("cast")       # 學會基本操作、但還沒成功放過神蹟（例如上次教到一半就離開）
+	else:
+		_coach_set("")
+
+func _coach_set(step: String) -> void:
+	_coach = step
+	_coach_acc = 0.0
+	_coach_t = 0.0
+	_coach_fwd = -camera.global_basis.z if camera else Vector3.FORWARD
+	_coach_pos = player.global_position if player else Vector3.ZERO
+	if _hint_row:
+		for c in _hint_row.get_children():
+			c.free()
+		match step:
+			"look":
+				_hint_row.add_child(UIStyle.mouse_hint("none", "移動滑鼠，轉頭看看四周", 16))
+			"move":
+				_hint_row.add_child(UIStyle.key_hint("W／A／S／D", "飄過去，看清楚敵人在哪", 16))
+			"cast":
+				var sk := SKILLS.map(func(x): return String(x.id)).find("feed")
+				if sk >= 0:
+					_hint_row.add_child(UIStyle.key_hint(str(sk + 1), "選飼料，對準地面", 16))
+					_hint_row.add_child(UIStyle.mouse_hint("left", "撒一把試試看", 16))
+				else:
+					_hint_row.add_child(UIStyle.mouse_hint("left", "對準地面，放一個神蹟試試看", 16))
+			"start":
+				_hint_row.add_child(UIStyle.key_hint("Enter", "佈置好了就開打，看家豪怎麼做", 16))
+			"tip_tab":
+				_hint_row.add_child(UIStyle.key_hint("Tab", "俯看全場，找到家豪（再按一次回來）", 16))
+			"tip_height":
+				_hint_row.add_child(UIStyle.key_hint("Space", "上升", 16))
+				_hint_row.add_child(UIStyle.key_hint("Shift", "下降：飛高一點，看清楚炮塔和梯子", 16))
+	_show_first_hint(step != "" and not (_tut and _tut.is_open()))
+
+## 這個提示這輩子還沒出現過：記下來（只出現一次）並回傳 true
+func _tip_new(id: String) -> bool:
+	if _asked.has(id):
+		return false
+	_asked[id] = true
+	if FortProgress.known(id):
+		return false
+	if not _auto_run():
+		FortProgress.mark_known([id])
+	return true
+
+## 玩家自己用過這個按鍵了：之後不用再提示
+func _tip_used(id: String) -> void:
+	if _asked.has(id):
+		if _coach == id:
+			_coach_set("")
+		return
+	_asked[id] = true
+	if not _auto_run() and not FortProgress.known(id):
+		FortProgress.mark_known([id])
+
+func _tick_coach(dt: float) -> void:
+	if _scripted() or (_tut and _tut.is_open()):
+		return
+	if view and view.overview:
+		_tip_used("tip_tab")
+	if Input.is_action_pressed("fly_up") or Input.is_action_pressed("fly_down"):
+		_tip_used("tip_height")
+	_coach_t += dt
+	match _coach:
+		"look":
+			var fwd := -camera.global_basis.z
+			_coach_acc += fwd.angle_to(_coach_fwd)
+			_coach_fwd = fwd
+			if _coach_acc > deg_to_rad(70.0) and _coach_t > 0.6:
+				_coach_set("move")
+		"move":
+			if player.global_position.distance_to(_coach_pos) > 3.0 and _coach_t > 0.6:
+				FortProgress.mark_known(["controls"])
+				_coach_set("cast" if casts.is_empty() and phase == Phase.PREPARE else "")
+		"start":
+			if phase != Phase.PREPARE:
+				_coach_set("")
+		"tip_tab", "tip_height":
+			if _coach_t > TIP_TIME:
+				_coach_set("")
+		"":
+			# 進階按鍵：用得到的時候才提示一次
+			var lost := phase == Phase.RUNNING and _edge_arrow != null and _edge_arrow.on
+			_arrow_t = _arrow_t + dt if lost else 0.0
+			if _arrow_t > 1.5 and _tip_new("tip_tab"):
+				_coach_set("tip_tab")
+			elif phase == Phase.PREPARE and not towers.is_empty() and FortProgress.known("controls") and _tip_new("tip_height"):
+				_coach_set("tip_height")
+
+## 第一次選到某個神蹟：跳出它那一頁說明（只有一頁，看完就記成學會了）
+func _explain_skill(id: String) -> void:
+	if _scripted() or _tut == null or _tut.is_open() or _intro_i >= 0 or phase == Phase.ENDED:
+		return
+	if _asked.has("skill_" + id):
+		return
+	_asked["skill_" + id] = true
+	if FortProgress.known(id):
+		return
+	var pg := TUT_PAGES.filter(func(p): return p.id == id)
+	if pg.is_empty():
+		return
+	_tut_fresh = [id]
+	_tut.set_pages(pg)
+	_show_first_hint(false)
+	_tut.open(0)
+
+## 沒看說明就直接用了：也算學會（不再跳說明頁）
+func _learned_skill(id: String) -> void:
+	if _asked.has("skill_" + id):
+		return
+	_asked["skill_" + id] = true
+	if not _auto_run() and not FortProgress.known(id):
+		FortProgress.mark_known([id])
 
 # ------------------------------------------------------------------ 墨色描邊
 
@@ -5816,7 +5989,7 @@ func _build_pause_menu() -> void:
 	pause_menu.name = "PauseMenu"
 	pause_menu.stage_root = get_parent()
 	pause_menu.player = player
-	pause_menu.help_rows = func() -> Array: return TUT_PAGES[0].controls
+	pause_menu.help_rows = func() -> Array: return TUT_PAGES[0].controls + TUT_PAGES[1].controls
 	pause_menu.hotkey = false          # Esc 由 _input 自己判斷：教學彈窗、進場鏡頭開著的時候不搶
 	pause_menu.picked.connect(_on_pause_picked)
 	add_child(pause_menu)

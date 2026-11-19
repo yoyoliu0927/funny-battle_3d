@@ -31,6 +31,7 @@ var _frames := 0
 var _clip_t := 0.0
 var _no_clip: Label
 var _icon: TextureRect     # 沒有動畫時改放道具圖示
+var _icon_bg: PanelContainer
 var _slot_holder: CenterContainer   # 道具沒有圖檔時：放一格放大的技能欄（用技能欄自己畫的圖示）
 var _controls: PanelContainer   # 「操作方式」那一頁：左邊放一張鍵帽表，取代示範動畫
 var _kicker: Label
@@ -111,6 +112,8 @@ func _show_page(i: int) -> void:
 	_icon.texture = icon
 	_icon.visible = tex == null and ctl.is_empty() and icon != null
 	_no_clip.visible = tex == null and ctl.is_empty() and icon == null and not use_slot
+	# 直接設：_icon 一開始就是 visible，第一頁設成 true 不會觸發 visibility_changed，米色底板就不會出現
+	_icon_bg.visible = _icon.visible or use_slot
 	_clip.visible = tex != null and ctl.is_empty()
 	if tex:
 		_atlas.atlas = tex
@@ -296,6 +299,7 @@ func _build() -> void:
 	icon_bg.add_theme_stylebox_override("panel", isb)
 	icon_bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	frame.add_child(icon_bg)
+	_icon_bg = icon_bg
 	_icon = TextureRect.new()
 	_icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	_icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
