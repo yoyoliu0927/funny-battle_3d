@@ -124,9 +124,17 @@ func build_spot(k: int, root: Node3D, _c: Dictionary) -> void:
 		0: _training_yard(root)   # 教學：從背後偷襲
 		1: _battery(root)
 		2: _three_towers(root)
+		4: _windy(root)          # 風口
 		_: _keep(root)
 
 # ================================================================== 三個地點
+
+## 4 風口：一排被風吹得歪向同一邊的旗子和木桶
+func _windy(root: Node3D) -> void:
+	for k in 3:
+		_piece(root, C + "flag-banner-short.glb", Vector3(-1.4 + k * 1.4, 0, -0.4 + k * 0.2), PI * 0.5, KIT * 0.7)
+	_piece(root, P + "barrel.glb", Vector3(-1.0, 0, 1.0), 0.0, KIT * 0.6)
+	_piece(root, P + "barrel.glb", Vector3(1.2, 0, 0.9), 0.0, KIT * 0.6)
 
 ## 0 教學：練習場——幾個木箱、木桶圍出一小塊空地，插一支旗子
 func _training_yard(root: Node3D) -> void:

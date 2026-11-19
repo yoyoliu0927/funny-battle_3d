@@ -16,10 +16,10 @@ extends "res://levels/fort/farm_builder.gd"
 ##             引信燒完（或左鍵）就射向準心；射上指揮官高台能撞翻指揮官
 ##   指揮官高台 東北角 (10.5, -9)，比地面高 5 公尺，走不上去，只能被大砲射上去
 
-const FORT_C := Vector2(0.0, -3.0)
-const FORT_RX := 17.0
+var FORT_C := Vector2(0.0, -3.0)    # 2-3 往西加寬（_ready 裡依小關設定）
+var FORT_RX := 17.0
 const FORT_RZ := 13.0
-const GATE_X := -4.0
+var GATE_X := -4.0                # 城門的 x（2-3 移到西南角，_ready 裡設定）
 const GATE_HALF_W := 2.4          # 城門洞半寬
 const BERM_H := 0.7               # 城牆腳下的小土堤
 const RIDGE_H := 6.0              # 天然山坡的稜線高度
@@ -33,9 +33,9 @@ const NATURE_SOFT := 0.2          # 城牆和山坡交界的過渡（弧度）
 const WALL_SEGMENTS := 40
 const WALL_H := 4.2               # 城牆高度
 const WALL_T := 2.0               # 城牆厚度
-const OUTER_YARD := Rect2(-9.5, 9.0, 11.0, 9.5)   # 城門外的空地（x, z, w, h）
-var PLATFORM_C := Vector2(31.0, -12.0)   # 指揮官高台（只有 2-3 有，在東邊的第二個院子）
-const PLATFORM_R := 3.6
+var OUTER_YARD := Rect2(-9.5, 9.0, 11.0, 9.5)   # 城門外的空地（x, z, w, h）；2-3 跟著城門移到西南角
+var PLATFORM_C := Vector2(30.0, -10.0)   # 指揮官高台（只有 2-3 有，在東邊的第二個院子）
+const PLATFORM_R := 5.5                  # 台頂夠大，家豪爬上去之後才有地方跟指揮官周旋
 const PLATFORM_H := 5.0
 ## 2-3 東邊的第二個院子（橢圓），和要塞之間隔一道牆，南邊留一條通道
 const R2_C := Vector2(27.0, -5.0)
@@ -72,14 +72,37 @@ const STAGES := {
 		"chests": [Vector2(-3.0, -8.0), Vector2(11.0, -2.0)],
 		"routes": []},
 	3: {"towers": [Vector2(7.0, -8.0), Vector2(33.0, 3.0)],
+		# 第二門大砲放在東院裡（跟指揮官高台同一個院子），砲口一開始就對著高台
 		"cannons": [{"pos": Vector2(-11.0, -6.0), "aim": Vector2(7.0, -8.0)},
-			{"pos": Vector2(6.0, 5.0), "aim": Vector2(31.0, -12.0)}],
+			{"pos": Vector2(25.0, 2.0), "aim": Vector2(30.0, -10.0)}],
 		"chests": [Vector2(-2.0, -11.0), Vector2(37.0, -2.0)],
+		# 2-3 的目標只有指揮官：路上的守衛可以避開或打倒（巡邏路線照手繪草圖）
 		"routes": [
-			{"route": [Vector3(-8.0, 0, 2.0), Vector3(-4.0, 0, 4.5)], "loop": false, "pause": 1.3},
-			# 自爆農夫：背火藥桶，正面碰到會炸；搶先啄倒他就不會爆，用巨石／砲彈砸他會炸到旁邊的人
-			{"route": [Vector3(1.0, 0, -3.0), Vector3(3.5, 0, 1.0)], "loop": false, "pause": 1.2, "kind": "bomber"},
-			{"route": [Vector3(19.0, 0, -6.0), Vector3(20.0, 0, 0.0)], "loop": false, "pause": 1.2}]},
+			# 西半邊「井」字：兩個直走（一上一下、方向相反），一個橫著穿過他們；
+			# 從西南角城門往東邊通道的路正好穿過這一區，躲不掉就得想辦法
+			{"route": [Vector3(-12.0, 0, 6.5), Vector3(-11.5, 0, -7.0)], "loop": false, "pause": 1.4},
+			{"route": [Vector3(-7.0, 0, -7.0), Vector3(-7.5, 0, 6.0)], "loop": false, "pause": 1.4},
+			{"route": [Vector3(-15.0, 0, 1.0), Vector3(2.0, 0, 0.5)], "loop": false, "pause": 1.2},
+			# 東半邊「X」：自爆農夫和農夫斜著交叉，自爆農夫先經過交叉點、農夫晚約 1.4 秒
+			# （交叉點丟香蕉皮：自爆農夫的火藥桶掉在那裡，晚到的農夫剛好走進爆炸範圍）
+			{"route": [Vector3(3.5, 0, -5.27), Vector3(12.5, 0, 2.5)], "loop": false, "pause": 1.2, "kind": "bomber"},
+			{"route": [Vector3(2.7, 0, 4.7), Vector3(13.5, 0, -5.5)], "loop": false, "pause": 1.2}],
+		# 指揮官發怒（第二階段）時從遠處跑來的援兵：東院最東邊、和通道那頭
+		"reinforce": [Vector2(38.0, -7.0), Vector2(13.5, 0.5)]},
+	# 4 = 風口：中庭一條由西往東的強風帶。走在風裡的人會被往下風推；滑倒的人會被一路吹著滑，
+	#   撞倒下風處的守衛（像保齡球）；平地上的巨石在風裡會被吹著滾；掉下的火藥桶也會順風滾。
+	4: {"towers": [],
+		"cannons": [],
+		"chests": [],
+		"winds": [{"a": Vector2(-13.0, -1.0), "b": Vector2(9.5, -1.0), "hw": 2.0}],
+		"routes": [
+			# 上風處一個巡邏的守衛橫越風帶；下風處兩個站崗的（像保齡球瓶），最下風是自爆農夫
+			# 站著不動的人會穩住腳步、不被風推；滑倒的人才會被一路吹過去
+			{"route": [Vector3(-6.0, 0, 4.5), Vector3(-6.0, 0, -6.5)], "loop": false, "pause": 1.2},
+			{"route": [Vector3(2.0, 0, 0.1), Vector3(2.0, 0, 0.3)], "loop": false, "pause": 9999.0},
+			{"route": [Vector3(6.0, 0, 0.3), Vector3(6.0, 0, 0.5)], "loop": false, "pause": 9999.0, "kind": "bomber"},
+			# 風帶北邊（上風側後方）巡邏的一個
+			{"route": [Vector3(-5.0, 0, -8.5), Vector3(4.0, 0, -8.5)], "loop": false, "pause": 1.4}]},
 }
 const FUSE_TIME := 4.0            # 引信從點燃到發射的秒數（= 瞄準時間）
 const FORT_HERO_START := Vector3(-5.0, 0.0, 15.5)
@@ -96,6 +119,121 @@ var stage_goal := ""
 func stage_routes(s: int) -> Array:
 	return STAGES[s].routes
 
+# ---------------------------------------------------------------- 風口（第 4 小關）
+
+## 風帶 {a, b, hw（半寬）, dir}；風從 a 吹向 b
+var winds: Array = []
+var _streaks: Array = []        # 風的白色流線 {node, w, u, v}
+
+## 這一點的風（方向 × 強度 0~1，邊緣漸弱）；沒有風 = ZERO
+func wind_at(x: float, z: float) -> Vector2:
+	var out := Vector2.ZERO
+	for w in winds:
+		var a: Vector2 = w.a
+		var b: Vector2 = w.b
+		var ab := b - a
+		var t := (Vector2(x, z) - a).dot(ab) / ab.length_squared()
+		if t < 0.0 or t > 1.0:
+			continue
+		var d := (Vector2(x, z) - a.lerp(b, t)).length()
+		var hw: float = w.hw
+		if d < hw:
+			out += (w.dir as Vector2) * (1.0 - sstep(hw - 0.5, hw, d)) * (1.0 - sstep(0.93, 1.0, t))
+	return out
+
+## 風帶的樣子：上風端一台大風扇、地上淡藍色的帶子和箭頭、一直往下風飄的白色流線
+func _build_winds() -> void:
+	var node := Node3D.new()
+	node.name = "Winds"
+	add_child(node)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 777
+	for w in winds:
+		var a: Vector2 = w.a
+		var b: Vector2 = w.b
+		var dir: Vector2 = w.dir
+		var side := Vector2(-dir.y, dir.x)
+		var hw: float = w.hw
+		var yaw := atan2(dir.x, dir.y)
+		# 地上的帶子：一段一段貼地（地面不平也貼得住）
+		var strip := StandardMaterial3D.new()
+		strip.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		strip.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		strip.albedo_color = Color(0.75, 0.92, 1.0, 0.16)
+		var n := int(a.distance_to(b) / 1.0)
+		for k in n:
+			var c := a.lerp(b, (k + 0.5) / n)
+			_box(node, Vector3(hw * 2.0, 0.02, a.distance_to(b) / n + 0.02), Vector3(c.x, height_at(c.x, c.y) + 0.05, c.y), strip, Vector3(0, yaw, 0))
+		# 地上的箭頭（每 4 公尺一個）
+		var arrow := StandardMaterial3D.new()
+		arrow.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		arrow.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		arrow.albedo_color = Color(1.0, 1.0, 1.0, 0.45)
+		var m := int(a.distance_to(b) / 4.0)
+		for k in m:
+			var c := a.lerp(b, (k + 0.6) / m)
+			var y := height_at(c.x, c.y) + 0.07
+			for s2 in [-1.0, 1.0]:
+				var arm: Vector2 = c - dir * 0.35 + side * float(s2) * 0.35
+				var mid: Vector2 = (arm + c) * 0.5
+				_box(node, Vector3(0.14, 0.02, 0.62), Vector3(mid.x, y, mid.y), arrow, Vector3(0, yaw + float(s2) * 0.8, 0))
+		# 上風端的大風扇（木架＋會轉的葉片）
+		var fan := Node3D.new()
+		fan.name = "Fan"
+		node.add_child(fan)
+		var fp := a - dir * 0.8
+		fan.position = Vector3(fp.x, height_at(fp.x, fp.y), fp.y)
+		fan.rotation.y = yaw
+		var wood := _toon(Color(0.55, 0.38, 0.22))
+		for sx in [-1.2, 1.2]:
+			_box(fan, Vector3(0.25, 3.0, 0.25), Vector3(sx, 1.5, 0), wood)
+		_box(fan, Vector3(2.7, 0.25, 0.25), Vector3(0, 3.0, 0), wood)
+		var hub := Node3D.new()
+		hub.name = "Hub"
+		hub.position = Vector3(0, 1.7, 0.2)
+		fan.add_child(hub)
+		var blade := _toon(Color(0.92, 0.9, 0.85))
+		for k in 4:
+			var bl := _box(hub, Vector3(0.35, 1.3, 0.06), Vector3(0, 0.7, 0), blade)
+			bl.get_parent().remove_child(bl)
+			var pivot := Node3D.new()
+			pivot.rotation.z = k * PI * 0.5
+			hub.add_child(pivot)
+			pivot.add_child(bl)
+		# 白色流線
+		var smat := StandardMaterial3D.new()
+		smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		smat.albedo_color = Color(1, 1, 1, 0.55)
+		for k in 22:
+			var st := _box(node, Vector3(0.05, 0.05, 1.3), Vector3.ZERO, smat, Vector3(0, yaw, 0))
+			_streaks.append({"node": st, "w": w, "u": rng.randf(), "v": rng.randf_range(-0.85, 0.85), "h": rng.randf_range(0.3, 1.6)})
+
+func _process(dt: float) -> void:
+	if winds.is_empty():
+		return
+	# 畫面效果（不影響戰局）：風扇轉、流線往下風飄
+	for fan in get_node("Winds").get_children():
+		if fan.name.begins_with("Fan"):
+			var hub := fan.get_node_or_null("Hub") as Node3D
+			if hub:
+				hub.rotation.z += dt * 9.0
+	for s2 in _streaks:
+		var w: Dictionary = s2.w
+		var a: Vector2 = w.a
+		var b: Vector2 = w.b
+		var dir: Vector2 = w.dir
+		s2.u = fmod(float(s2.u) + dt * 7.0 / a.distance_to(b), 1.0)
+		var c: Vector2 = a.lerp(b, s2.u) + Vector2(-dir.y, dir.x) * float(w.hw) * float(s2.v)
+		var nd := s2.node as Node3D
+		nd.position = Vector3(c.x, height_at(c.x, c.y) + float(s2.h), c.y)
+		var fade := sin(PI * float(s2.u))
+		nd.scale = Vector3(1, 1, maxf(fade, 0.05))
+
+## 指揮官第二階段的援兵從哪裡出現（沒有 = []）
+func reinforce_spawns() -> Array:
+	return STAGES[stage].get("reinforce", [])
+
 var gate_pos := Vector2.ZERO     # 城門中心（牆線上）
 var gate_dir := Vector2.ZERO      # 從要塞中心指向城門（往外）
 var fort_towers: Array = []       # [{node, pos, radius, height}]
@@ -110,22 +248,37 @@ const CANNON_SCALE := 1.9
 const CANNON_YAW0 := PI * 0.5     # 一開始砲口朝東
 
 func _ready() -> void:
-	var th := _gate_theta()
-	gate_pos = _ellipse(th)
-	gate_dir = (gate_pos - FORT_C).normalized()
 	hero_start = FORT_HERO_START
 	# 小關：2-1 只有一個農夫；2-2 三個農夫；2-3 三個農夫加指揮官（共用同一張場地）
 	# 平常照存檔從還沒過的小關開始；--fortstage=N 可指定（自動測試用）
 	stage = clampi(preload("res://levels/fort/fort_progress.gd").fort_stages() + 1, 1, 3)
 	if Engine.has_meta("fort_stage"):   # 地圖上選的小關（或在要塞裡按 F1~F3 切換）
-		stage = clampi(int(Engine.get_meta("fort_stage")), 0, 3)
+		stage = clampi(int(Engine.get_meta("fort_stage")), 0, 4)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--fortstage="):
-			stage = clampi(int(a.substr(12)), 0, 3)
+			stage = clampi(int(a.substr(12)), 0, 4)
+	if stage == 3:
+		# 2-3 的西院往西加寬（東邊的牆線和通道不動），容得下更多守衛
+		FORT_C = Vector2(-4.0, -3.0)
+		FORT_RX = 21.0
+		# 城門移到西南角：家豪一進門就得穿過西半邊「井」字巡邏的守衛，才到得了東邊的 X 和通道
+		GATE_X = -15.0
+	var th := _gate_theta()
+	gate_pos = _ellipse(th)
+	gate_dir = (gate_pos - FORT_C).normalized()
+	if stage == 3:
+		var out := gate_pos + gate_dir * 7.0
+		hero_start = Vector3(out.x, 0.0, out.y)
+		var oc := gate_pos + gate_dir * 5.5
+		OUTER_YARD = Rect2(oc.x - 5.5, gate_pos.y - 0.8, 11.0, 10.0)   # 上緣蓋過門洞，門口才不會有走不過去的縫
 	farmer_routes = stage_routes(stage)
-	east = stage >= 3
-	stage_name = ["教學　從背後偷襲", "第 1 小關　學大砲", "第 2 小關　三座炮塔", "第 3 小關　指揮官的院子"][stage]
-	stage_goal = ["目標：打倒守衛（正面衝過去會被他先踢）", "目標：打倒兩個農夫（炮塔可以不管）", "目標：拿下三座炮塔（撞倒或佔領）", "目標：拿下炮塔、打倒農夫和指揮官"][stage]
+	east = stage == 3
+	stage_name = ["教學　從背後偷襲", "第 1 小關　學大砲", "第 2 小關　三座炮塔", "第 3 小關　指揮官的院子", "第 4 小關　風口"][stage]
+	stage_goal = ["目標：打倒守衛（正面衝過去會被他先踢）", "目標：打倒兩個農夫（炮塔可以不管）", "目標：拿下三座炮塔（撞倒或佔領）", "目標：打倒指揮官（3 點血），路上的守衛可以避開或打倒", "目標：打倒所有守衛"][stage]
+	for w in STAGES[stage].get("winds", []):
+		var a: Vector2 = w.a
+		var b: Vector2 = w.b
+		winds.append({"a": a, "b": b, "hw": float(w.hw), "dir": (b - a).normalized()})
 	demo_rock_start = null      # 這關沒有示範石頭
 	tower_chain = false         # 炮塔不是骨牌：被巨石撞到就順著巨石的方向倒
 	_rng.seed = world_seed
@@ -155,6 +308,8 @@ func _ready() -> void:
 	_build_fort_grass()
 	_build_farm_forest()
 	_build_side_gate()
+	if not winds.is_empty():
+		_build_winds()
 	if stage == 0:
 		_build_tutorial_props()
 	_build_fort_characters()
@@ -264,7 +419,7 @@ func _ellipse(theta: float) -> Vector2:
 	return FORT_C + Vector2(FORT_RX * cos(theta), FORT_RZ * sin(theta))
 
 func _gate_theta() -> float:
-	return acos(clampf(GATE_X / FORT_RX, -1.0, 1.0))   # sin > 0：南邊
+	return acos(clampf((GATE_X - FORT_C.x) / FORT_RX, -1.0, 1.0))   # sin > 0：南邊
 
 ## 橢圓的「半徑比例」：中心 0、牆線 1（2-3 是兩個院子取比較近的那個）
 func fort_e(x: float, z: float) -> float:
@@ -404,6 +559,8 @@ func _pass_route(from: Vector3, to: Vector3) -> Vector3:
 
 ## 把點拉回遊玩範圍內（城牆裡或門外空地），並推離土坡和高台
 func clamp_play(p: Vector3) -> Vector3:
+	if on_plateau(p.x, p.z):
+		return p   # 已經在高台頂上（爬梯子或被大砲射上去的）
 	var q := p
 	if not in_play(q.x, q.z):
 		# 拉回橢圓內
@@ -435,9 +592,9 @@ func _build_fort_characters() -> void:
 	var posts: Array = []
 	for r in farmer_routes:
 		posts.append(r.route[0])
-	if stage >= 3:
+	if stage == 3:
 		posts.append(boss_post)   # 最後一個是指揮官（暫時沿用第一關老闆的模型和行為）
-	chars.setup_multi(self, FORT_HERO_START, posts, stage >= 3)
+	chars.setup_multi(self, hero_start, posts, stage == 3)
 
 func _forest_rect() -> Rect2:
 	var r := Rect2(FORT_C.x - FORT_RX - 9.0, FORT_C.y - FORT_RZ - 9.0, FORT_RX * 2.0 + 18.0, FORT_RZ * 2.0 + 30.0)
@@ -447,7 +604,7 @@ func _forest_rect() -> Rect2:
 
 func _road_dist(p: Vector2) -> float:
 	# 從門外一路到中庭的土路
-	var a := Vector2(-5.0, 18.0)
+	var a := Vector2(hero_start.x, hero_start.z) + gate_dir * 2.5
 	var b := gate_pos
 	var c := FORT_C
 	var best := INF
@@ -809,6 +966,19 @@ func reset_cannon() -> void:
 func on_boss_platform(p: Vector3) -> bool:
 	return east and Vector2(p.x, p.z).distance_to(PLATFORM_C) < PLATFORM_R + 0.4
 
+## 站在高台的台頂上嗎（台頂可以走，邊緣的陡坡不行）
+func on_plateau(x: float, z: float) -> bool:
+	return east and Vector2(x, z).distance_to(PLATFORM_C) < PLATFORM_R - 0.25
+
+func walkable(x: float, z: float) -> bool:
+	return super(x, z) or on_plateau(x, z)
+
+## 高台的梯子：[梯子腳（地上）, 爬上去之後站的地方（台頂邊緣）]；沒有高台 = []
+var plat_ladder_foot := Vector2.ZERO
+var plat_ladder_top := Vector2.ZERO
+func platform_ladder() -> Array:
+	return [plat_ladder_foot, plat_ladder_top] if east else []
+
 # ---------------------------------------------------------------- 指揮官高台
 
 func _build_platform() -> void:
@@ -817,26 +987,38 @@ func _build_platform() -> void:
 	add_child(node)
 	var c := PLATFORM_C
 	var y := height_at(c.x, c.y)
-	# 指揮官自己的大砲（第二階段推出來）、旗子、帳篷頂
+	# 梯子在南面（朝院子、朝東院大砲那一邊）：從地上斜靠到台頂邊緣
+	var face := (Vector2(R2_C.x - 2.0, R2_C.y + 9.0) - c).normalized()   # 從高台中心指向梯子
+	plat_ladder_foot = c + face * (PLATFORM_R + 1.5)
+	plat_ladder_top = c + face * (PLATFORM_R - 0.9)
+	var lh := Node3D.new()
+	lh.name = "PlatformLadder"
+	node.add_child(lh)
+	var foot_y := height_at(plat_ladder_foot.x, plat_ladder_foot.y)
+	lh.position = Vector3(plat_ladder_foot.x, foot_y - 0.05, plat_ladder_foot.y)
+	lh.rotation.y = atan2(face.x, face.y)
+	var rise := y - foot_y + 0.6
+	lh.rotation.x = -atan2(1.4, rise)   # 往高台那邊斜靠
+	_ladder(lh, Vector3.ZERO, sqrt(rise * rise + 1.4 * 1.4))
+	# 指揮官自己的大砲（擺設）、旗子放在後面（北邊）
+	var back := -face
 	var big := _model(M_PIRATE + "cannon-mobile.glb")
-	big.position = Vector3(c.x - 1.0, y - 0.05, c.y + 0.6)
-	big.rotation.y = atan2(R2_C.x - c.x, R2_C.y - c.y)
+	big.position = Vector3(c.x + back.x * 3.6 - 1.2, y - 0.05, c.y + back.y * 3.6)
+	big.rotation.y = atan2(face.x, face.y)
 	big.scale = Vector3.ONE * 1.5
 	node.add_child(big)
 	var fl := _model(M_CASTLE + "flag-wide.glb")
-	fl.position = Vector3(c.x + 1.6, y - 0.05, c.y - 1.4)
+	fl.position = Vector3(c.x + back.x * 4.2 + 1.6, y - 0.05, c.y + back.y * 4.2)
 	fl.scale = Vector3.ONE * 3.0
 	node.add_child(fl)
-	for k in 3:
-		var cr := _model(M_PIRATE + "crate.glb")
-		cr.position = Vector3(c.x + 1.8 - k * 0.2, y - 0.05 + k * 0.0, c.y + 0.8 + k * 1.1)
-		cr.rotation.y = k * 0.6
-		cr.scale = Vector3.ONE * 0.9
-		node.add_child(cr)
+	# 台頂上的木箱：會擋路、也會擋住指揮官的視線，家豪可以躲在後面繞過去
+	var side := Vector2(face.y, -face.x)
+	for cp in [c + side * 2.6 + face * 1.6, c - side * 2.4 + face * 0.6, c + side * 1.2 - face * 2.4]:
+		_place_model(node, M_PIRATE + "crate.glb", Vector3(cp.x, 0, cp.y), cp.x * 0.7, 1.1, 0.7)
 	# 指揮官的位置（之後放 Boss）
-	var post := _box(node, Vector3(0.9, 0.08, 0.9), Vector3(c.x + 0.4, y + 0.04, c.y - 0.4), _toon(Color(0.8, 0.2, 0.18)))
+	var post := _box(node, Vector3(0.9, 0.08, 0.9), Vector3(c.x - face.x, y + 0.04, c.y - face.y), _toon(Color(0.8, 0.2, 0.18)))
 	post.name = "BossPost"
-	boss_post = Vector3(c.x + 0.4, 0, c.y - 0.4)
+	boss_post = Vector3(c.x - face.x, 0, c.y - face.y)
 
 # ---------------------------------------------------------------- 寶箱
 
@@ -859,16 +1041,21 @@ func _build_props() -> void:
 	add_child(node)
 	# 中庭的木箱、砲彈堆
 	var crates := [Vector3(-3.5, 0, 2.5), Vector3(-2.6, 0, 3.4), Vector3(3.0, 0, -6.0), Vector3(-7.0, 0, -7.5)]
+	var balls := [Vector3(-8.2, 0, 0.6), Vector3(-8.0, 0, 1.1), Vector3(-8.6, 0, 1.0)]
+	var ballista := Vector3(2.8, 0, 4.2)
 	if east:
-		crates += [Vector3(24.0, 0, 4.0), Vector3(24.8, 0, 4.9), Vector3(35.0, 0, -6.0)]
+		# 2-3：守衛的巡邏路線（井字、X）和家豪從西南城門往東的路上都不放東西，擺設往旁邊挪
+		crates = [Vector3(-3.0, 0, -5.5), Vector3(-2.2, 0, -6.3), Vector3(0.5, 0, -8.5), Vector3(-17.0, 0, -6.0),
+			Vector3(21.5, 0, 7.0), Vector3(22.4, 0, 7.6), Vector3(21.5, 0, -10.0)]
+		balls = [Vector3(-18.2, 0, -3.0), Vector3(-18.0, 0, -2.5), Vector3(-18.6, 0, -2.6)]
+		ballista = Vector3(0.0, 0, 7.0)
 	for i in crates.size():
 		_place_model(node, M_PIRATE + "crate.glb", crates[i], i * 0.9, 1.0, 0.7)
-	var balls := [Vector3(-8.2, 0, 0.6), Vector3(-8.0, 0, 1.1), Vector3(-8.6, 0, 1.0)]
 	for b in balls:
 		_place_model(node, M_PIRATE + "cannon-ball.glb", b, 0.0, 1.4)
 	# 攻城武器當裝飾（人類的軍械庫）
 	_place_model(node, M_CASTLE + "siege-catapult.glb", Vector3(-4.5, 0, -10.5), 0.5, 1.8, 1.6)
-	_place_model(node, M_CASTLE + "siege-ballista.glb", Vector3(2.8, 0, 4.2), -0.6, 1.6, 1.0)
+	_place_model(node, M_CASTLE + "siege-ballista.glb", ballista, -0.6, 1.6, 1.0)
 
 func _build_fort_grass() -> void:
 	var spots: Array[Vector3] = []
@@ -913,7 +1100,7 @@ func _place_player() -> void:
 ## 進場的三個鏡頭（battle.gd 播）：入口推進 → 西南邊俯瞰 → 東北邊俯瞰
 func intro_shots() -> Array:
 	var c := Vector3(12.0, 0.0, -5.0) if east else Vector3(0.0, 0.0, -3.0)
-	var hint: String = ["提示：在守衛背後撒飼料，家豪會繞過去，從後面偷襲", "提示：在大砲口前撒飼料，把家豪射上炮塔", "提示：三座炮塔各有不同的拆法", "提示：小心背火藥桶的自爆農夫——搶先啄倒他就不會爆；指揮官的高台要用大砲射上去"][stage]
+	var hint: String = ["提示：在守衛背後撒飼料，家豪會繞過去，從後面偷襲", "提示：在大砲口前撒飼料，把家豪射上炮塔", "提示：三座炮塔各有不同的拆法", "提示：趁指揮官看別處時讓家豪爬梯子偷襲，或用東院的大砲砸他；打掉兩點血他會發怒", "提示：在風帶裡丟香蕉皮，滑倒的守衛會被吹著撞倒下風的人；巨石放進風裡會自己滾"][stage]
 	var g := Vector3(gate_pos.x, 0, gate_pos.y)
 	var out := Vector3(gate_dir.x, 0, gate_dir.y)
 	var sw := Vector3(-26, 24, 20) if not east else Vector3(-22, 32, 26)
