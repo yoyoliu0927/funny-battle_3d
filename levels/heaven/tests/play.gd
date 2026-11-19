@@ -111,6 +111,17 @@ func _go() -> void:
 	print("---------------- 結果：%s（%.1f 秒）" % [{"win": "過關", "lose": "失敗"}.get(String(bt.outcome), "沒結束"), bt.time])
 	for c in bt._checklist():
 		print("  %s %s" % ["★" if got.has(c.id) else "☆", c.text])
-	if String(bt.outcome) == "lose" and bt.has_method("_defeat_tip"):
-		print("  失敗卡上的提示：%s" % bt._defeat_tip())
+	if String(bt.outcome) == "lose":
+		# 跟遊戲裡失敗卡同一套：照抓到家豪的是誰給提示；時機差一點的話說香蕉皮該往哪邊挪
+		var who := String(bt._caught_by)
+		var tip: String = bt._defeat_tip()
+		if who != "" and bt._defeat_tip_for(who) != "":
+			tip = bt._defeat_tip_for(who)
+		var miss := String(bt._miss_text)
+		if miss != "":
+			var late := miss.contains("晚")
+			var mw := miss.substr(0, miss.find("晚") if late else miss.find("早"))
+			tip = ("香蕉皮往%s那邊挪一點" % mw) if late else ("香蕉皮離%s遠一點" % mw)
+		print("  失敗的原因：%s" % (("被%s%s" % [who, "吹走了" if who == "陸吾" else ("擋住了（沒放飼料）" if who == "唱盤" else "抓住了")]) if who != "" else "時間到"))
+		print("  失敗卡上的提示：%s" % tip)
 	quit()

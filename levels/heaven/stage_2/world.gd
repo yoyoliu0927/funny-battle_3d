@@ -58,8 +58,18 @@ func _ice_configure() -> void:
 		{"type": "pavilion", "pos": Vector3(7.0, 0, -15.6), "yaw": 0.5, "scale": 0.9},
 		{"type": "house", "pos": Vector3(20.5, 0, -13.6), "yaw": -0.2},
 		# ---- 西南角：臨街的木樓（正面朝大街）、大銀杏
-		{"type": "house", "pos": Vector3(-11.0, 0, 5.2), "yaw": 1.5708, "scale": 1.05},
-		{"type": "ginkgo", "pos": Vector3(-8.6, 0, 9.6), "yaw": 0.7, "scale": 0.9},
+		{"type": "house", "pos": Vector3(-13.6, 0, 6.2), "yaw": 1.5708, "scale": 1.0},
+		{"type": "ginkgo", "pos": Vector3(-10.6, 0, 10.8), "yaw": 0.7, "scale": 0.8},
+		# ---- 外圈再一排房子（遠景不要是一片空地）
+		{"type": "house", "pos": Vector3(-20.0, 0, -23.0), "yaw": 0.3, "scale": 1.1},
+		{"type": "house", "pos": Vector3(-8.0, 0, -25.5), "yaw": 0.0, "scale": 1.2},
+		{"type": "tower", "pos": Vector3(9.0, 0, -26.0), "yaw": 0.0, "scale": 1.0},
+		{"type": "house", "pos": Vector3(21.0, 0, -23.0), "yaw": -0.3, "scale": 1.1},
+		{"type": "house", "pos": Vector3(29.0, 0, -10.0), "yaw": -1.2, "scale": 1.1},
+		{"type": "house", "pos": Vector3(28.0, 0, 12.0), "yaw": -1.9, "scale": 1.0},
+		{"type": "house", "pos": Vector3(-21.0, 0, 17.0), "yaw": 2.2, "scale": 1.0},
+		{"type": "house", "pos": Vector3(-34.0, 0, 9.0), "yaw": 1.6, "scale": 1.1},
+		{"type": "house", "pos": Vector3(-35.0, 0, -18.0), "yaw": 1.2, "scale": 1.2},
 		{"type": "house", "pos": Vector3(-18.0, 0, 3.4), "yaw": 3.1416},
 		{"type": "ginkgo", "pos": Vector3(-17.5, 0, 11.5), "yaw": 2.0, "scale": 1.3},
 		# ---- 東南角：落葉堆旁邊的大銀杏、木樓退後一點

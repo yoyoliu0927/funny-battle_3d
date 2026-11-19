@@ -15,7 +15,7 @@ const VIEWS := {
 const SOLVE := {
 	1: [["banana", -6.0, -4.0], ["banana", -5.0, -6.67], ["rock", 2.4, -12.0]],
 	2: [["banana", -6.0, -6.5], ["banana", 5.5, -6.25]],
-	3: [["banana", -7.0, -6.2], ["banana", -8.0, -2.5], ["banana", -6.0, -8.0], ["bait", 0.0, -11.8]],
+	3: [["banana", -9.0, -1.75], ["banana", -3.53, 1.65], ["bait", 0.0, -11.8]],
 }
 
 func _initialize() -> void:

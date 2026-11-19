@@ -4,6 +4,7 @@ shader_type spatial;
 render_mode unshaded, blend_add, cull_disabled, shadows_disabled, depth_draw_never, fog_disabled;
 
 uniform float strength = 0.62;
+uniform float feather = 1.0;      // 0＝不畫羽毛的條紋（小小的鳥影用）
 varying vec3 lp;
 
 void vertex() {
@@ -13,8 +14,8 @@ void vertex() {
 void fragment() {
 	float flow = 0.5 + 0.5 * sin(lp.y * 5.0 - TIME * 4.0 + abs(lp.x) * 2.0);
 	// 羽毛：從中線往兩邊一道一道
-	float feather = 0.62 + 0.38 * smoothstep(0.2, 0.8, 0.5 + 0.5 * sin(abs(lp.x) * 13.0 - lp.y * 4.0));
+	float fth = 0.62 + 0.38 * smoothstep(0.2, 0.8, 0.5 + 0.5 * sin(abs(lp.x) * 13.0 - lp.y * 4.0));
 	vec3 c = mix(vec3(1.0, 0.36, 0.05), vec3(1.0, 0.78, 0.30), flow);
 	c = mix(c, vec3(1.0, 0.92, 0.62), smoothstep(0.75, 1.0, flow) * 0.5);
-	ALBEDO = c * feather * strength;
+	ALBEDO = c * mix(1.0, fth, feather) * strength;
 }

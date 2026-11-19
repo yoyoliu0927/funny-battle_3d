@@ -28,9 +28,9 @@ void fragment() {
 	float sep = (1.0 - smoothstep(0.0, aw, abs(cell - 0.035))) * step(0.17, r) * step(r, 0.83);
 	// 一道繞著轉的光
 	float sweep = pow(0.5 + 0.5 * sin(a * 6.2831853 - TIME * 0.7), 10.0);
-	float body = 0.10 + 0.10 * sweep + 0.35 * lit;
+	float body = 0.10 + 0.10 * sweep + 0.10 * lit;
 	float v = body + lines * 0.9 + tick * tick_band * 0.28 + sep * 0.6;
 	float cam_d = length(VERTEX);
 	float nearfade = fade_near > 0.0 ? smoothstep(fade_near * 0.5, fade_near, cam_d) : 1.0;
-	ALBEDO = gold * v * strength * (1.0 + 1.2 * lit) * nearfade;
+	ALBEDO = gold * v * strength * (1.0 + 0.3 * lit) * nearfade;
 }

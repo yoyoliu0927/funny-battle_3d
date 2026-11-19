@@ -17,10 +17,14 @@ const GAZE_HALF := 1.1         # 左右各多寬
 const INHALE := 0.4            # 陸吾吸一口氣的時間（這段時間內進來的人一起吹走）
 const BOSS_SPEED := 1.6        # 大老闆和阿金走路的速度
 const DISC_R := 1.2            # 飼料離唱盤中心多近算「放在唱盤上」
-const DISC_WAIT := 6.0         # 人都解決了、家豪卻站在唱盤前面不動：幾秒後算失敗
+const DISC_WAIT := 2.5         # 人都解決了、家豪卻站在唱盤前面不動：幾秒後算失敗
 
 var luwu_awake := true
+var _beam_label: Label3D
+var _pile_labels: Array = []
 var _inhale := -1.0            # 陸吾吸氣吸了幾秒（-1＝沒在吸）
+var _blow_tail := -1.0         # 吹完之後那一口氣的尾勁還剩幾秒
+var _breath_n := 0             # 這一口氣吹走幾個工人
 var _victims: Array = []       # 這一口氣要吹走的人
 var disc_fed := false          # 唱盤上有沒有放飼料（第 3 關）
 var _disc_node: Node3D
@@ -73,10 +77,17 @@ func _level_setup() -> void:
 	_gaze_line = _mesh_node(m)
 	if not _luwu().is_empty():
 		_gaze_label = _tag("陸吾")
-	for d in _doors():
-		_door_labels.append(_tag("畫門"))
+		_beam_label = _tag("金光")
+	# 只有一對門就叫「畫門」；兩對以上寫甲乙丙丁（甲乙一對、丙丁一對，地上的光也是一對一個顏色）
+	var dn := _doors().size()
+	for di in dn:
+		_door_labels.append(_tag("畫門" if dn <= 2 else "畫門" + "甲乙丙丁戊己"[di]))
 	if _needs_turntable():
 		_disc_label = _tag("還差一步")
+	for p in world.snow_piles:
+		var pl := _tag(_word("pile_word", "落葉堆"))
+		pl.position = ground(p) + Vector3(0, 1.9, 0)
+		_pile_labels.append(pl)
 
 ## 地上的小字牌（跟冰雪島「薄冰」的牌子同一種）
 func _tag(text: String) -> Label3D:
@@ -95,6 +106,8 @@ func _tag(text: String) -> Label3D:
 
 func _level_reset() -> void:
 	super()
+	_blow_tail = -1.0
+	_breath_n = 0
 	luwu_awake = true
 	_inhale = -1.0
 	_victims.clear()
@@ -295,6 +308,18 @@ func _terrain_slide(f: Fighter, dir: Vector3, start: Vector3) -> Dictionary:
 	var segs: Array = [[pos]]
 	var res := {}
 	var through := 0
+	# 還沒出發、紅線第一段的方向是哪：滑的人如果沿著同一條線從他背後追上來，一定撞得到（走的比滑的慢）
+	var lanes := {}
+	if phase == Phase.PREPARE:
+		for o in enemies:
+			if o == f or not o.alive() or o.data.get("guard", o.get_meta("guard", false)):
+				continue
+			var m: Array = effective_route(o, null).main
+			if m.size() >= 2:
+				var d0: Vector3 = (m[1] as Vector3) - (m[0] as Vector3)
+				d0.y = 0.0
+				if d0.length() > 0.2:
+					lanes[o] = d0.normalized()
 	for i in 900:
 		var r := slide_step(f, pos, dir, snow, SIM_DT, enemies)
 		snow = r.snow
@@ -303,6 +328,9 @@ func _terrain_slide(f: Fighter, dir: Vector3, start: Vector3) -> Dictionary:
 			for o in enemies:
 				if o != f and o.alive() and o.state in ["guard", "idle", "patrol"] and o.data.get("guard", o.get_meta("guard", false)) \
 						and flat_dist(r.pos, o.pos) < HIT_R:
+					blocker = o
+			for o in lanes:
+				if blocker == null and flat_dist(r.pos, (o as Fighter).pos) < HIT_R and (lanes[o] as Vector3).dot(Vector3(dir.x, 0, dir.z).normalized()) > 0.96:
 					blocker = o
 			if blocker != null:
 				res = {"kind": "person", "pos": pos, "who": blocker}
@@ -418,7 +446,27 @@ func _gaze_corners() -> Array:
 		ground(c + n * GAZE_FAR + side * GAZE_HALF), ground(c + n * GAZE_FAR - side * GAZE_HALF)]
 
 func _step_luwu(dt: float) -> void:
-	if _luwu().is_empty() or not luwu_awake:
+	if _luwu().is_empty():
+		return
+	# 家豪已經被抓走了：陸吾不再吹（不然旁邊站開的人會在失敗畫面被吹走）
+	if bird.state == "lifted" or bird.data.get("held", false):
+		return
+	if not luwu_awake:
+		# 那一口氣的尾勁：剛吹完的半秒內，跟在後面滑進金光的工人一起被吹走（被撞歪、晚一點到的同伴）。家豪不算。
+		if _blow_tail > 0.0:
+			_blow_tail -= dt
+			for f in enemies:
+				if f.alive() and not f.data.get("sunk", false) and not f.data.has("blown") and f.air < 0.5 and f.state == "kslide" and in_gaze(f.pos):
+					f.data.blown = 0.0
+					f.data.blow_dir = (_luwu().face as Vector3).normalized()
+					f.hp = 0.0
+					f.set_state("dead")
+					log_event("%s也被陸吾那一口氣吹走了" % f.name)
+					if f.get_meta("boss", false):
+						mark("boss_blown")
+					_breath_n += 1
+					if _breath_n >= 2:
+						mark("luwu_two")
 		return
 	# 誰在視線裡（走進去的、滑進去的、撲進去的都算；已經出局的不算）
 	for f in enemies:
@@ -460,6 +508,8 @@ func _step_luwu(dt: float) -> void:
 			mark("luwu_blow")
 			if f.get_meta("boss", false):
 				mark("boss_blown")
+	_breath_n = 0 if _victims.has(bird) else _victims.size()
+	_blow_tail = 0.5
 	if _victims.size() >= 2 and not _victims.has(bird):
 		mark("luwu_two")
 	pop_label("呼——！", ground(_luwu().pos) + n * 2.0 + Vector3(0, 3.0, 0), Color(1.0, 0.95, 0.7), 1200)
@@ -650,8 +700,8 @@ func toast(text: String, dur: float) -> void:
 
 func _defeat_tip_for(who: String) -> String:
 	match who:
-		"陸吾": return "牠只吹第一個到的"
-		"唱盤": return "牠只會跟著飼料走"
+		"陸吾": return "陸吾只吹一口氣：讓別人先走進金光"
+		"唱盤": return "黃線只到唱盤前面：唱盤上要放飼料"
 	return super(who)
 
 ## 泡在雲洞裡的人不會結霜
@@ -675,14 +725,31 @@ func _draw_gaze() -> void:
 	var q := _gaze_corners()
 	var pulse := 0.5 + 0.5 * sin(_clock * 3.0)
 	var hot := _inhale >= 0.0
-	var fill := Color(1.0, 0.36, 0.2, 0.42) if hot else Color(1.0, 0.86, 0.36, 0.22 + 0.08 * pulse)
+	# 一道從陸吾眼前照出去的金光：靠近牠的地方最濃，一波一波往外推（吸氣的時候變橘紅）
 	var up := Vector3(0, 0.075, 0)
-	for v in [q[0], q[1], q[2], q[0], q[2], q[3]]:
-		_v(fill, (v as Vector3) + up)
+	var gl := _luwu()
+	var gn: Vector3 = gl.face
+	var gs := Vector3(-gn.z, 0, gn.x)
+	var gc: Vector3 = gl.pos
+	var strips := 9
+	for s in strips:
+		var t0 := float(s) / strips
+		var t1 := float(s + 1) / strips
+		var wave := 0.5 + 0.5 * sin(_clock * 4.0 - float(s) * 1.1)
+		var a0 := lerpf(0.66, 0.30, t0) + 0.12 * wave
+		var col := Color(1.0, 0.34, 0.12, a0) if hot else Color(1.0, 0.70, 0.08, a0)
+		var d0 := lerpf(GAZE_NEAR, GAZE_FAR, t0)
+		var d1 := lerpf(GAZE_NEAR, GAZE_FAR, t1)
+		var c0 := ground(gc + gn * d0 - gs * GAZE_HALF) + up
+		var c1 := ground(gc + gn * d0 + gs * GAZE_HALF) + up
+		var c2 := ground(gc + gn * d1 + gs * GAZE_HALF) + up
+		var c3 := ground(gc + gn * d1 - gs * GAZE_HALF) + up
+		for v in [c0, c1, c2, c0, c2, c3]:
+			_v(col, v)
 	var ring: Array = [q[0], q[1], q[2], q[3], q[0]]
 	var k := _px(q[0]) * 1.35
-	_flow(ring, Color(0.75, 0.16, 0.10, 1.0), maxf(0.075, 2.4 * k), 0.085, 0.5, 0.35, _clock * 0.5)
-	_flow(ring, Color(1.0, 0.95, 0.72, 1.0), maxf(0.045, 1.4 * k), 0.095, 0.5, 0.35, _clock * 0.5)
+	_flow(ring, Color(0.72, 0.34, 0.02, 1.0), maxf(0.085, 2.6 * k), 0.085, 0.5, 0.35, _clock * 0.5)
+	_flow(ring, Color(1.0, 0.93, 0.50, 1.0), maxf(0.05, 1.5 * k), 0.095, 0.5, 0.35, _clock * 0.5)
 	# 黃線在視線裡的那一段：紅色
 	if phase == Phase.PREPARE or bird.alive():
 		var pts: Array = [bird.pos]
@@ -712,18 +779,25 @@ func _update_tags() -> void:
 		_gaze_label.visible = prep and luwu_awake
 		if _gaze_label.visible:
 			var l := _luwu()
-			_gaze_label.position = ground((l.pos as Vector3) + (l.face as Vector3) * (GAZE_FAR + 0.4)) + Vector3(0, 0.9, 0)
+			_gaze_label.position = ground(l.pos as Vector3) + Vector3(0, 2.9, 0)       # 名牌掛在陸吾身上
+	if _beam_label:
+		_beam_label.visible = prep and luwu_awake
+		if _beam_label.visible:
+			var l2 := _luwu()
+			_beam_label.position = ground((l2.pos as Vector3) + (l2.face as Vector3) * (GAZE_FAR + 0.5)) + Vector3(0, 0.7, 0)
 	var ds := _doors()
 	for i in _door_labels.size():
 		var lb: Label3D = _door_labels[i]
 		lb.visible = prep and i < ds.size()
 		if lb.visible:
 			lb.position = (ds[i].pos as Vector3) + Vector3(0, 4.3, 0)
+	for pl in _pile_labels:
+		(pl as Label3D).visible = prep
 	if _disc_label:
 		_disc_label.visible = prep and not disc_fed
 		if _disc_label.visible:
 			var lastp: Vector3 = ground(path.back()) if not path.is_empty() else bird.pos
-			_disc_label.position = lastp + Vector3(1.6, 0.9, 0)
+			_disc_label.position = lastp + Vector3(-2.2, 0.9, 0)
 
 # ================================================================== 全章收尾
 
@@ -732,8 +806,78 @@ func _make_finale_card() -> Control:
 	var panel := super()
 	for l in panel.find_children("*", "Label", true, false):
 		if String((l as Label).text).contains("完成"):
-			(l as Label).text = "丹穴山　完成！"
+			(l as Label).text = "山海畫卷　全破！"
 	return panel
+
+## 這一章先不顯示家豪的血量（使用者 2026-11-19 的要求）：道具欄旁邊那張愛心紙片不蓋
+func _build_hero_card(_layer: CanvasLayer, _hb: Vector2) -> void:
+	pass
+
+## 大老闆：黑帽金邊、深紫西裝（跟後面黃帽的阿金分得出來）
+const BOSS_LOOK := {"hat": Color("23232c"), "hat2": Color("ffc93a"), "suit": Color("4a3378"), "skin": Color("f1bf98"), "hair": Color("2a1c14")}
+
+func _setup_mini(f: Fighter, i: int) -> void:
+	if f.name != "大老闆":
+		super(f, i)
+		return
+	var rig := style_mini(f.node, BOSS_LOOK, "大老闆")
+	if rig.is_empty():
+		return
+	rig.unit = (rig.skel as Skeleton3D).global_transform.basis.get_scale().y
+	_rigs[f] = rig
+	if f.anim:
+		for a in ["idle", "walk", "sprint"]:
+			if f.anim.has_animation(a):
+				f.anim.get_animation(a).loop_mode = Animation.LOOP_LINEAR
+
+## 名牌：大老闆的寫上「不怕滑」，而且掛高一點，不跟旁邊的阿金疊在一起
+func _update_intents() -> void:
+	super()
+	for f in enemies:
+		if f.get_meta("boss", false) and _intents.has(f):
+			var l: Label3D = _intents[f]
+			if l.visible:
+				l.text = "大老闆（不怕滑）"
+				l.position += Vector3(0, 0.85, 0)
+
+## 掉進洞裡的人：仙境的水不冰，不發抖——泡在裡面暈頭轉向、慢慢地浮沉（星洞裡是飄著慢慢晃）
+func _mini_state(f: Fighter) -> Array:
+	var st := super(f)
+	if String(st[0]) == "sunk":
+		return ["sunk", "dizzy"]
+	return st
+
+func _tick_sunk(f: Fighter, dt: float) -> void:
+	super(f, dt)
+	f.yaw = float(f.data.get("sunk_yaw", f.yaw))        # 不抖
+
+func _level_visuals() -> void:
+	super()
+	var astral := String(world.get("mood")) == "astral"
+	for i in enemies.size():
+		var f: Fighter = enemies[i]
+		var rig = _rigs.get(f)
+		if rig == null or not f.data.get("sunk", false) or f.node == null:
+			continue
+		if _finale_t >= 0.0 and f.data.has("fin"):
+			continue
+		var t := _clock * 2.0 + float(i) * 1.7
+		# 把冰雪島加的抖動拿掉，換成慢慢地浮沉
+		f.node.global_position += Vector3(-sin(_clock * 63.0) * 0.03, sin(t) * (0.09 if astral else 0.045), 0)
+		if astral:
+			f.node.rotation.z = sin(t * 0.6) * 0.22
+		pose_mini(rig, {
+			"torso": Vector3(0.08, 0, sin(t * 0.5) * 0.05),
+			"head": Vector3(-0.18 + cos(t * 1.2) * 0.12, 0, sin(t * 1.2) * 0.2),
+			"arm-left": Vector3(0.3, -1.45, 0.45 + sin(t) * 0.08),
+			"arm-right": Vector3(0.3, 1.45, -0.45 - sin(t) * 0.08),
+		})
+	# 特寫鏡頭貼著畫門的時候，先把那扇門藏起來（不然木架會擋掉半個畫面）
+	var cut := _cut_cam != null and _cut_cam.current
+	for d in _doors():
+		var dn = d.get("node")
+		if dn != null and is_instance_valid(dn):
+			(dn as Node3D).visible = not (cut and _cut_cam.global_position.distance_to((d.pos as Vector3) + Vector3(0, 1.6, 0)) < 4.2)
 
 ## 冰雪島收尾時有企鵝滑去撞人，仙境沒有
 func _plan_bumps() -> void:
@@ -756,8 +900,8 @@ func _start_finale() -> void:
 	_finale_shots.a_on = false
 	_finale_shots.dj_pos = disc + Vector3(2.4, 1.9, 4.6)
 	_finale_shots.dj_look = disc + Vector3(0, 1.25, 0)
-	_finale_shots.c_pos = disc + Vector3(-1.8, 2.0, 10.5)
-	_finale_shots.c_look = disc + Vector3(0.9, 4.4, 0)
+	_finale_shots.c_pos = disc + Vector3(-1.6, 2.6, 8.2)
+	_finale_shots.c_look = disc + Vector3(0.7, 4.0, 0)
 	_finale_update()
 
 ## 收尾播放中按 Enter：先跳到卡片，卡片出來之後再按才回地圖
@@ -774,6 +918,7 @@ func _finale_update() -> void:
 	if not sh.has("dj_pos"):
 		return
 	var t := _finale_t
+	world.set("_fin_t", t)             # 場地那邊的演出（唱盤、鳳凰、百鳥）跟著同一個時間
 	_cut_cam.make_current()
 	_cut_t = 99.0
 	if t < HFIN_DJ:
@@ -798,9 +943,13 @@ func _finale_update() -> void:
 		_cut_cam.look_at(b_pos + dirb * 60.0, Vector3.UP)
 		_cut_look = b_look
 	else:
+		# 家豪在鳳凰的胸口，浮在半空；鏡頭慢慢往後退
+		var c_pos: Vector3 = sh.c_pos
+		var c_look: Vector3 = sh.c_look
+		var back := (c_pos - c_look).normalized()
 		_cut_cam.fov = 56.0
-		_cut_cam.global_position = sh.c_pos
-		_cut_cam.look_at(sh.c_look, Vector3.UP)
+		_cut_cam.global_position = c_pos + back * minf((t - HFIN_WIDE) * 0.4, 2.2)
+		_cut_cam.look_at(c_look, Vector3.UP)
 		_cut_look = _finale_bird + Vector3(0, 1.2, 0)
 	if t >= HFIN_LINE and not _finale_said:
 		_finale_said = true
@@ -818,9 +967,9 @@ func _bird_visuals(vcam: Camera3D) -> void:
 	var cam_p: Vector3 = _finale_shots.dj_pos if t < HFIN_DJ else (_finale_shots.b_pos if t < HFIN_WIDE else _finale_shots.c_pos)
 	var d := cam_p - _finale_bird
 	var bob := absf(sin(t * 9.2)) * 0.10 if t < HFIN_DJ else 0.0
-	var rise := clampf((t - HFIN_DJ) / 2.4, 0.0, 1.0)
-	n.global_position = _finale_bird + Vector3(0, bob + 0.5 * rise * rise, 0)
-	n.rotation = Vector3(0.10 * sin(t * 9.2) if t < HFIN_DJ else -0.12 * rise, atan2(d.x, d.z), 0.16 * sin(t * 4.6) if t < HFIN_DJ else 0.0)
+	var up: float = world.fin_rise(t) if world.has_method("fin_rise") else 0.0
+	n.global_position = _finale_bird + Vector3(0, bob + up + (0.12 * sin(t * 2.2) if up > 0.1 else 0.0), 0)
+	n.rotation = Vector3(0.10 * sin(t * 9.2) if t < HFIN_DJ else -0.10, atan2(d.x, d.z), 0.16 * sin(t * 4.6) if t < HFIN_DJ else 0.0)
 	n.visible = true
 
 ## 工人：跟冰雪島一樣，多幾個可以寫的欄位（_enemy_specs() 裡用）

@@ -38,7 +38,8 @@ uniform float ink_lines = 0.0;    // 地面上水墨的勾線（像畫在紙上�
 uniform int walk_style = 0;       // 1＝星空長廊：深色的路面、兩邊發光的金邊、一路往前流動的箭頭
 uniform vec3 walk_body : source_color = vec3(0.17, 0.17, 0.27);
 uniform vec3 mist_c : source_color = vec3(1.0, 0.76, 0.34);
-uniform float mist = 0.0;         // 地面上飄的金色霧氣
+uniform float mist = 0.0;         // 地面上飄的霧氣
+uniform float mist_far = 0.0;     // 1＝霧只在遠處（近處的地面保持乾淨）
 
 varying vec3 wpos;
 varying vec3 wnrm;
@@ -239,7 +240,7 @@ void fragment() {
 	if (mist > 0.0) {
 		float m1 = texture(grain_tex, p * 0.018 + vec2(TIME * 0.006, TIME * 0.004)).r;
 		float m2 = texture(grain_tex, p * 0.041 - vec2(TIME * 0.008, 0.0) + 0.37).r;
-		mist_k = smoothstep(0.38, 0.72, m1 * 0.6 + m2 * 0.4) * mist * (0.35 + 0.65 * smoothstep(10.0, 60.0, cam_d));
+		mist_k = smoothstep(0.38, 0.72, m1 * 0.6 + m2 * 0.4) * mist * mix(0.35 + 0.65 * smoothstep(10.0, 60.0, cam_d), smoothstep(30.0, 70.0, cam_d), mist_far);
 		mist_k *= (1.0 - jade) * (1.0 - walk * 0.6);
 	}
 	float solid = max(jade, on_st);

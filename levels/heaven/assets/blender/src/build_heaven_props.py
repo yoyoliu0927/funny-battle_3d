@@ -942,9 +942,11 @@ def build_disc_and_rings():
     # 鳳凰金光：一片展翅的剪影（朝 -Y 的平面），結局時從家豪身上展開
     clear()
     glow = mat("phoenix", (1.0, 0.8, 0.3), 0.5, emit=(1.0, 0.8, 0.3))
-    half = [(0.0, 0.25), (0.10, 0.55), (0.06, 0.80), (0.0, 0.95), (0.14, 0.86), (0.30, 0.74), (0.62, 0.90), (1.05, 1.22), (1.55, 1.38), (2.05, 1.34),
-            (1.72, 1.12), (2.0, 1.02), (1.60, 0.88), (1.85, 0.72), (1.42, 0.62), (1.58, 0.42), (1.12, 0.40), (0.80, 0.22), (0.42, 0.14),
-            (0.36, -0.20), (0.60, -0.90), (0.50, -1.50), (0.30, -1.0), (0.22, -1.75), (0.08, -1.1), (0.0, -1.95)]
+    # 正面展翅：頭上三根翎、兩片有羽毛缺口的大翅膀、三條長尾（中間最長，兩邊往外捲）
+    half = [(0.0, 2.05), (0.05, 1.80), (0.16, 1.98), (0.13, 1.74), (0.17, 1.62), (0.10, 1.48), (0.16, 1.36), (0.45, 1.42), (0.95, 1.66), (1.50, 1.98),
+            (2.05, 2.16), (2.55, 2.10), (2.20, 1.88), (2.46, 1.74), (2.02, 1.60), (2.24, 1.42), (1.76, 1.34), (1.92, 1.14), (1.44, 1.10), (1.52, 0.90),
+            (1.06, 0.92), (0.62, 0.74), (0.34, 0.50), (0.30, 0.18), (0.62, -0.30), (1.02, -0.86), (1.18, -1.40), (1.02, -1.78), (0.98, -1.40),
+            (0.78, -0.92), (0.44, -0.50), (0.24, -0.30), (0.20, -1.20), (0.12, -2.00), (0.0, -2.60)]
     pts = half + [(-x, z) for (x, z) in reversed(half[1:-1])]
     me = bpy.data.meshes.new("Phoenix")
     bm = bmesh.new()
@@ -965,8 +967,8 @@ def build_plum():
     for variant in ("a", "b"):
         clear()
         bark = mat("bark_ink", (0.16, 0.12, 0.12), 0.9)
-        red = mat("plum_red", (0.88, 0.10, 0.18), 0.85)
-        red2 = mat("plum_pink", (0.99, 0.36, 0.42), 0.85)
+        red = mat("plum_red", (0.80, 0.03, 0.09), 0.85)
+        red2 = mat("plum_pink", (0.95, 0.16, 0.26), 0.85)
         snow = mat("snow_cap", (0.96, 0.98, 1.0), 0.9)
         lean = 0.4 if variant == "a" else -0.32
         path = [Vector((0, 0, 0)), Vector((lean * 0.5, 0.05, 0.7)), Vector((-lean * 0.35, -0.05, 1.35)), Vector((lean * 0.5, 0.05, 1.95)), Vector((lean * 0.2, 0, 2.5))]
@@ -1052,27 +1054,38 @@ def build_stall():
 
 
 def build_astral():
-    # 星碑：一塊立著的深色琉璃板，金框，兩面刻滿發光的金字
+    # 星碑：圓拱頂的深色琉璃碑，金邊，碑額一個圓印，下面三行大字（每個字是兩三筆，像刻上去的古字）
     clear()
     P = palette()
     glass = mat("star_glass", (0.08, 0.10, 0.24), 0.25)
     box((1.9, 0.9, 0.22), (0, 0, 0.11), P["stone_dark"], "Plinth", 0.04)
     box((1.6, 0.6, 0.16), (0, 0, 0.30), P["gold"], "Plinth2", 0.03)
-    box((1.36, 0.14, 3.3), (0, 0, 2.03), glass, "Slab", 0.02)
+    box((1.36, 0.14, 2.6), (0, 0, 1.68), glass, "Slab", 0.02)
+    cyl(0.68, 0.14, (0, 0, 2.98), glass, "Arch", 32, rot=(math.radians(90), 0, 0))
     for sx in (-0.70, 0.70):
-        box((0.07, 0.18, 3.36), (sx, 0, 2.03), P["glow_gold"], "Frame", 0.01)
-    for z in (0.38, 3.70):
-        box((1.47, 0.18, 0.07), (0, 0, z), P["glow_gold"], "Frame", 0.01)
+        box((0.07, 0.18, 2.62), (sx, 0, 1.68), P["glow_gold"], "Frame", 0.01)
+    box((1.47, 0.18, 0.07), (0, 0, 0.38), P["glow_gold"], "Frame", 0.01)
+    for k in range(13):
+        a0 = math.pi * k / 12
+        a1 = math.pi * (k + 1) / 12
+        if k < 12:
+            am = (a0 + a1) / 2
+            box((0.20, 0.18, 0.07), (math.cos(am) * 0.70, 0, 2.98 + math.sin(am) * 0.70), P["glow_gold"], "ArchFrame", 0.01, rot=(0, -(am - math.pi / 2), 0))
     rnd = random.Random(21)
     for side in (-1, 1):
-        for col in range(6):
-            x = -0.5 + col * 0.2
-            z = 3.5
-            while z > 0.62:
-                ln = rnd.choice((0.07, 0.10, 0.14, 0.14))
-                if rnd.random() < 0.9:
-                    box((0.085, 0.02, ln), (x, side * 0.078, z - ln / 2), P["glow_gold"], "Glyph", 0.004)
-                z -= ln + 0.05
+        torus(0.30, 0.03, (0, side * 0.078, 2.98), P["glow_gold"], "Seal", rot=(math.radians(90), 0, 0), seg=24, minor=5)
+        box((0.26, 0.02, 0.05), (0, side * 0.078, 2.98), P["glow_gold"], "SealBar", 0.004)
+        box((0.05, 0.02, 0.30), (0, side * 0.078, 2.98), P["glow_gold"], "SealBar", 0.004)
+        for col in range(3):
+            x = -0.40 + col * 0.40
+            z = 2.42
+            while z > 0.72:
+                # 一個字：一橫、一豎或一撇、有時加一點
+                box((0.24, 0.02, 0.045), (x, side * 0.078, z - 0.03 - rnd.uniform(0, 0.06)), P["glow_gold"], "Glyph", 0.004)
+                box((0.045, 0.02, 0.20), (x + rnd.uniform(-0.07, 0.07), side * 0.078, z - 0.13), P["glow_gold"], "Glyph", 0.004, rot=(0, rnd.uniform(-0.5, 0.5), 0))
+                if rnd.random() < 0.6:
+                    box((0.16, 0.02, 0.045), (x + rnd.uniform(-0.04, 0.04), side * 0.078, z - 0.22), P["glow_gold"], "Glyph", 0.004)
+                z -= 0.36
     export("star_stele")
     # 紋章盤：平放的一塊圓牌（半徑 1），深色的底、金色的邊；中間的字或紋由 Godot 貼
     clear()
@@ -1087,10 +1100,81 @@ def build_astral():
     export("medallion")
 
 
+# ------------------------------------------------------------------ 仙境的氛圍：浮在半空的仙山（底下收尖，上面有松和小亭，邊上一道瀑布）、仙鶴
+def build_celestial():
+    clear()
+    P = palette()
+    rock = mat("ink_rock", (0.30, 0.38, 0.40), 0.95)
+    rock2 = mat("ink_rock_light", (0.50, 0.58, 0.58), 0.95)
+    moss = mat("peak_moss", (0.30, 0.56, 0.46), 0.9)
+    fall = mat("lantern_glow_fall", (0.92, 0.98, 1.0), 0.5, emit=(0.80, 0.92, 1.0))
+    needle = mat("pine_leaf", (0.10, 0.36, 0.34), 0.85)
+    bark = mat("bark_ink", (0.20, 0.17, 0.16), 0.9)
+    r2 = random.Random(9)
+    # 山體：上面寬、往下收成尖（三塊疊起來）
+    for i, (cx, cy, R, top, bot) in enumerate(((0, 0, 3.2, 0.0, -6.0), (2.2, 0.6, 1.7, -0.4, -3.6), (-1.9, -0.8, 1.5, 0.6, -2.8))):
+        pts = []
+        for k in range(60):
+            a = r2.uniform(0, math.tau)
+            t = r2.random() ** 0.7
+            z = top + (bot - top) * t
+            rr = R * (1.0 - t) ** 0.75 * r2.uniform(0.7, 1.0) + 0.05
+            pts.append((cx + math.cos(a) * rr, cy + math.sin(a) * rr, z))
+        for k in range(14):
+            a = k * math.tau / 14
+            pts.append((cx + math.cos(a) * R * r2.uniform(0.85, 1.0), cy + math.sin(a) * R * r2.uniform(0.85, 1.0), top + r2.uniform(-0.1, 0.25)))
+        setmat(hull(pts, "Peak%d" % i), rock if i != 1 else rock2, False)
+    # 山頂：一片青苔、兩個小山頭
+    local_blob([((0, 0, 0.25), (2.9, 2.7, 0.35)), ((0.9, 0.5, 0.8), (1.2, 1.1, 0.8)), ((-1.2, -0.4, 1.0), (1.0, 0.9, 1.1))], 0.16, 4, 3.0, 0.08, moss, "Moss", ratio=0.3)
+    # 兩棵斜松
+    for j, (bx, by, lean) in enumerate(((1.6, -0.9, 0.6), (-0.4, 1.3, -0.5))):
+        path = [Vector((bx, by, 0.5)), Vector((bx + lean * 0.4, by, 1.5)), Vector((bx + lean * 1.0, by, 2.4))]
+        setmat(tube(path, [0.14, 0.10, 0.05], 6, "Trunk%d" % j), bark, True)
+        local_blob([((bx + lean * 1.0, by, 2.55), (1.0, 0.8, 0.2)), ((bx + lean * 0.3, by + 0.3, 2.0), (0.7, 0.6, 0.16))], 0.09, 3, 5.0 + j, 0.03, needle, "Pad%d" % j, ratio=0.45)
+    # 小亭子
+    for sx in (-0.4, 0.4):
+        for sy in (-0.4, 0.4):
+            cyl(0.05, 0.9, (-1.2 + sx, -0.4 + sy, 2.5), P["red"], "Col", 6)
+    poly_roof(4, 0.95, 0.5, 0.18, 2.95, P["tile"], "Roof", rot=math.radians(45))
+    for o in bpy.context.collection.objects:
+        if o.name.startswith("Roof"):
+            o.location.x += -1.2
+            o.location.y += -0.4
+    ball(0.08, (-1.2, -0.4, 3.5), 1.0, P["gold"], "Finial", None, amp=0.0, sub=2)
+    # 瀑布：從山邊垂下去的一條白練，底下散成霧
+    box((0.5, 0.06, 5.2), (2.6, -1.9, -2.5), fall, "Fall", 0.02)
+    box((0.3, 0.05, 3.6), (2.95, -1.92, -3.4), fall, "Fall2", 0.02)
+    export("float_peak")
+    # 仙鶴：白身、黑翅尖、紅頂；兩片翅膀是獨立的節點 WingL／WingR（原點在肩膀，Godot 那邊轉它來拍翅）
+    clear()
+    white = mat("crane_white", (0.98, 0.98, 0.96), 0.8)
+    black = mat("crane_black", (0.10, 0.10, 0.12), 0.8)
+    red = mat("crane_red", (0.86, 0.12, 0.10), 0.7)
+    body = ball(0.3, (0, 0, 0), 0.7, white, "Body", None, amp=0.0, sub=2)
+    body.scale = (0.75, 1.9, 0.75)
+    setmat(tube([Vector((0, -0.45, 0.05)), Vector((0, -0.8, 0.18)), Vector((0, -1.15, 0.12))], [0.09, 0.06, 0.05], 6, "Neck"), white, True)
+    ball(0.085, (0, -1.2, 0.12), 1.0, white, "Head", None, amp=0.0, sub=2)
+    ball(0.05, (0, -1.2, 0.19), 0.6, red, "Crown", None, amp=0.0, sub=1)
+    setmat(tube([Vector((0, -1.26, 0.11)), Vector((0, -1.55, 0.08))], [0.03, 0.006], 5, "Beak"), black, True)
+    setmat(tube([Vector((0.06, 0.45, -0.05)), Vector((0.06, 1.35, -0.12))], [0.02, 0.012], 4, "LegL"), black, True)
+    setmat(tube([Vector((-0.06, 0.45, -0.05)), Vector((-0.06, 1.35, -0.12))], [0.02, 0.012], 4, "LegR"), black, True)
+    setmat(hull([(0.12, 0.35, 0.02), (-0.12, 0.35, 0.02), (0.16, 0.8, 0.0), (-0.16, 0.8, 0.0), (0, 0.6, 0.06)], "Tail"), black, False)
+    for sg, nm in ((1, "WingL"), (-1, "WingR")):
+        w = hull([(0, -0.28, 0.0), (0, 0.30, 0.0), (sg * 1.25, -0.20, 0.03), (sg * 1.30, 0.34, 0.03), (sg * 0.6, 0.0, 0.07)], nm)
+        setmat(w, white, False)
+        tip = hull([(sg * 1.25, -0.20, 0.03), (sg * 1.30, 0.34, 0.03), (sg * 1.95, 0.05, 0.02), (sg * 1.85, 0.42, 0.02), (sg * 1.6, 0.1, 0.05)], nm + "Tip")
+        setmat(tip, black, False)
+        for o in (w, tip):
+            o.location = (sg * 0.16, 0.0, 0.08)
+        tip.parent = w
+        tip.location = (0, 0, 0)
+    export("crane")
+
+
 BUILDERS = [("picture_gate", build_picture_gate), ("sky_gate", build_sky_gate), ("censer", build_censer), ("pillar", build_pillar),
             ("piles", build_piles_and_rims), ("luwu", build_luwu), ("trees", build_trees), ("pavilion", build_pavilion),
             ("corridor", build_corridor), ("house", build_house_tower), ("small", build_small), ("disc", build_disc_and_rings),
-            ("plum", build_plum), ("stall", build_stall), ("astral", build_astral)]
+            ("plum", build_plum), ("stall", build_stall), ("astral", build_astral), ("celestial", build_celestial)]
 # 後面可以接要重做的名字（不接＝全部重做）：... -- <輸出資料夾> plum stall
 want = argv[1:]
 for name, fn in BUILDERS:

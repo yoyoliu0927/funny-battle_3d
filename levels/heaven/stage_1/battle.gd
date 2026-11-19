@@ -33,7 +33,7 @@ func _defeat_tip() -> String:
 
 func _defeat_tip_for(who: String) -> String:
 	match who:
-		"守衛": return "雲階是斜的：巨石會滾"
+		"守衛": return "巨石放在守衛正後方的雲階上：開打後會滾下來"
 		"阿水": return "他的另一段通到哪？"
 	return super(who)
 

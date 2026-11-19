@@ -11,4 +11,8 @@ func _init() -> void:
 func placement_error(bt, p: Vector3) -> String:
 	if bt.world.has_method("on_stairs") and not bt.world.on_stairs(p.x, p.z):
 		return "巨石只能放在雲階上"
+	# 南天門立在雲階中間：放在門的正後方（北邊）會被門擋住滾不下去，放的時候就說，不要讓人開打後才發現
+	var gate: Vector3 = bt.world.cage
+	if String(bt.world.get("goal")) == "gate" and ((p.z < gate.z + 0.4 and absf(p.x - gate.x) < 1.38) or Vector2(p.x - gate.x, p.z - gate.z).length() < 1.7):
+		return "南天門擋著，巨石滾不下去：往旁邊放"
 	return super(bt, p)

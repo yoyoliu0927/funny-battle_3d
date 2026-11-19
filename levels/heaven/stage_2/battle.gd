@@ -26,10 +26,10 @@ func _checklist() -> Array:
 	]
 
 func _how_to() -> String:
-	return "陸吾只吹第一個走進金光的"
+	return "陸吾只吹一口氣：誰先走進金光，誰被吹走"
 
 func _defeat_tip() -> String:
-	return "牠只吹第一個到的"
+	return "陸吾只吹一口氣：讓別人先走進金光"
 
 func _defeat_tip_for(who: String) -> String:
 	match who:
