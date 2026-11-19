@@ -28,6 +28,7 @@ const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的�
 const HeartBar := preload("res://scripts/ui/heart_bar.gd")
 const TutorialPopup := preload("res://scripts/ui/tutorial_popup.gd")
 const ViewToggle := preload("res://scripts/battle/view_toggle.gd")
+const Registry := preload("res://scripts/registry.gd")
 const Progress := preload("res://scripts/progress.gd")
 const LEVEL_SELECT_SCENE := "res://scenes/level_select.tscn"
 
@@ -46,7 +47,7 @@ const FEED_EAT_TIME := 0.9
 const FEED_LINGER := 3.0       # 吃完飼料後，家豪會在原地東張西望這麼久才繼續衝
 const FEED_HEAL := 1.0         # 吃一把飼料回的血
 # 一般近戰敵人（農夫型）的預設值；每個敵人可以在 _enemy_specs() 個別改
-const ENEMY_MAX_HP := 4.0     # 家豪啄兩下就倒（PECK_DAMAGE 2.5）
+const ENEMY_MAX_HP := 2.0     # 小兵：家豪啄一下就倒（PECK_DAMAGE 2.5）；Boss 在 _enemy_specs() 另外給 "hp"
 const HEART_HP := 2.0         # 一顆愛心 = 幾點血（家豪 10 點血 = 5 顆心）
 const ALERT_RADIUS := 11.0     # 打鬥聲傳得到的距離：哪裡有人挨打，這個距離內的敵人會趕過來
 const DEFEAT_ORIGIN := Vector3(600.0, 0.0, 600.0)
@@ -129,6 +130,13 @@ var help_popup: TutorialPopup  # 按 H 打開的教學彈窗（頁面來自 _tut
 var use_view_toggle := true
 var start_beside_hero := true  # 開場把幽靈放在家豪旁邊
 var view: ViewToggle
+# 過關後直接前往同一大關的下一小關（不用回選關地圖）；最後一小關照舊停在結算。關卡不要的話在 _level_setup() 設成 false
+var auto_next := true
+const NEXT_WAIT := 3.5          # 過關後等幾秒自動出發（這段時間按空白鍵立刻出發、按 R 留下來重玩）
+var _next_t := -1.0             # -1 = 沒有要自動出發
+var _next_info := {}           # 下一小關 {id, scene, title}
+var _next_space := false
+var _next_fade: ColorRect
 # 輸了的畫面
 var defeat_room: Node3D
 var defeat_shown := false
@@ -431,6 +439,7 @@ func is_shared(i: int) -> bool:
 	return items[i].is_shared()
 
 func reset() -> void:
+	_next_t = -1.0   # 過關後按 R：留下來重玩這一關，不自動出發
 	phase = Phase.PREPARE
 	time = 0.0
 	_acc = 0.0
@@ -518,6 +527,7 @@ func _end(result: String) -> void:
 			Progress.mark_cleared(stage_id)   # 選關地圖會記得這一小關過了
 		bird.set_state("cheer")
 		bird.air = 0.0
+		_queue_next_stage()
 	else:
 		for f in enemies:
 			if f.alive():
@@ -717,6 +727,7 @@ func _step(dt: float) -> void:
 		_tick_fx(dt)
 
 func _process(dt: float) -> void:
+	_tick_next_stage(dt)
 	_tick_tutorial(dt)
 	_tick_cooldowns(dt)
 	_update_aim()
@@ -1805,6 +1816,68 @@ func _build_start_button(layer: CanvasLayer) -> void:
 			start())
 	layer.add_child(p)
 	_start_btn = p
+
+# ================================================================== 過關後前往下一小關
+
+## 同一個大關的下一小關（沒有就回傳空的）
+func _find_next_stage() -> Dictionary:
+	if stage_id == "" or not stage_id.contains("/"):
+		return {}
+	var cid := stage_id.get_slice("/", 0)
+	var n := int(stage_id.get_slice("/", 1))
+	for ch in Registry.chapters():
+		if ch.id != cid:
+			continue
+		for st in ch.stages:
+			if int(st.n) == n + 1 and String(st.scene) != "":
+				return st
+	return {}
+
+func _queue_next_stage() -> void:
+	if not auto_next or (_automated_run() and not "--nexttest" in OS.get_cmdline_user_args()):
+		return
+	_next_info = _find_next_stage()
+	if _next_info.is_empty():
+		return
+	_next_t = NEXT_WAIT
+	_next_space = true   # 剛過關時空白鍵可能還按著，要先放開一次才算
+	_show_next_countdown()
+
+## 上方的階段膠囊改成倒數：「勝利！3 秒後前往…」
+func _show_next_countdown() -> void:
+	if _phase_label == null:
+		return
+	_phase_label.text = "勝利！%d 秒後前往「%s」　空白鍵立刻出發｜R 留下來重玩" % [maxi(ceili(_next_t - 0.5), 0), _next_info.title]
+	_phase_label.visible = true
+
+func _tick_next_stage(dt: float) -> void:
+	if _next_t < 0.0:
+		return
+	if pause_menu and pause_menu.is_open:
+		return
+	var space := Input.is_physical_key_pressed(KEY_SPACE)
+	if space and not _next_space:
+		_next_t = minf(_next_t, 0.5)   # 空白鍵：直接開始轉場
+	_next_space = space
+	_next_t -= dt
+	_show_next_countdown()
+	if _next_t <= 0.5:
+		if _next_fade == null:
+			var layer := CanvasLayer.new()
+			layer.layer = 30
+			add_child(layer)
+			_next_fade = ColorRect.new()
+			_next_fade.color = Color(0, 0, 0, 0)
+			_next_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
+			_next_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			layer.add_child(_next_fade)
+		_next_fade.color.a = clampf(1.0 - _next_t / 0.5, 0.0, 1.0)
+	if _next_t <= 0.0:
+		_next_t = -1.0
+		Engine.set_meta("next_scene", _next_info.scene)
+		Engine.set_meta("stage_id", _next_info.id)
+		get_tree().paused = false
+		get_tree().change_scene_to_file("res://scenes/loading.tscn")
 
 ## 兩種視角切換（Tab）
 func _build_view_toggle() -> void:

@@ -749,6 +749,7 @@ const MELEE_SCALE := 0.6
 func _level_setup() -> void:
 	super()
 	show_tutorial = false
+	auto_next = false        # 過關後家豪沿著島上的路走到下一小關（自己的流程），不用共用的自動出發
 	if hands == null and camera:
 		hands = GodHands.new()
 		hands.name = "GodHands"

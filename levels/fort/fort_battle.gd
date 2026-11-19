@@ -26,7 +26,7 @@ signal phase_changed(phase: String)
 enum Phase { PREPARE, RUNNING, ENDED }
 
 const BIRD_MAX_HP := 10.0
-const FARMER_MAX_HP := 4.0     # 統一規則：家豪啄兩下就倒
+const FARMER_MAX_HP := 2.0     # 統一規則：小兵啄一下就倒
 const KICK_DAMAGE := 2.0
 const HEAVY_DAMAGE := 4.0
 const PECK_DAMAGE := 2.5
@@ -1203,7 +1203,10 @@ func try_cast() -> bool:
 ## 這裡能不能放這個神蹟；可以回傳空字串，不行回傳原因
 func placement_error(i: int, p: Vector3) -> String:
 	var id: String = SKILLS[i].id
-	if _ground_normal(p).y < 0.72:
+	var ny := _ground_normal(p).y
+	# 巨石本來就是「斜坡上放了會自己滾下去」，所以斜坡都可以放，只有接近垂直的崖面不行（約 65° 以上）；
+	# 飼料、香蕉皮放在太陡的地方會滑走，維持原本的限制（約 44°）
+	if ny < (0.42 if id == "rock" else 0.72):
 		return "這裡太陡了，放不住"
 	if id == "rock":
 		if not world.rock_ground(p.x, p.z):
@@ -1675,8 +1678,24 @@ func _process(dt: float) -> void:
 
 ## 家豪卡在砲管裡：砲口跟著準心轉，畫出拋物線和落點
 func _update_cannon_aim() -> void:
-	if aim_point != null:
-		cannon_target = _snap_cannon_target(_clamp_cannon_target(aim_point))
+	# 準心（或俯看時的滑鼠）直接指著敵方炮塔的塔身：射線只會打到地面、會穿過塔落在塔後面，
+	# 所以先檢查射線有沒有碰到塔，碰到就當作瞄準那座塔（下面的吸附會鎖到塔頂）
+	var ray := _aim_ray()
+	var hit_tower := _ray_hits_tower(ray[0], ray[1])
+	var raw = aim_point
+	if hit_tower >= 0:
+		var tp: Vector2 = towers[hit_tower].pos
+		raw = _ground(Vector3(tp.x, 0, tp.y))
+	_out_of_range = false
+	if raw != null:
+		var m0: Vector3 = world.cannon_muzzle()
+		_out_of_range = Vector2(raw.x - m0.x, raw.z - m0.z).length() > CANNON_RANGE + 0.3
+		cannon_target = _snap_cannon_target(_clamp_cannon_target(raw))
+		if cannon_locked:
+			_out_of_range = false
+		if _out_of_range and not _range_warned:
+			_toast("太遠了，射不到那裡（會落在紅圈）", 1.4)
+		_range_warned = _out_of_range
 	world.aim_cannon(cannon_target)
 	var m: Vector3 = world.cannon_muzzle()
 	var dist := Vector2(cannon_target.x - m.x, cannon_target.z - m.z).length()
@@ -1697,12 +1716,57 @@ func _update_cannon_aim() -> void:
 	_preview.quaternion = Quaternion(Vector3.UP, cn)
 	_preview.scale = Vector3(1.2, 1, 1.2)
 	var on_boss: bool = world.has_method("on_boss_platform") and world.on_boss_platform(cannon_target)
-	(_preview.material_override as StandardMaterial3D).albedo_color = Color(0.4, 1.0, 0.4, 0.9) if on_boss else Color(1, 0.6, 0.2, 0.85)
+	var ring_col := Color(0.4, 1.0, 0.4, 0.9) if (on_boss or cannon_locked) else Color(1, 0.6, 0.2, 0.85)
+	if _out_of_range:
+		ring_col = Color(1.0, 0.25, 0.2, 0.9)   # 超出射程：落點圈變紅（落點已經被拉回最遠的地方）
+	(_preview.material_override as StandardMaterial3D).albedo_color = ring_col
 	if cannon_locked:
 		var pulse := 1.0 + 0.12 * sin(Time.get_ticks_msec() * 0.012)
 		_preview.scale = Vector3(2.2 * pulse, 1, 2.2 * pulse)
 	if crosshair and "highlight" in crosshair:
-		crosshair.highlight = true
+		crosshair.highlight = not _out_of_range
+
+var _out_of_range := false
+var _range_warned := false
+
+## 現在瞄準用的射線 [起點, 方向]：平常是準心，俯看（Tab）時是滑鼠
+func _aim_ray() -> Array:
+	if view and view.overview:
+		return view.mouse_ray()
+	return [camera.global_position, -camera.global_basis.z]
+
+## 射線有沒有碰到還站著的敵方炮塔（把塔當成一根圓柱）；碰到回傳塔的編號，沒有回傳 -1
+func _ray_hits_tower(o: Vector3, d: Vector3) -> int:
+	var best := -1
+	var best_t := INF
+	for k in towers.size():
+		var t: Dictionary = towers[k]
+		if t.state != "stand" or t.side != "enemy" or t.gun == null:
+			continue
+		var c: Vector2 = t.pos
+		var r: float = float(t.radius) + 0.35
+		var base_y: float = (t.node as Node3D).global_position.y
+		var top_y: float = base_y + float(t.height) + 0.6
+		# 水平面上：|o.xz + s*d.xz - c| = r
+		var ox := o.x - c.x
+		var oz := o.z - c.y
+		var a := d.x * d.x + d.z * d.z
+		if a < 0.000001:
+			continue
+		var b := 2.0 * (ox * d.x + oz * d.z)
+		var cc := ox * ox + oz * oz - r * r
+		var disc := b * b - 4.0 * a * cc
+		if disc < 0.0:
+			continue
+		var sq := sqrt(disc)
+		for s in [(-b - sq) / (2.0 * a), (-b + sq) / (2.0 * a)]:
+			if s > 0.0 and s < best_t:
+				var y: float = o.y + d.y * s
+				if y >= base_y - 0.5 and y <= top_y:
+					best_t = s
+					best = k
+					break
+	return best
 
 func _tick_hud_misc(dt: float) -> void:
 	if _toast_t > 0.0:
