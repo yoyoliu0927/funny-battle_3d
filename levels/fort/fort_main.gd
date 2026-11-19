@@ -6,10 +6,10 @@ extends Node3D
 ## 每段存成一張影格表 jpg（格式見 tutorial_popup.gd），錄完就結束。
 
 ## 第幾個小關（1~3）。stage_N/stage.tscn 各自設好；0 = 沒指定（照存檔或 --fortstage）
-@export var stage := 0
+@export var stage := -1
 
 func _enter_tree() -> void:
-	if stage > 0:
+	if stage >= 0:
 		Engine.set_meta("fort_stage", stage)   # fort_world.gd 的 _ready() 會讀（這裡比它早）
 
 func _ready() -> void:

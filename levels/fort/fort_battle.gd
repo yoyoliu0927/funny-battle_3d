@@ -35,6 +35,26 @@ const FIRST_STRIKE_DMG := 2.0  # 農夫先手踢中扣的血（= 一顆心）
 ## 家豪搶先啄倒他 → 引信被啄掉、不會爆；被巨石、砲彈、大砲砸倒 → 當場爆炸（可以拿來炸別的農夫）。
 const BOMB_FUSE := 0.45        # 點引信到爆炸的時間（跟一般農夫出腳一樣快）
 const BOMB_RADIUS := 2.3       # 爆炸範圍
+## 自爆農夫踩到香蕉皮：火藥桶脫手滾到前面，摔一下引信就點著了，過一會兒在原地爆炸（他自己和旁邊的人都會被炸倒）
+const BOMB_DROP_FUSE := 1.6
+## 指揮官（2-3 高台上，3 點血），分兩個階段：
+##   第一階段：站在高台上左右掃視，看到家豪（視線扇形、會被木箱擋）就開槍——不扣血，但家豪會被嚇得飛走（常常飛下高台）。
+##     打他的辦法：趁他看別的方向爬梯子上去偷襲、躲在木箱後面繞到背後、或用大砲砸他（扣 1、頭暈，頭暈時再啄）。
+##   掉到剩 1 點血 → 第二階段：發怒改成衝撞，東院的炮塔 B 也從地底升起來。看到台頂上的家豪就蓄力衝過去，
+##     撞到扣一顆心、把他撞飛；衝空了會頭暈，這時候啄他才有用；衝刺時踩到香蕉皮會摔一跤（扣 1）。
+##   指揮官倒下，升起來的炮塔砲手就投降（算拿下）。
+const BOSS_HP := 3.0
+const DASH_WINDUP := 0.8       # 蓄力時間（地上出現紅色的衝刺路線）
+const DASH_SPEED := 8.0
+const DASH_LEN := 6.5
+const DASH_DIZZY := 1.8        # 衝空之後頭暈多久
+const DASH_DIZZY_WALL := 2.6   # 撞到木箱、或煞車在高台邊緣，頭暈更久
+const BOSS_SWEEP := 1.2        # 左右掃視的幅度（弧度）
+const BOSS_HIT_STUN := 0.9     # 被啄一下愣住的時間
+const BOSS_GUN_AIM := 0.6      # 第一階段：舉槍瞄準多久才開槍
+const BOSS_GUN_CD := 1.6       # 第一階段：開槍之後隔多久才能再開
+const TOWER_RISE_TIME := 2.2   # 第二階段：炮塔從地底升起來要多久
+const BOMB_DROP_ROLL := 1.1    # 火藥桶滾出去多遠
 const KICK_DAMAGE := 2.0
 const HEAVY_DAMAGE := 4.0
 const PECK_DAMAGE := 2.5
@@ -60,13 +80,15 @@ const HEART_HP := 2.0          # 一顆愛心 = 幾點血（家豪 10 點血 = 5
 const Progress := preload("res://scripts/progress.gd")          # 共用存檔：哪些小關過了
 const FortProgress := preload("res://levels/fort/fort_progress.gd")   # 要塞自己的存檔：教學看過了沒
 const PauseMenu := preload("res://scripts/ui/pause_menu.gd")    # 共用的暫停選單（Esc）
-const SKILLS := [
+const ALL_SKILLS := [
 	# prep = 準備階段（預先佈置）能放幾次；live = 開打後（現場）能放幾次；-1 代表不限次數
 	# 兩個次數各算各的，準備階段沒用完的不會留到現場
 	# cooldown = 現場用一次之後要等幾秒才能再用（準備階段沒有冷卻）
 	{"id": "feed", "name": "飼料", "key": "1", "prep": -1, "live": -1, "cooldown": 1.5, "radius": 0.6, "color": Color(1.0, 0.85, 0.3)},
 	{"id": "banana", "name": "香蕉皮", "key": "2", "prep": -1, "live": -1, "cooldown": 4.0, "radius": 0.5, "color": Color(1.0, 0.9, 0.25)},
 	{"id": "rock", "name": "巨石", "key": "3", "prep": 1, "live": -1, "cooldown": 8.0, "radius": 0.9, "color": Color(0.85, 0.85, 0.8)},
+	# 風（只有第 4 小關有）：開打後才能用，在準心位置朝鏡頭看的方向起一陣風
+	{"id": "wind", "name": "風", "key": "4", "prep": 0, "live": -1, "cooldown": 5.0, "radius": 2.2, "color": Color(0.75, 0.92, 1.0)},
 ]
 const PEEL_RADIUS := 0.55      # 走到香蕉皮這麼近就會踩到
 const SLIP_TIME := 3.0         # 滑倒後躺在地上的時間
@@ -81,8 +103,8 @@ const ROCK_DAMAGE_FARMER := 999.0   # 巨石撞到農夫一次就倒
 const ROCK_DAMAGE_BIRD := 4.0       # 撞到家豪會扣血，但不會一下撞死（最少留 1 滴）
 const FEED_SENSE := 10.0
 const FEED_GIVE_UP := 6.0       # 往飼料走這麼久還吃不到（被東西擋住）就放棄
-const FEED_EAT_TIME := 0.9
-const FEED_LINGER := 3.0       # 吃完飼料後，家豪會在原地意猶未盡地東張西望這麼久才繼續衝
+const FEED_EAT_TIME := 0.35    # 低頭啄一下就吃完
+const FEED_LINGER := 0.6       # 吃完飼料後在原地停一下（抬頭看一眼）就繼續衝
 const LIGHT_TIME := 5.0
 const LIGHT_HEAL := 2.0        # 每秒
 const FEED_HEAL := 1.0         # 吃一把飼料回的血
@@ -105,7 +127,13 @@ const TURRET_TURN := 1.8        # 炮塔轉向的速度（弧度/秒）：先看
 const TURRET_FACE := 0.12       # 砲管對準到這個角度以內才開始瞄準（紅圈出現）
 const TURRET_RECOIL := 0.35     # 開砲後座力的時間
 const CANNON_SNAP := 2.2        # 大砲落點離指揮官高台（或炮塔）邊緣這麼近，就自動吸過去
-const CHEST_OPEN := 1.3         # 家豪走到寶箱這麼近就會打開
+const CHEST_OPEN := 2.6         # 寶箱不會自己開：家豪在離寶箱這麼近的地方吃到飼料，才會順便把它打開
+## 風口（第 4 小關）：風帶裡走路被往下風推；滑倒的人被一路吹著滑、撞倒下風的人；巨石、掉下的火藥桶順風滾
+const WIND_WALK := 0.9          # 走路時被風推的速度（m/s）
+const WIND_SLIDE := 4.2         # 滑倒時被風吹著滑的速度
+const WIND_BARREL := 2.6        # 掉在地上的火藥桶被吹著滾的速度
+const WIND_ROCK := 6.0          # 巨石在風裡的加速度（比滾動阻力大，平地上也會被吹著滾）
+const CHEST_BONUS := 2          # 開寶箱：香蕉皮、巨石各多幾次（有次數限制的小關）
 const GOAL_STANDOFF := 4.5      # 沒有農夫可打時，家豪走到離最近的炮塔這麼遠就停下來（叫囂）
 const TURRET_FIRST := 2.5      # 開打後第一砲要等多久（第二座再晚一點）
 const SHELL_TIME := 1.0        # 砲彈飛行時間
@@ -156,6 +184,7 @@ var launch_from := Vector3.ZERO
 var launch_to := Vector3.ZERO
 var launch_dur := 1.0
 var launch_peak := 3.0
+var launch_bounced := false       # 這一發已經撞到塔身彈回來了（不再檢查碰撞）
 var launch_hurt := true           # true = 被大砲射出去（落地會摔、會砸人）；false = 自己跳下來
 var shells: Array = []            # 飛行中的砲彈 {from, to, t, node, side}
 var climb_k := -1                 # 正在爬第幾座塔的梯子（-1 = 沒在爬）
@@ -173,6 +202,7 @@ var feeds: Array = []          # {pos, node}
 var rocks: Array = []          # {path, i, node, done, hit}
 var lights: Array = []         # {pos, t, node}（舊的聖光，現在沒用到）
 var peels: Array = []          # 香蕉皮 {pos, node}
+var dropped_bombs: Array = []  # 掉在地上、引信在燒的火藥桶 {pos, t, node}
 var cooldowns: Array = []      # 每個神蹟剩下的冷卻秒數
 var no_cooldown := false       # 自動驗收用：跳過冷卻
 var _last_pos := {}            # 每個角色上一步的位置（判斷有沒有在走）
@@ -205,30 +235,50 @@ var _dialog: DialogBox
 var _napoleon_tex: Texture2D
 # 新手教學：第一次進關卡時跳出教學彈窗（左邊播示範動畫、右邊說明），H 可以再叫出來
 const TUT_PAGES := [
-	{"title": "操作方式", "controls": [["W／A／S／D", "飄移"], ["Space", "上升"], ["Shift", "下降"], ["MOUSE", "轉視角"],
+	{"id": "controls", "title": "操作方式", "controls": [["W／A／S／D", "飄移"], ["Space", "上升"], ["Shift", "下降"], ["MOUSE", "轉視角"],
 		["1／2／3", "選神蹟"], ["LMB", "施放"], ["Enter", "開打"], ["R", "重試"], ["M", "回地圖"], ["Tab", "俯看全場／回到家豪旁邊"], ["H", "再看一次說明"]],
 		"body": "你是一個飄在空中的幽靈，只能從旁觀察、偷偷降下神蹟幫家豪。
 
 準備階段先把神蹟佈置好，再按 Enter 開打。"},
-	{"title": "家豪會自己行動", "icon": preload("res://assets/ui/jiahao_portrait.png"),
+	{"id": "auto", "title": "家豪會自己行動", "icon": preload("res://assets/ui/jiahao_portrait.png"),
 		"body": "不用畫路線，家豪會自己往最近的目標衝過去。
 
 其他的，玩玩看就知道了。"},
-	{"title": "飼料", "clip": "feed", "keys": [["1", "選擇"], ["LMB", "對準地面撒下"]],
+	{"id": "feed", "title": "飼料", "clip": "feed", "keys": [["1", "選擇"], ["LMB", "對準地面撒下"]],
 		"body": "撒在地上，家豪會忍不住跑過去吃，吃一把回一點血。
 
 用它把家豪引到你想要的地方，或拖住他、讓他避開農夫。"},
-	{"title": "香蕉皮", "clip": "banana", "keys": [["2", "選擇"], ["LMB", "對準地面丟下"]],
+	{"id": "banana", "title": "香蕉皮", "clip": "banana", "keys": [["2", "選擇"], ["LMB", "對準地面丟下"]],
 		"body": "丟在路上，誰走過去踩到就會滑倒，躺在地上好一陣子。
 
 放在農夫巡邏的路線上最有效。小心，家豪自己也會踩到。"},
-	{"title": "巨石", "clip": "rock", "keys": [["3", "選擇"], ["LMB", "斜坡滾、平地擋"]],
+	{"id": "rock", "title": "巨石", "clip": "rock", "keys": [["3", "選擇"], ["LMB", "斜坡滾、平地擋"]],
 		"body": "一顆圓滾滾的大石頭。放在斜坡上會自己滾下去，一路撞倒擋路的東西；放在平地上就是一塊路障，誰都過不去。\n\n瞄準時會畫出滾動路線，撞得到的東西會亮綠色。"},
+	# 下面是各小關才有的機制：這關有、而且玩家還沒看過，才會自動跳出（_tut_pages() 挑）
+	{"id": "vision", "title": "農夫的視線",
+		"body": "農夫腳下的紅色扇形是他看得到的範圍。家豪走進去就會被發現，附近的農夫聽到打鬥聲也會圍過來。\n\n城牆、炮塔、建築會擋住視線，躲在後面就看不到。從背後偷襲，農夫會嚇一跳。"},
+	{"id": "first_strike", "title": "先攻決勝負",
+		"body": "家豪先啄到農夫，農夫一下就倒，家豪毫髮無傷；被農夫先踢到，家豪會掉一顆心（但還是打得贏他）。\n\n家豪的心比農夫少一顆，全部正面硬碰會輸。用香蕉皮、偷襲幫他搶先手。"},
+	{"id": "bomber", "title": "自爆農夫",
+		"body": "背著紅色火藥桶的農夫。走到家豪身邊就會點引信，炸到家豪掉一顆心，旁邊的農夫也會被炸倒。\n\n讓家豪搶先啄倒他，引信就熄了；用巨石或砲彈砸他，可以順便炸掉他身邊的同伴。讓他踩到香蕉皮，火藥桶會脫手，過一下就在原地爆炸。"},
+	{"id": "cannon", "title": "大砲", "keys": [["LMB", "提早發射"]],
+		"body": "在砲口前撒飼料，家豪吃完會鑽進砲管。引信燒完（或按左鍵）就把家豪射向準心指的地方，可以直接射上炮塔或高台。"},
+	{"id": "turret", "title": "炮塔",
+		"body": "塔頂的砲手看到家豪會開砲；地上出現紅圈就是要炸下來了，讓家豪動起來就躲得掉。\n\n在梯子腳下撒飼料，家豪會爬上去把砲手踢下去，炮塔就換邊幫你打人類。巨石也撞得倒炮塔。"},
+	{"id": "commander", "title": "指揮官",
+		"body": "指揮官站在高台上，有 3 點血。在梯子腳下撒飼料，家豪吃完會爬上去。一開始他看到家豪就開槍、把家豪嚇飛：趁他看別處時偷襲、躲在木箱後面繞過去，或用大砲砸他（砸中會頭暈）。
+
+打掉兩點血他就發怒，改成蓄力衝撞（地上出現紅線），炮塔也會升起來。衝空了他會頭暈，這時候啄他才有用；讓他衝過香蕉皮也會摔一跤。"},
+	{"id": "wind", "title": "風", "keys": [["4", "選擇"], ["LMB", "朝準心吹"]],
+		"body": "開打後才能用。在準心的位置，朝你看的方向吹起一陣風（2.5 秒）。\n\n風吹到炮塔，砲口會轉向下風、固定一陣子，改轟那一邊（守衛也會被自己人炸到）；風吹到停住的巨石，巨石會順風再滾起來。走在風裡的人會被推，滑倒的人會被一路吹著滑。"},
+	{"id": "chest", "title": "寶箱",
+		"body": "家豪走過去不會自己打開。在寶箱旁邊撒飼料，家豪過去吃的時候會順便打開：補滿血、神蹟冷卻全部清空；有次數限制的香蕉皮和巨石各多 2 次。"},
 ]
 var tutorial_step: int:       # 教學彈窗現在在第幾頁（-1 = 沒開）
 	get:
 		return _tut.page if _tut else -1
 var _tut_seen := false
+var _tut_fresh: Array = []     # 這次自動跳出的是哪幾頁（關掉時記成「已經學會」）
 var _tut: Node                 # 教學彈窗（scripts/tutorial_popup.gd）
 var _hud_layer: CanvasLayer
 # 換階段的通知卡（像 Mac 的通知：右上角滑進來、停一下、滑出去）
@@ -314,6 +364,8 @@ class Fighter:
 	var dud := false        # 自爆農夫被家豪啄倒或淹死：引信熄了，不會爆
 	var exploded := false
 	var bomb: Node3D        # 自爆農夫背上的火藥桶
+	var has_bomb := true    # 火藥桶還背在身上（踩到香蕉皮掉了之後就只是普通農夫）
+	var reserve := false    # 指揮官第二階段才跑來的援兵（之前不在場上）
 
 	func set_state(s: String) -> void:
 		state = s
@@ -591,6 +643,17 @@ class Hotbar extends Control:
 				_px(c, 6, 0, Color(0.4, 0.26, 0.1).darkened(dim))
 				_px(c, 1, 10, Color(0.4, 0.26, 0.1).darkened(dim))
 				_px(c, 10, 10, Color(0.4, 0.26, 0.1).darkened(dim))
+			"wind":
+				# 三道捲起來的風
+				var rows := ["....WWW.....", "...W...W....", ".......W....", "WWWWWWW.....", "............",
+					"........BB..", ".......B..B.", "..........B.", "BBBBBBBBBB..", "............", "..WWWWW.W...", ".......W...."]
+				for y in rows.size():
+					var row: String = rows[y]
+					for x in row.length():
+						if row[x] == "W":
+							_px(c, x, y, Color(0.96, 0.99, 1.0).darkened(dim))
+						elif row[x] == "B":
+							_px(c, x, y, Color(0.62, 0.86, 1.0).darkened(dim))
 
 ## 畫面中下方的對話框：左邊家豪的頭像、右邊文字，自己滑上來、停一下、再自己滑下去
 ## 可以另外帶一張圖放在右側，圖比框高，會超出框外
@@ -667,8 +730,24 @@ class DialogBox extends Control:
 
 # ------------------------------------------------------------------ 初始化
 
+## 這一小關能用的神蹟：教學關只有飼料（學「引導」），其他小關三種都有
+var SKILLS: Array = ALL_SKILLS.filter(func(sk): return sk.id != "wind")
+
 func _ready() -> void:
 	world = get_node("../World")
+	if int(world.get("stage")) == 0:
+		SKILLS = ALL_SKILLS.filter(func(sk): return sk.id == "feed")
+	elif int(world.get("stage")) == 4:
+		SKILLS = ALL_SKILLS   # 風口：多一個「風」
+	elif int(world.get("stage")) == 3:
+		# 指揮官關：香蕉皮、巨石整關各 3 次（準備階段和開打後共用），開寶箱各 +2
+		SKILLS = ALL_SKILLS.filter(func(sk): return sk.id != "wind").map(func(sk):
+			var d: Dictionary = sk.duplicate()
+			if d.id in ["banana", "rock"]:
+				d["shared"] = 3
+				d.prep = 3
+				d.live = 3
+			return d)
 	chars = world.get_node("Characters")
 	player = get_node("../Player")
 	camera = player.get_node("Head/Camera3D")
@@ -726,7 +805,7 @@ class SmokeFoe:
 func _ensure_actions() -> void:
 	var map := {
 		"battle_start": [KEY_ENTER, KEY_KP_ENTER], "battle_reset": [KEY_R], "back_to_map": [KEY_M],
-		"skill_1": [KEY_1, KEY_KP_1], "skill_2": [KEY_2, KEY_KP_2], "skill_3": [KEY_3, KEY_KP_3],
+		"skill_1": [KEY_1, KEY_KP_1], "skill_2": [KEY_2, KEY_KP_2], "skill_3": [KEY_3, KEY_KP_3], "skill_4": [KEY_4, KEY_KP_4],
 		"tutorial": [KEY_H],
 	}
 	for action in map:
@@ -771,8 +850,15 @@ func _build_fighters() -> void:
 			f.name = "老闆"
 			f.is_boss = true
 			f.max_hp = 99.0
+			if world.has_method("platform_ladder") and not world.platform_ladder().is_empty():
+				f.name = "指揮官"
+				f.max_hp = BOSS_HP
+				f.cone = _make_cone()   # 指揮官也有視線（會被台頂的木箱擋住）
 			f.start_pos = _ground(world.boss_post)
 			f.start_yaw = 0.0
+			if f.cone:
+				var lt: Vector2 = world.platform_ladder()[1]
+				f.start_yaw = _yaw_to(f.start_pos, Vector3(lt.x, 0, lt.y))   # 一開始面向梯子
 			f.route = [f.start_pos, f.start_pos]
 			f.gun = f.node.find_child("Gun", true, false)   # 胖商人模型自帶的槍
 			boss = f
@@ -799,10 +885,35 @@ func _build_fighters() -> void:
 				if f.anim.has_animation(a):
 					f.anim.get_animation(a).loop_mode = Animation.LOOP_NONE
 		farmers.append(f)
-	# 先攻規則：家豪的心 = 農夫總數 − 1（至少一顆）；這關沒有農夫就照原本的血量
-	var crew := farmers.filter(func(f): return not f.is_boss).size()
+	# 指揮官第二階段的援兵：複製一個農夫模型，平常藏起來，發怒時才從遠處跑過來
+	if boss and boss.cone and world.has_method("reinforce_spawns") and not farmers.is_empty():
+		var tmpl: Fighter = farmers[0]
+		var n := 0
+		for sp in world.reinforce_spawns():
+			n += 1
+			var f := Fighter.new()
+			f.name = "援兵%d" % n
+			f.node = tmpl.node.duplicate() as Node3D
+			chars.add_child(f.node)
+			f.reserve = true
+			f.max_hp = FARMER_MAX_HP
+			f.speed = 2.1
+			f.reach = tmpl.reach
+			f.windup = tmpl.windup
+			f.recover = tmpl.recover
+			f.start_pos = _ground(Vector3(sp.x, 0, sp.y))
+			f.route = [f.start_pos, f.start_pos]
+			var aps: Array = f.node.find_children("*", "AnimationPlayer", true, false)
+			if not aps.is_empty():
+				f.anim = aps[0]
+			farmers.insert(farmers.size() - 1, f)   # 老闆維持在最後一個
+	# 先攻規則：家豪的心 = 農夫總數 − 1（至少一顆）；這關沒有農夫就照原本的血量。援兵不算。
+	# 2-3（指揮官關）再多一顆心：路上的守衛可以避開，但關卡比較長
+	var crew := farmers.filter(func(f): return not f.is_boss and not f.reserve).size()
 	if crew > 0:
 		bird.max_hp = maxf(crew - 1, 1) * FIRST_STRIKE_DMG
+		if (boss and boss.cone) or int(world.get("stage")) == 4:
+			bird.max_hp += FIRST_STRIKE_DMG   # 指揮官關、風關：多一顆心
 	# 骨牌
 	for t in world.towers:
 		var td := {"node": t.node, "pos": t.pos, "radius": t.radius, "height": t.height,
@@ -817,8 +928,14 @@ func _build_fighters() -> void:
 		if td.gunner:
 			td["gunner_xf"] = (td.gunner as Node3D).transform
 		towers.append(td)
+	# 指揮官的炮塔：東院的炮塔一開始藏在地底，指揮官進入第二階段才升起來
+	if boss and boss.cone and world.has_method("in_east"):
+		for t in towers:
+			if t.gun and world.in_east(t.pos.x, t.pos.y):
+				t["boss_hidden"] = true
+				t["base_y"] = (t.node as Node3D).position.y
 	_tower_chain = world.get("tower_chain") != false
-	has_cannon = world.has_method("cannon_muzzle")
+	has_cannon = world.has_method("cannon_muzzle") and world.cannon_count() > 0   # 教學關沒有大砲
 	if world.barn_node:
 		_barn_xf = world.barn_node.transform
 	_demo_start = world.get("demo_rock_start")
@@ -863,6 +980,14 @@ func _build_preview() -> void:
 # ------------------------------------------------------------------ 狀態切換
 
 func reset() -> void:
+	if _cut_t >= 0.0:
+		_end_cut()
+	_death_cause = ""
+	_tower_ways.clear()
+	_shell_hit = false
+	_boss_by_cannon = false
+	_chest_used = false
+	_climb_via_cannon = false
 	var was_prep := phase == Phase.PREPARE
 	phase = Phase.PREPARE
 	time = 0.0
@@ -887,6 +1012,7 @@ func reset() -> void:
 	rocks.clear()
 	lights.clear()
 	peels.clear()
+	dropped_bombs.clear()   # 節點在 _fx_root 底下，上面已經一起清掉
 	_last_pos.clear()
 	for k in towers.size():
 		var t: Dictionary = towers[k]
@@ -906,6 +1032,20 @@ func reset() -> void:
 		if t.gunner:
 			(t.gunner as Node3D).transform = t.gunner_xf
 			(t.gunner as Node3D).visible = true
+		if t.get("boss_hidden", false):
+			t.state = "hidden"
+			(t.node as Node3D).position.y = t.base_y - float(t.height) - 3.5
+	_boss_phase = 1
+	_gun_cd = 0.0
+	_bowl.clear()
+	_bowl_n.clear()
+	_bowl_best = 0
+	gusts.clear()   # 節點在 _fx_root 底下，上面已經一起清掉
+	_wind_turret_kills = 0
+	_wind_rock_tower = false
+	for t in towers:
+		t["wind_lock"] = 0.0
+	_roar_push = false
 	shells.clear()
 	climb_k = -1
 	barn_state = "stand"
@@ -924,6 +1064,10 @@ func reset() -> void:
 		cannon_target = _default_cannon_target()
 	_fx_timed.clear()
 	_reset_chests()
+	if _dash_line:
+		_dash_line.visible = false
+	if boss:
+		_sweep_c = boss.start_yaw
 	for f in [bird] + farmers:
 		f.hp = f.max_hp
 		f.chip = 1.0
@@ -947,10 +1091,14 @@ func reset() -> void:
 		f.struck = false
 		f.dud = false
 		f.exploded = false
+		f.has_bomb = true
 		if f.bomb:
 			f.bomb.visible = true
 		f.set_state("idle")
 		_anim(f, "Idle")
+		if f.reserve:
+			f.set_state("dead")   # 援兵還沒來：不在場上
+			f.node.visible = false
 	_apply_visuals()
 	_summary_panel.visible = false
 	_hide_defeat()
@@ -965,9 +1113,13 @@ func start() -> void:
 	if phase != Phase.PREPARE:
 		return
 	phase = Phase.RUNNING
+	for i in SKILLS.size():
+		if SKILLS[i].has("shared"):
+			charges[i] = prep_charges[i]   # 共用次數：準備階段剩下的帶進開打
 	bird.set_state("charge")
 	for f in farmers:
-		f.set_state("boss" if f.is_boss else "patrol")   # 一開打就各自開始巡邏
+		if not f.reserve:
+			f.set_state("boss" if f.is_boss else "patrol")   # 一開打就各自開始巡邏
 	_log("開始")
 	_update_phase_label()
 	_refresh_slots()
@@ -983,9 +1135,10 @@ func _end(result: String) -> void:
 		if not _auto_run():   # 自動驗收不動到玩家的存檔
 			var st = world.get("stage")
 			if st != null:
-				Progress.mark_cleared("fort/%d" % int(st))   # 選關地圖：這一小關過了（旗子變綠、下一小關解鎖）
+				Progress.mark_cleared("fort/%d" % (int(st) + 1))   # 選關地圖：這一小關過了（選關的編號 = 內部小關 + 1，因為第一個是教學關 0）
 				FortProgress.mark_fort_stage(int(st))
-				_toast("第 %d 小關過關！通往下一關的門打開了" % st if st < 3 else "第 3 小關過關！要塞攻下了", 3.0)
+				_record_stars()
+				_toast(("教學過關！" if st == 0 else "第 %d 小關過關！" % st) + "通往下一關的門打開了" if st < 3 else ("第 3 小關過關！要塞攻下了" if st == 3 else "第 %d 小關過關！" % st), 3.0)
 		bird.set_state("cheer")
 		if climb_k < 0:
 			bird.air = 0.0   # 站在塔頂上過關就留在塔頂歡呼（不然會掉進塔裡面）
@@ -1004,7 +1157,7 @@ func _end(result: String) -> void:
 	_show_summary()
 	if result == "lose":
 		_summary_panel.visible = false
-		_defeat_delay = 1.6   # 先看家豪倒下，再切到晚餐畫面
+		_defeat_delay = 1.2   # 先看家豪倒下，再跳出輸了的提示卡
 	_update_phase_label()
 	phase_changed.emit("ended")
 
@@ -1096,7 +1249,7 @@ func _go_next_stage() -> void:
 	var n: int = int(world.get("stage")) + 1
 	_exit_t = -1.0
 	Engine.set_meta("fort_stage", n)
-	Engine.set_meta("stage_id", "fort/%d" % n)
+	Engine.set_meta("stage_id", "fort/%d" % (n + 1))
 	Engine.set_meta("fort_from_door", true)   # 下一小關可以知道是從門走進來的
 	get_tree().paused = false
 	get_tree().change_scene_to_file("res://levels/fort/stage_%d/stage.tscn" % n)
@@ -1107,7 +1260,7 @@ func _unhandled_input(event: InputEvent) -> void:
 	# 測試用：在要塞裡按 F1 / F2 / F3 直接重新載入 2-1 / 2-2 / 2-3
 	if event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_F1, KEY_F2, KEY_F3] and "stage" in world:
 		var n: int = [KEY_F1, KEY_F2, KEY_F3].find(event.keycode) + 1
-		Engine.set_meta("stage_id", "fort/%d" % n)
+		Engine.set_meta("stage_id", "fort/%d" % (n + 1))
 		get_tree().paused = false
 		get_tree().change_scene_to_file("res://levels/fort/stage_%d/stage.tscn" % n)
 		return
@@ -1139,6 +1292,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 		get_tree().change_scene_to_file("res://scenes/level_select.tscn")
 	elif event.is_action_pressed("tutorial"):
+		if _tut and not _tut.is_open():
+			_tut.set_pages(_tut_pages())   # H：這關用得到的每一頁都看得到（包括已經學會的）
 		_set_tut_step(0)
 	elif event.is_action_pressed("skill_1"):
 		select_skill(0)
@@ -1146,6 +1301,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		select_skill(1)
 	elif event.is_action_pressed("skill_3"):
 		select_skill(2)
+	elif event.is_action_pressed("skill_4") and SKILLS.size() > 3:
+		select_skill(3)
 	elif event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 		# 滾輪換技能：游標有沒有鎖住都可以（觸控板滑動剛觸發過就不重複算）
 		if Time.get_ticks_msec() - _pan_ms > 250:
@@ -1248,6 +1405,8 @@ func charges_left(i: int) -> int:
 	return prep_charges[i] if phase == Phase.PREPARE else charges[i]
 
 func cast(i: int, p: Vector3) -> bool:
+	if _cut_t >= 0.0:
+		return false   # 過場中不能放神蹟
 	if phase == Phase.ENDED:
 		return false
 	var prepping := phase == Phase.PREPARE
@@ -1276,6 +1435,8 @@ func cast(i: int, p: Vector3) -> bool:
 			_spawn_feed(p)
 		"banana":
 			_spawn_peel(p)
+		"wind":
+			_spawn_gust(p)
 	_refresh_slots()
 	_show_first_hint(false)
 	return true
@@ -1295,7 +1456,7 @@ func _spawn_rock(p: Vector3) -> void:
 	rocks.append({"path": path, "i": 0, "node": rock, "done": path.size() < 2, "hit": []})
 
 ## 從 start 放下巨石，預測它每個物理幀的位置（和實際滾動完全一樣，用來畫路徑）
-func simulate_roll(start: Vector3) -> PackedVector3Array:
+func simulate_roll(start: Vector3, gust: Dictionary = {}, gust_steps := 0) -> PackedVector3Array:
 	var pts := PackedVector3Array()
 	var p := Vector2(start.x, start.z)
 	var v := Vector2.ZERO
@@ -1305,6 +1466,13 @@ func simulate_roll(start: Vector3) -> PackedVector3Array:
 		var g := Vector2(world.height_at(p.x + 0.15, p.y) - world.height_at(p.x - 0.15, p.y),
 			world.height_at(p.x, p.y + 0.15) - world.height_at(p.x, p.y - 0.15)) / 0.3
 		v += -g * ROLL_GRAVITY * dt
+		var wv: Vector3 = Vector3.ZERO
+		if world.has_method("wind_at"):
+			var ww: Vector2 = world.wind_at(p.x, p.y)
+			wv = Vector3(ww.x, 0, ww.y)
+		if not gust.is_empty() and i < gust_steps:
+			wv += _gust_vec(gust, Vector3(p.x, 0, p.y))   # 神蹟「風」：只吹這麼多格
+		v += Vector2(wv.x, wv.z) * WIND_ROCK * dt   # 巨石被風吹著滾
 		var sp := v.length()
 		# 台地上（高起來的地方）幾乎沒有阻力，巨石會沿著微斜的台面一路滾到邊緣再滾下去
 		var resist := ROLL_RESIST if world.hill_bump(p.x, p.y) < 1.0 else 0.2
@@ -1421,15 +1589,17 @@ func _spawn_peel(p: Vector3) -> void:
 		flap.rotate_object_local(Vector3.FORWARD, PI * 0.5 - 0.15)
 		node.add_child(flap)
 	_fx_root.add_child(node)
-	peels.append({"pos": p, "node": node})
+	peels.append({"pos": p, "node": node, "t": 0.0})
 
 ## 走路中的角色踩到香蕉皮就滑倒（家豪和農夫都會；老闆坐著不會）
 func _tick_peels() -> void:
 	for f in [bird] + farmers:
 		var last: Vector3 = _last_pos.get(f, f.pos)
 		_last_pos[f] = f.pos
-		if peels.is_empty() or f.is_boss or not f.alive() or f.air > 0.3:
+		if peels.is_empty() or not f.alive() or f.air > 0.3:
 			continue
+		if f.is_boss and not (f.cone and f.state == "dash"):
+			continue   # 指揮官只有衝刺的時候會踩到香蕉皮
 		if f.state in ["slip", "fly", "hop", "land", "drown"]:
 			continue
 		if _flat_dist(last, f.pos) < 0.004:
@@ -1446,12 +1616,17 @@ func _tick_peels() -> void:
 					_anim(f, "Death")
 				_log("%s踩到香蕉皮滑倒了" % f.name)
 				_toast("滑倒了！", 1.2)
+				if f.is_boss:
+					f.kb_vel = _dash_dir * 4.0   # 衝刺中滑倒：往前滑一段
+					_hurt_commander(f, "%s衝刺中踩到香蕉皮，重重摔了一跤" % f.name, "slip", SLIP_TIME)
+				if f.kind == "bomber" and f.has_bomb and not f.dud:
+					_drop_bomb(f)
 				break
 
 func _spawn_light(p: Vector3) -> void:
 	var node := Node3D.new()
 	node.position = p
-	var r: float = SKILLS[2].radius
+	var r: float = ALL_SKILLS[2].radius
 	var col := MeshInstance3D.new()
 	var cyl := CylinderMesh.new()
 	cyl.top_radius = r * 0.85
@@ -1513,6 +1688,9 @@ func _tick_miracles(dt: float) -> void:
 			var t: Dictionary = towers[k]
 			if t.state == "stand" and speed >= 0.6 and Vector2(cur.x - t.pos.x, cur.z - t.pos.y).length() < t.radius + ROCK_RADIUS + 0.45:
 				_log("巨石撞倒了第 %d 座塔！" % (k + 1))
+				if r.get("wind", false):
+					_wind_rock_tower = true
+				_tower_ways[k] = "rock"
 				_toast("撞到塔了！", 1.4)
 				_topple(k, flat)
 				r.done = true
@@ -1526,7 +1704,7 @@ func _tick_miracles(dt: float) -> void:
 	for i in range(lights.size() - 1, -1, -1):
 		var l: Dictionary = lights[i]
 		l.t += dt
-		var rad: float = SKILLS[2].radius
+		var rad: float = ALL_SKILLS[2].radius
 		for f in [bird] + farmers:
 			if f.alive() and _flat_dist(f.pos, l.pos) <= rad and f.hp < f.max_hp:
 				f.hp = minf(f.hp + LIGHT_HEAL * dt, f.max_hp)
@@ -1607,6 +1785,7 @@ func _rock_hits(f: Fighter, p: Vector3, dir: Vector3) -> void:
 	if f.is_bird:
 		_log("巨石撞到家豪")
 		_toast("糟糕，撞到家豪了！", 1.8)
+		_death_cause = "rock"
 		_hit_bird(minf(ROCK_DAMAGE_BIRD, maxf(bird.hp - 1.0, 0.0)), true, p - dir)
 		return
 	f.hp = maxf(f.hp - ROCK_DAMAGE_FARMER, 0.0)
@@ -1632,6 +1811,9 @@ func _physics_process(delta: float) -> void:
 	_apply_visuals()
 
 func _step(dt: float) -> void:
+	if _cut_t >= 0.0:
+		_tick_cut(dt)   # 過場（炮塔升起）：其他東西全部暫停
+		return
 	if phase == Phase.RUNNING:
 		time += dt
 		for f in farmers:
@@ -1641,17 +1823,22 @@ func _step(dt: float) -> void:
 				_tick_farmer(f, dt)
 		# 自爆農夫被巨石／砲彈／大砲砸倒：當場爆炸（被炸倒的自爆農夫下一格也會跟著爆）
 		for f in farmers:
-			if f.kind == "bomber" and not f.alive() and not f.exploded and not f.dud:
+			if f.kind == "bomber" and f.has_bomb and not f.alive() and not f.exploded and not f.dud:
 				_bomb_explode(f)
+		_tick_dropped_bombs(dt)
 		_tick_towers(dt)
 		_tick_turrets(dt)
 		_tick_shells(dt)
 		_tick_demo_rock(dt)
 		_tick_bird(dt)
+		_tick_wind(dt)
 		_tick_miracles(dt)
 		_tick_peels()
 		_tick_chests()
-		if farmers.all(func(f): return not f.alive()) and towers_left() == 0:
+		var commander_stage: bool = boss != null and boss.cone != null
+		if commander_stage and not boss.alive():
+			_end("win")   # 指揮官關：打倒指揮官就過關（守衛和炮塔可以不管）
+		elif not commander_stage and farmers.all(func(f): return not f.alive()) and (towers_left() == 0 or not _towers_required()):
 			_end("win")
 		elif not bird.alive():
 			_end("lose")
@@ -1661,7 +1848,7 @@ func _step(dt: float) -> void:
 
 func _process(dt: float) -> void:
 	if view:
-		view.enabled = _intro_i < 0 and _exit_t < 0.0 and _exit_delay <= 0.0
+		view.enabled = _intro_i < 0 and _exit_t < 0.0 and _exit_delay <= 0.0 and _cut_t < 0.0
 	if _intro_i >= 0:
 		_tick_intro(dt)
 		_fade_near_camera(dt)
@@ -1679,6 +1866,10 @@ func _process(dt: float) -> void:
 	_fade_near_camera(dt)
 	_tick_notice(dt)
 	_tick_cooldowns(dt)
+	if _cut_t >= 0.0:
+		_preview.visible = false   # 過場中：不顯示瞄準
+		_tick_hud_misc(dt)
+		return
 	_update_aim()
 	if bird and bird.state == "cannon" and phase == Phase.RUNNING:
 		_update_cannon_aim()
@@ -1726,12 +1917,18 @@ func _update_cannon_aim() -> void:
 	var dist := Vector2(cannon_target.x - m.x, cannon_target.z - m.z).length()
 	var peak := 2.5 + dist * 0.3 + maxf(cannon_target.y - m.y, 0.0)
 	var n := 22
+	var blocked := false   # 弧線半路撞到塔身：後面的點不畫，落點圈變紅
 	for k in _dots.size():
 		var d: MeshInstance3D = _dots[k]
-		if k < n:
+		if k < n and not blocked:
 			var t := float(k + 1) / (n + 1)
+			var dp := m.lerp(cannon_target, t) + Vector3.UP * peak * 4.0 * t * (1.0 - t)
+			if _tower_wall_hit(dp) >= 0:
+				blocked = true
+				d.visible = false
+				continue
 			d.visible = true
-			d.global_position = m.lerp(cannon_target, t) + Vector3.UP * peak * 4.0 * t * (1.0 - t)
+			d.global_position = dp
 			d.scale = Vector3.ONE * (1.2 - t * 0.5)
 		else:
 			d.visible = false
@@ -1742,8 +1939,8 @@ func _update_cannon_aim() -> void:
 	_preview.scale = Vector3(1.2, 1, 1.2)
 	var on_boss: bool = world.has_method("on_boss_platform") and world.on_boss_platform(cannon_target)
 	var ring_col := Color(0.4, 1.0, 0.4, 0.9) if (on_boss or cannon_locked) else Color(1, 0.6, 0.2, 0.85)
-	if _out_of_range:
-		ring_col = Color(1.0, 0.25, 0.2, 0.9)   # 超出射程：落點圈變紅（落點已經被拉回最遠的地方）
+	if _out_of_range or blocked:
+		ring_col = Color(1.0, 0.25, 0.2, 0.9)   # 超出射程、或半路會撞到塔身：落點圈變紅（落點已經被拉回最遠的地方）
 	(_preview.material_override as StandardMaterial3D).albedo_color = ring_col
 	if cannon_locked:
 		var pulse := 1.0 + 0.12 * sin(Time.get_ticks_msec() * 0.012)
@@ -1799,6 +1996,8 @@ func _tick_hud_misc(dt: float) -> void:
 		if _toast_t <= 0.0:
 			_toast_label.text = ""
 			_toast_label.visible = false
+	_process_ko(dt)
+	_refresh_goal_panel()
 	if _defeat_delay > 0.0:
 		_defeat_delay -= dt
 		if _defeat_delay <= 0.0:
@@ -1849,7 +2048,7 @@ func _farmer_open(f: Fighter) -> bool:
 
 func _bird_targetable() -> bool:
 	# 飛行中、或已經站上塔頂時，地面上的人打不到
-	return bird.alive() and bird.state != "fly" and not (bird.state == "climb" and bird.t >= CLIMB_TIME)
+	return bird.alive() and bird.state not in ["fly", "pclimb"] and not (bird.state == "climb" and bird.t >= CLIMB_TIME)
 
 func _aggro(f: Fighter) -> void:
 	if f.aggro or not f.alive():
@@ -1908,7 +2107,8 @@ func _tick_farmer(f: Fighter, dt: float) -> void:
 				_anim(f, "Walk", 0.7)
 		"look":
 			# 停下來左右張望（偵測區會跟著掃）
-			f.yaw = f.look_yaw + sin(f.t * 2.2) * 0.9
+			# 教學關的守衛不張望：一直盯著正前方，玩家才看得懂「從旁邊、背後過去就不會被看到」
+			f.yaw = f.look_yaw if int(world.get("stage")) == 0 else f.look_yaw + sin(f.t * 2.2) * 0.9
 			if f.t >= f.pause:
 				var n := f.route.size()
 				if f.loop:
@@ -1986,6 +2186,9 @@ func _tick_boss(f: Fighter, dt: float) -> void:
 	f.t += dt
 	if not f.alive():
 		return
+	if f.cone:
+		_tick_commander(f, dt)
+		return
 	f.shoot_cd -= dt
 	# 牆會擋子彈：只有從門口看得到家豪時才會開槍
 	var in_range := bird.alive() and bird.air < 1.5 and _flat_dist(f.pos, bird.pos) <= BOSS_RANGE \
@@ -2007,6 +2210,364 @@ func _tick_boss(f: Fighter, dt: float) -> void:
 				f.shoot_cd = BOSS_COOLDOWN
 				f.set_state("boss")
 
+# ------------------------------------------------------------------ 指揮官（衝撞）
+
+var _dash_dir := Vector3.FORWARD
+var _sweep_c := 0.0            # 指揮官掃視的中心方向
+var _boss_phase := 1           # 指揮官第幾階段（1 = 開槍，2 = 衝撞）
+var _gun_cd := 0.0
+var _dash_left := 0.0
+var _dash_line: MeshInstance3D
+
+func _bird_on_plateau() -> bool:
+	return world.has_method("on_plateau") and world.on_plateau(bird.pos.x, bird.pos.z) and bird.air < 1.0
+
+## 指揮官看得到家豪嗎（家豪要在台頂上、在視線扇形裡、沒被木箱擋住）
+func _commander_sees(f: Fighter) -> bool:
+	return _bird_on_plateau() and bird.state not in ["fly", "launch", "pclimb"] and sees_bird(f)
+
+func _commander_open(f: Fighter) -> bool:
+	return f.state in ["dizzy", "slip", "startled"]
+
+func _tick_commander(f: Fighter, dt: float) -> void:
+	_apply_knockback(f, dt)
+	_gun_cd -= dt
+	match f.state:
+		"boss":
+			# 左右掃視（以一開始的方向為中心）
+			f.yaw = _sweep_c + sin(f.t * 0.9) * BOSS_SWEEP
+			if _boss_phase == 1:
+				if _gun_cd <= 0.0 and _gun_sees(f):
+					_commander_aim(f)
+			elif _commander_sees(f):
+				_commander_aim(f)
+		"gunaim":
+			# 第一階段：舉槍瞄準，時間到還看得到就開槍（家豪被嚇飛）
+			_face(f, bird.pos)
+			if f.t >= BOSS_GUN_AIM:
+				_boss_fire(f, _gun_sees(f))
+				_gun_cd = BOSS_GUN_CD
+				f.set_state("boss")
+				_sweep_c = f.yaw
+		"aim":
+			# 蓄力：轉向家豪，最後 0.25 秒鎖定方向
+			if f.t < DASH_WINDUP - 0.25:
+				_face(f, bird.pos)
+				var d := bird.pos - f.pos
+				d.y = 0.0
+				if d.length() > 0.01:
+					_dash_dir = d.normalized()
+			_show_dash_line(f, true)
+			if f.t >= DASH_WINDUP:
+				f.set_state("dash")
+				_dash_left = DASH_LEN
+				_show_dash_line(f, false)
+				_log("%s衝過來了！" % f.name)
+		"dash":
+			var step := minf(DASH_SPEED * dt, _dash_left)
+			var nxt := f.pos + _dash_dir * step
+			_dash_left -= step
+			if not world.on_plateau(nxt.x, nxt.z) or _blocked_at(nxt):
+				f.set_state("dizzy")
+				f.shoot_cd = DASH_DIZZY_WALL   # 借用：這次要暈多久
+				_log("%s煞不住，撞得頭昏眼花" % f.name)
+				_toast("指揮官頭暈了！快啄他", 1.4)
+				return
+			f.pos = _ground(nxt)
+			if _flat_dist(f.pos, bird.pos) < 1.15 and _bird_on_plateau() and _bird_targetable() and bird.state != "pclimb":
+				_death_cause = "boss"
+				_hit_bird(FIRST_STRIKE_DMG, true, f.pos - _dash_dir, f)
+				f.set_state("recover")
+				return
+			if _dash_left <= 0.0:
+				f.set_state("dizzy")
+				f.shoot_cd = DASH_DIZZY
+				_log("%s衝了個空，頭暈了" % f.name)
+				_toast("指揮官頭暈了！快啄他", 1.4)
+		"recover":
+			if f.t >= 0.8:
+				f.set_state("boss")
+				_sweep_c = f.yaw
+		"dizzy":
+			f.yaw += dt * 5.0 * maxf(0.0, 1.0 - f.t / f.shoot_cd)   # 暈得原地打轉
+			if f.t >= f.shoot_cd:
+				f.set_state("boss")
+				_sweep_c = f.yaw
+		"roar":
+			f.yaw += dt * 2.0 * sin(f.t * 20.0)   # 氣得發抖
+			if _roar_push:
+				_roar_push = false
+				_roar_knock(f)
+			if f.t >= 1.2:
+				f.set_state("boss")
+				_sweep_c = f.yaw
+		"slip", "startled":
+			var dur := SLIP_TIME if f.state == "slip" else BOSS_HIT_STUN
+			if f.t >= dur:
+				_sweep_c = f.yaw
+				if _commander_sees(f) or (_bird_on_plateau() and _flat_dist(f.pos, bird.pos) < 2.5):
+					_face(f, bird.pos)
+					_commander_aim(f)
+				else:
+					f.set_state("boss")
+
+var _roar_push := false
+
+## 怒吼震開：台頂上離指揮官 3.5 公尺內的家豪被震飛到 3.6 公尺外（還留在台頂上）
+func _roar_knock(f: Fighter) -> void:
+	var away := bird.pos - f.pos
+	away.y = 0.0
+	if not _bird_on_plateau() or away.length() >= 3.5 or bird.state in ["fly", "launch", "cannon", "pclimb", "dead"]:
+		return
+	if away.length() < 0.05:
+		away = Vector3(sin(f.yaw), 0, cos(f.yaw))   # 疊在一起：往他面前震
+	away = away.normalized()
+	var c2: Vector2 = world.PLATFORM_C
+	var cc := Vector3(c2.x, 0, c2.y)
+	var to := f.pos + away * 3.6
+	if not world.on_plateau(to.x, to.z):
+		to = cc + (to - cc).normalized() * (world.PLATFORM_R - 1.0)
+	_log("%s怒吼一聲，把家豪震開" % f.name)
+	_start_fly(_ground(to), 0.6, 0.9, "land")
+
+func _commander_aim(f: Fighter) -> void:
+	_face(f, bird.pos)
+	if _boss_phase == 1:
+		f.set_state("gunaim")
+		_log("%s看到家豪，舉槍瞄準" % f.name)
+		return
+	f.set_state("aim")
+	_log("%s看到家豪，準備衝撞" % f.name)
+
+## 第一階段開槍的條件：家豪在視線裡（台下也算，但爬梯子時被台邊擋住看不到）
+func _gun_sees(f: Fighter) -> bool:
+	return bird.alive() and bird.state not in ["fly", "launch", "pclimb", "cannon"] and sees_bird(f)
+
+## 掉到剩 1 點血：發怒，改成衝撞；東院藏在地底的炮塔升起來
+func _enter_phase2(f: Fighter) -> void:
+	_boss_phase = 2
+	# 怒吼一聲：把身邊的家豪震開（第二階段從拉開距離開始），自己也要吼完才出招
+	f.set_state("roar")
+	_show_dash_line(f, false)
+	_roar_push = true   # 下一格才把家豪震開（現在可能正在家豪出招的途中）
+	_log("%s發怒了！改成衝撞，還叫炮塔升起來" % f.name)
+	_toast("指揮官發怒了！炮塔升起來了", 2.2)
+	var cut_at: Variant = null
+	for t in towers:
+		if t.get("boss_hidden", false) and t.state == "hidden":
+			t.state = "rising"
+			t["rise_t"] = -CUT_BLEND   # 鏡頭飛過去之後才開始升
+			cut_at = t
+	if cut_at != null:
+		_start_cut(cut_at)
+	# 援兵從遠處跑過來，一出現就知道家豪在哪
+	for o in farmers:
+		if o.reserve and not o.alive() and o.hp > 0.0:
+			o.pos = o.start_pos
+			o.node.visible = true
+			o.aggro = true
+			o.set_state("walk")
+			_anim(o, "Run")
+			_puff(o.pos + Vector3.UP * 0.4, Color(0.8, 0.75, 0.65, 0.6), 6, 0.4)
+			_log("%s從遠處跑來支援" % o.name)
+
+# ---- 過場：炮塔升起來時，鏡頭切到斜上方俯看，其他東西全部暫停
+const CUT_BLEND := 0.6         # 鏡頭飛過去／飛回來的時間
+const CUT_HOLD := 0.6          # 升好之後再停一下
+var _cut_t := -1.0
+var _cut_cam: Camera3D
+var _cut_prev: Camera3D
+var _cut_from := Transform3D()
+var _cut_to := Transform3D()
+
+func _start_cut(t: Dictionary) -> void:
+	_cut_t = 0.0
+	_cut_prev = get_viewport().get_camera_3d()
+	_cut_from = _cut_prev.global_transform if _cut_prev else Transform3D()
+	var tp := Vector3(t.pos.x, world.height_at(t.pos.x, t.pos.y), t.pos.y)
+	# 從炮塔和指揮官高台中間偏南的斜上方往下看，兩個都看得到
+	var c2: Vector2 = world.PLATFORM_C if "PLATFORM_C" in world else Vector2(tp.x, tp.z)
+	var mid := tp.lerp(Vector3(c2.x, tp.y, c2.y), 0.35) + Vector3.UP * 2.5
+	var eye := mid + Vector3(-6.0, 15.0, 13.0)
+	_cut_to = Transform3D(Basis(), eye).looking_at(mid, Vector3.UP)
+	_cut_cam = Camera3D.new()
+	_cut_cam.fov = camera.fov
+	_cut_cam.far = camera.far
+	add_child(_cut_cam)
+	_cut_cam.global_transform = _cut_from
+	_cut_cam.make_current()
+	player.set_physics_process(false)
+	player.set_process_unhandled_input(false)
+	if crosshair:
+		crosshair.visible = false
+	_preview.visible = false
+
+func _tick_cut(dt: float) -> void:
+	_cut_t += dt
+	_tick_towers(dt)   # 只有升起來的炮塔（和特效）在動
+	var total := CUT_BLEND + TOWER_RISE_TIME + CUT_HOLD
+	var xf := _cut_to
+	if _cut_t < CUT_BLEND:
+		xf = _blend_xf(_cut_from, _cut_to, _cut_t / CUT_BLEND)
+	elif _cut_t > total:
+		var back: Transform3D = _cut_prev.global_transform if _cut_prev else _cut_from
+		xf = _blend_xf(_cut_to, back, (_cut_t - total) / CUT_BLEND)
+	if _cut_cam:
+		_cut_cam.global_transform = xf
+	if _cut_t >= total + CUT_BLEND:
+		_end_cut()
+
+func _blend_xf(a: Transform3D, b: Transform3D, u: float) -> Transform3D:
+	var k := clampf(u, 0.0, 1.0)
+	k = k * k * (3.0 - 2.0 * k)
+	var q := a.basis.get_rotation_quaternion().slerp(b.basis.get_rotation_quaternion(), k)
+	return Transform3D(Basis(q), a.origin.lerp(b.origin, k))
+
+func _end_cut() -> void:
+	_cut_t = -1.0
+	for t in towers:
+		if t.state == "rising":   # 中途被重試打斷：直接升好
+			t.state = "stand"
+			(t.node as Node3D).position.y = t.base_y
+			(t.node as Node3D).basis = Basis()
+	if _cut_prev and is_instance_valid(_cut_prev):
+		_cut_prev.make_current()
+	else:
+		camera.make_current()
+	if _cut_cam:
+		_cut_cam.queue_free()
+		_cut_cam = null
+	player.set_physics_process(true)
+	player.set_process_unhandled_input(true)
+	if crosshair:
+		crosshair.visible = true
+
+## 指揮官倒下：升起來的炮塔砲手投降（算拿下）
+func _commander_down() -> void:
+	for k in towers.size():
+		var t: Dictionary = towers[k]
+		if t.get("boss_hidden", false) and t.side == "enemy" and t.state in ["rising", "stand"]:
+			if t.state == "rising":
+				t.state = "stand"
+				(t.node as Node3D).position.y = t.base_y
+				(t.node as Node3D).basis = Basis()
+			t.side = "ally"
+			t.aim_t = -1.0
+			(t.warn as Node3D).visible = false
+			if t.gunner:
+				(t.gunner as Node3D).visible = false
+			_log("指揮官倒下，炮塔%s的砲手舉手投降" % _tower_name(k))
+
+## 衝刺路線的預告：地上一條紅色長條
+func _show_dash_line(f: Fighter, on: bool) -> void:
+	if _dash_line == null:
+		_dash_line = MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(1.0, 0.04, 1.0)
+		_dash_line.mesh = bm
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.albedo_color = Color(1.0, 0.15, 0.1, 0.55)
+		_dash_line.material_override = m
+		_dash_line.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		world.add_child(_dash_line)
+	_dash_line.visible = on
+	if not on:
+		return
+	# 只畫到高台邊緣或木箱為止（真的衝也會停在那裡）
+	var len := 0.0
+	while len < DASH_LEN:
+		var q := f.pos + _dash_dir * (len + 0.25)
+		if not world.on_plateau(q.x, q.z) or _blocked_at(q):
+			break
+		len += 0.25
+	var mid := f.pos + _dash_dir * (len * 0.5)
+	_dash_line.global_position = Vector3(mid.x, f.pos.y + 0.06, mid.z)
+	_dash_line.rotation = Vector3(0, atan2(_dash_dir.x, _dash_dir.z), 0)
+	var pulse := 0.5 + 0.5 * absf(sin(time * 14.0))
+	_dash_line.scale = Vector3(0.9 + 0.2 * pulse, 1.0, maxf(len, 0.1))
+
+## 家豪啄指揮官：他頭暈、滑倒、愣住、或沒看到家豪（偷襲）才打得到，否則被推開
+func _hit_commander(f: Fighter) -> void:
+	if _commander_open(f) or not sees_bird(f):
+		var sneak := not _commander_open(f)
+		f.hp = maxf(f.hp - 1.0, 0.0)
+		hit_spots.append(f.pos)
+		_noise_at(f.pos)
+		_log("家豪%s%s！（剩 %d）" % ["偷襲" if sneak else "啄中", f.name, ceili(f.hp)])
+		_toast("偷襲！" if sneak else "啄中了！", 1.0)
+		if f.hp <= 0.0:
+			f.set_state("dead")
+			_anim(f, "Death")
+			_log("%s倒下了" % f.name)
+			_commander_down()
+			return
+		if f.state != "slip":
+			f.yaw = _yaw_to(f.pos, bird.pos)
+			f.set_state("startled")
+		if _boss_phase == 1 and f.hp <= BOSS_HP - 2.0:
+			_enter_phase2(f)
+		return
+	_log("%s把家豪一把推開" % f.name)
+	var away := bird.pos - f.pos
+	away.y = 0.0
+	bird.kb_vel = (away.normalized() if away.length() > 0.01 else Vector3.BACK) * 5.0
+	bird.set_state("hop")
+	if f.state == "boss":
+		_commander_aim(f)
+
+## 指揮官被大砲砸中／滑倒摔一下：扣 1
+func _hurt_commander(f: Fighter, why: String, stun_state: String, stun: float) -> void:
+	f.hp = maxf(f.hp - 1.0, 0.0)
+	hit_spots.append(f.pos)
+	_log("%s（剩 %d）" % [why, ceili(f.hp)])
+	_show_dash_line(f, false)
+	if f.hp <= 0.0:
+		f.set_state("dead")
+		_anim(f, "Death")
+		_log("%s倒下了" % f.name)
+		_commander_down()
+		return
+	f.set_state(stun_state)
+	f.shoot_cd = stun
+	if _boss_phase == 1 and f.hp <= BOSS_HP - 2.0:
+		_enter_phase2(f)
+
+## 爬高台的梯子（飼料撒在梯子腳下）：爬上去 → 翻上台頂
+func _start_pclimb() -> void:
+	var b := bird
+	b.set_state("pclimb")
+	b.kb_vel = Vector3.ZERO
+	_log("家豪吃完飼料，順著梯子往高台上爬")
+
+func _tick_pclimb() -> void:
+	var b := bird
+	var lad: Array = world.platform_ladder()
+	var foot: Vector2 = lad[0]
+	var top: Vector2 = lad[1]
+	var c: Vector2 = world.PLATFORM_C
+	var top_y: float = world.height_at(c.x, c.y)
+	b.yaw = atan2(top.x - foot.x, top.y - foot.y)
+	if b.t < CLIMB_TIME:
+		var k := b.t / CLIMB_TIME
+		var p := foot.lerp(top.lerp(foot, 0.75), k)   # 順著斜靠的梯子往上、往裡一點
+		var gy: float = world.height_at(p.x, p.y)
+		b.pos = Vector3(p.x, gy, p.y)
+		b.air = maxf(top_y - gy, 0.0) * k
+		return
+	var s := clampf((b.t - CLIMB_TIME) / TOP_STEP, 0.0, 1.0)
+	var p2 := top.lerp(foot, 0.75).lerp(top, s)
+	var gy2: float = world.height_at(p2.x, p2.y)
+	b.pos = Vector3(p2.x, gy2, p2.y)
+	b.air = maxf(top_y - gy2, 0.0) + 0.6 * 4.0 * s * (1.0 - s)
+	if s >= 1.0:
+		b.air = 0.0
+		b.pos = _ground(Vector3(top.x, 0, top.y))
+		_log("家豪爬上了指揮官的高台")
+		_toast("家豪爬上高台了！", 1.4)
+		b.set_state("charge")
+
 func _boss_fire(f: Fighter, hit: bool) -> void:
 	_anim(f, "Gun_Shoot", 1.2)
 	var muzzle := f.pos + Vector3(0, 1.7, 0) + Vector3(sin(f.yaw), 0, cos(f.yaw)) * 0.8
@@ -2019,7 +2580,7 @@ func _boss_fire(f: Fighter, hit: bool) -> void:
 	_noise_at(f.pos)
 	# 子彈打不中、也不扣血：家豪只是被槍聲嚇得飛走（再回來也一樣）
 	hit_spots.append(bird.pos)
-	_log("老闆開槍，家豪被槍聲嚇得飛走")
+	_log("%s開槍，家豪被槍聲嚇得飛走" % f.name)
 	_toast("砰！", 0.8)
 	if _dialog:
 		_dialog.say("THERE IS NOTHING I CAN DO", _napoleon_tex)
@@ -2092,6 +2653,25 @@ func _topple(k: int, push := Vector3.ZERO) -> void:
 func _tick_towers(dt: float) -> void:
 	for k in towers.size():
 		var t: Dictionary = towers[k]
+		if t.state == "rising":
+			# 從地底轟隆隆升起來：一邊升一邊冒土煙、微微晃動
+			t.rise_t += dt
+			if float(t.rise_t) < 0.0:
+				continue
+			var u := clampf(float(t.rise_t) / TOWER_RISE_TIME, 0.0, 1.0)
+			var e := 1.0 - pow(1.0 - u, 3.0)
+			var low: float = t.base_y - float(t.height) - 3.5
+			var nd := t.node as Node3D
+			nd.position.y = lerpf(low, t.base_y, e)
+			nd.basis = Basis(Vector3.FORWARD, sin(float(t.rise_t) * 30.0) * 0.015 * (1.0 - u))
+			if int(float(t.rise_t) * 6.0) != int((float(t.rise_t) - dt) * 6.0) and u < 1.0:
+				_puff(Vector3(t.pos.x, world.height_at(t.pos.x, t.pos.y), t.pos.y), Color(0.75, 0.65, 0.5, 0.6), 6, float(t.radius) * 0.7)
+			if u >= 1.0:
+				nd.basis = Basis()
+				t.state = "stand"
+				t.cd = 4.5   # 剛升起來，砲手還在裝填：給玩家一點時間應付第一次衝撞
+				_log("炮塔%s升起來了" % _tower_name(k))
+			continue
 		if t.state != "fall":
 			continue
 		t.omega += TOWER_GRAVITY * dt
@@ -2124,6 +2704,7 @@ func _tick_towers(dt: float) -> void:
 				if q.distance_to(a.lerp(b, u)) < 1.4:
 					if f.is_bird:
 						_log("塔倒下來壓到家豪")
+						_death_cause = "tower"
 						_hit_bird(minf(3.0, maxf(f.hp - 1.0, 0.0)), true, Vector3(a.x, 0, a.y))
 					else:
 						f.hp = 0.0
@@ -2150,6 +2731,23 @@ func _tick_towers(dt: float) -> void:
 		if e.kind == "dust":
 			n2.scale = Vector3.ONE * (1.0 + e.t * 2.5)
 			n2.position.y += dt * 1.2
+		elif e.kind == "flash":
+			# 爆炸的火球：一下子脹大、變淡
+			var k: float = e.t / e.life
+			n2.scale = Vector3.ONE * lerpf(0.4, BOMB_RADIUS / 0.6, sqrt(k))
+			(e.mat as StandardMaterial3D).albedo_color.a = 0.9 * (1.0 - k)
+		elif e.kind == "smoke":
+			# 爆炸後的煙：往上飄、慢慢散開變淡
+			var k: float = e.t / e.life
+			n2.position += (e.vel as Vector3) * dt
+			e.vel = (e.vel as Vector3) * (1.0 - 1.5 * dt)
+			n2.scale = Vector3.ONE * (1.0 + k * 2.2)
+			(e.mat as StandardMaterial3D).albedo_color.a = e.a0 * (1.0 - k) * minf(e.t * 8.0, 1.0)
+		elif e.kind == "debris":
+			e.vel.y -= 12.0 * dt
+			n2.global_position += e.vel * dt
+			n2.rotate_x(dt * 11.0)
+			n2.rotate_z(dt * 7.0)
 		elif e.kind == "gunner":
 			# 被踢飛的砲手：拋物線飛出去、一邊翻滾
 			e.vel.y -= 12.0 * dt
@@ -2214,7 +2812,48 @@ func sees_bird(f: Fighter) -> bool:
 	if d < 0.01:
 		return true
 	var fwd := Vector2(sin(f.yaw), cos(f.yaw))
-	return fwd.angle_to(to.normalized()) <= VISION_HALF and fwd.angle_to(to.normalized()) >= -VISION_HALF
+	if absf(fwd.angle_to(to.normalized())) > VISION_HALF:
+		return false
+	# 中間有牆、炮塔、建築擋住就看不到
+	return _sight_len(f.pos, atan2(to.x, to.y), d) >= d - 0.05
+
+## 視線從 from 往 a 方向（yaw）最遠看得到多遠：碰到城牆、還站著的炮塔、建築就停
+func _sight_len(from: Vector3, a: float, maxd: float) -> float:
+	var o := Vector2(from.x, from.z)
+	var dir := Vector2(sin(a), cos(a))
+	var best := maxd
+	var tip := o + dir * maxd
+	for seg in world.wall_segments:
+		var t := _seg_hit(o, tip, seg[0], seg[1])
+		if t >= 0.0:
+			best = minf(best, t * maxd)
+	for c in _sight_blockers():
+		var cen: Vector2 = c[0]
+		var r: float = c[1]
+		var oc := o - cen
+		var cc := oc.length_squared() - r * r
+		if cc <= 0.0:
+			continue   # 自己就站在障礙物範圍裡（貼著牆角），不算擋住
+		var b := oc.dot(dir)
+		var disc := b * b - cc
+		if b >= 0.0 or disc < 0.0:
+			continue
+		best = minf(best, -b - sqrt(disc))
+	return maxf(best, 0.0)
+
+## 擋視線的圓形障礙物：建築、塔等（world.obstacles），被撞倒的炮塔不算
+func _sight_blockers() -> Array:
+	var fallen: Array = []
+	for t in towers:
+		if t.state != "stand":
+			fallen.append(t.pos)
+	if fallen.is_empty():
+		return world.obstacles
+	return world.obstacles.filter(func(ob):
+		for p in fallen:
+			if (ob[0] as Vector2).distance_to(p) < 0.5:
+				return false
+		return true)
 
 func _make_cone() -> MeshInstance3D:
 	var mi := MeshInstance3D.new()
@@ -2238,18 +2877,22 @@ func _draw_cone(f: Fighter, focus := true) -> void:
 		return
 	var im := f.cone.mesh as ImmediateMesh
 	im.clear_surfaces()
-	var show := f.alive() and not f.aggro and phase != Phase.ENDED
+	var show := f.alive() and not f.aggro and phase != Phase.ENDED and not (f.is_boss and f.state != "boss")
 	f.cone.visible = show
 	if not show:
 		return
-	var segs := 20
+	var segs := 36
 	var rings := 8
+	# 每個方向看得到多遠（被牆、炮塔、建築擋住的地方扇形就缺一塊）
+	var reach := []
+	for k in segs + 1:
+		reach.append(_sight_len(f.pos, f.yaw - VISION_HALF + 2.0 * VISION_HALF * float(k) / segs, VISION_RANGE))
 	var pts := []
 	for r in rings + 1:
 		var row := []
-		var rad := VISION_RANGE * float(r) / rings
 		for k in segs + 1:
 			var a := f.yaw - VISION_HALF + 2.0 * VISION_HALF * float(k) / segs
+			var rad := minf(VISION_RANGE * float(r) / rings, reach[k])
 			var x := f.pos.x + sin(a) * rad
 			var z := f.pos.z + cos(a) * rad
 			row.append(Vector3(x, world.height_at(x, z) + 0.15, z))
@@ -2302,7 +2945,7 @@ func _farmer_attack(f: Fighter) -> void:
 	# 先攻規則：沒有重踢，每個農夫只有一次先手
 	f.heavy = false
 	f.attack_n += 1
-	if f.kind == "bomber":
+	if f.kind == "bomber" and f.has_bomb:
 		f.set_state("fuse")
 		_anim(f, "Run", 1.2)
 		_log("%s點燃了引信" % f.name)
@@ -2359,14 +3002,312 @@ func _bomb_explode(f: Fighter) -> void:
 		_anim(f, "Death")
 	if f.bomb:
 		f.bomb.visible = false
-	var p := f.pos
-	_puff(p + Vector3.UP * 0.4, Color(1.0, 0.55, 0.15, 0.85), 9, 0.7)
-	_puff(p + Vector3.UP * 0.9, Color(0.3, 0.27, 0.25, 0.7), 7, 0.9)
+	_log("%s爆炸了" % f.name)
+	_blast(f.pos, f)
+
+## 爆炸特效：火球一閃、碎木片飛散、灰煙往上飄（固定的角度，不用亂數，重演一樣）
+func _explosion_fx(p: Vector3) -> void:
+	var fm := StandardMaterial3D.new()
+	fm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	fm.albedo_color = Color(1.0, 0.6, 0.15, 0.9)
+	var fl := MeshInstance3D.new()
+	var fs := SphereMesh.new()
+	fs.radius = 0.6
+	fs.height = 1.2
+	fl.mesh = fs
+	fl.material_override = fm
+	fl.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_fx_root.add_child(fl)
+	fl.global_position = p + Vector3.UP * 0.7
+	_fx_timed.append({"node": fl, "t": 0.0, "life": 0.3, "kind": "flash", "mat": fm})
+	# 煙：內圈深、外圈淺，各自往外往上飄
+	for k in 12:
+		var a := k * TAU / 12.0 + (0.3 if k % 2 else 0.0)
+		var ring := 0.5 if k % 2 else 1.0
+		var sm := StandardMaterial3D.new()
+		sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		var g := 0.22 + 0.12 * float(k % 3)
+		var a0 := 0.75
+		sm.albedo_color = Color(g, g * 0.95, g * 0.9, 0.0)
+		var mi := MeshInstance3D.new()
+		var sp := SphereMesh.new()
+		sp.radius = 0.45 + 0.1 * float(k % 3)
+		sp.height = sp.radius * 2.0
+		sp.radial_segments = 12
+		sp.rings = 6
+		mi.mesh = sp
+		mi.material_override = sm
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_fx_root.add_child(mi)
+		mi.global_position = p + Vector3(cos(a) * 0.4 * ring, 0.5 + 0.2 * float(k % 3), sin(a) * 0.4 * ring)
+		var vel := Vector3(cos(a) * 2.4 * ring, 1.6 + 0.5 * float(k % 4), sin(a) * 2.4 * ring)
+		_fx_timed.append({"node": mi, "t": 0.0, "life": 1.8 + 0.15 * float(k % 4), "kind": "smoke", "mat": sm, "vel": vel, "a0": a0})
+	# 火藥桶的碎木片
+	for k in 6:
+		var a := k * TAU / 6.0 + 0.4
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.22, 0.06, 0.12)
+		mi.mesh = bm
+		mi.material_override = _toon_mat(Color(0.78, 0.16, 0.12) if k % 2 else Color(0.45, 0.3, 0.18))
+		_fx_root.add_child(mi)
+		mi.global_position = p + Vector3.UP * 0.8
+		_fx_timed.append({"node": mi, "t": 0.0, "life": 0.9, "kind": "debris",
+			"vel": Vector3(cos(a) * 3.5, 4.5 + 0.6 * float(k % 3), sin(a) * 3.5)})
+
+# ------------------------------------------------------------------ 風口
+
+var _bowl: Dictionary = {}     # 被撞倒的人 → 這一串最早滑倒的那個
+var _bowl_n: Dictionary = {}   # 最早滑倒的那個 → 這一串總共撞倒幾個（星星條件用）
+var _bowl_best := 0
+
+func _wind(p: Vector3) -> Vector3:
+	var out := Vector3.ZERO
+	if world.has_method("wind_at"):
+		var w: Vector2 = world.wind_at(p.x, p.z)
+		out = Vector3(w.x, 0, w.y)
+	for g in gusts:
+		out += _gust_vec(g, p)
+	return out
+
+# ---- 神蹟「風」：一陣 2.5 秒的風（參考劉啟佑大關的風，改成要塞的玩法）
+#   起風那一下：風吹到的炮塔，砲口會轉向下風、固定一陣子，改轟那個方向（下風處的守衛會被自己人的砲彈炸到）；
+#              風吹到停住的巨石，巨石會順風再滾起來（撞人、撞倒炮塔）
+#   吹的那 2.5 秒：跟風口一樣，走路的人被推、滑倒的人一路滑、火藥桶順風滾
+const GUST_TIME := 2.5
+const GUST_BACK := 3.0          # 準心往上風多遠開始吹
+const GUST_LEN := 9.0           # 吹多長
+const GUST_HW := 2.2            # 半寬
+const GUST_TURRET_LOCK := 6.0   # 炮塔被吹偏後固定多久
+var gusts: Array = []           # {a, b, hw, dir, t, nodes}
+
+func _gust_vec(g: Dictionary, p: Vector3) -> Vector3:
+	var a: Vector2 = g.a
+	var b: Vector2 = g.b
+	var ab := b - a
+	var q := Vector2(p.x, p.z)
+	var t := (q - a).dot(ab) / ab.length_squared()
+	if t < 0.0 or t > 1.0:
+		return Vector3.ZERO
+	var d := (q - a.lerp(b, t)).length()
+	var hw: float = g.hw
+	if d >= hw:
+		return Vector3.ZERO
+	var dir: Vector2 = g.dir
+	var k := (1.0 - smoothstep(hw - 0.5, hw, d)) * (1.0 - smoothstep(0.9, 1.0, t))
+	return Vector3(dir.x, 0, dir.y) * k
+
+## 風從哪個方向吹：鏡頭往準心看的方向（水平）
+func _gust_dir(p: Vector3) -> Vector2:
+	var d := Vector2(p.x - camera.global_position.x, p.z - camera.global_position.z)
+	if d.length() < 0.5:
+		var f := -camera.global_basis.z
+		d = Vector2(f.x, f.z)
+	return d.normalized() if d.length() > 0.01 else Vector2(0, -1)
+
+func _spawn_gust(p: Vector3, dir_override := Vector2.ZERO) -> void:
+	var dir := dir_override.normalized() if dir_override.length() > 0.01 else _gust_dir(p)
+	var c := Vector2(p.x, p.z)
+	var g := {"a": c - dir * GUST_BACK, "b": c + dir * GUST_LEN, "hw": GUST_HW, "dir": dir, "t": 0.0, "nodes": []}
+	gusts.append(g)
+	_log("起風（%.1f, %.1f）風向（%.2f, %.2f）" % [p.x, p.z, dir.x, dir.y])
+	_gust_visual(g)
+	_puff(p + Vector3.UP * 0.5, Color(0.95, 0.75, 0.3, 0.7), 8, 0.3)   # 捲起一陣落葉
+	# 炮塔：砲口被吹向下風
+	for k in towers.size():
+		var t: Dictionary = towers[k]
+		if t.gun == null or t.state != "stand":
+			continue
+		var tp := Vector3(t.pos.x, 0, t.pos.y)
+		if _gust_vec(g, tp).length() > 0.05 or _seg_dist(c - dir * GUST_BACK, c + dir * GUST_LEN, t.pos) < GUST_HW + float(t.radius):
+			t["wind_lock"] = GUST_TURRET_LOCK
+			t["wind_dir"] = dir
+			t.aim_t = -1.0
+			(t.warn as Node3D).visible = false
+			_log("風把炮塔%s的砲口吹向下風" % _tower_name(k))
+			_toast("炮塔被風吹偏了！", 1.4)
+	# 停住的巨石：順風再滾起來
+	for r in rocks:
+		if not r.done:
+			continue
+		var node := r.node as Node3D
+		if not is_instance_valid(node):
+			continue
+		var rp := node.global_position
+		if _gust_vec(g, rp).length() < 0.05:
+			continue
+		if r.has("obs"):
+			world.obstacles.erase(r.obs)
+			r.erase("obs")
+		r.rested = false
+		r.path = simulate_roll(Vector3(rp.x, 0, rp.z), g, int(GUST_TIME / SIM_DT))
+		r.i = 0
+		r.done = r.path.size() < 2
+		r.hit = []
+		r["wind"] = true
+		if not r.done:
+			_log("風把巨石吹得滾了起來")
+
+func _seg_dist(a: Vector2, b: Vector2, q: Vector2) -> float:
+	var ab := b - a
+	var t := clampf((q - a).dot(ab) / ab.length_squared(), 0.0, 1.0)
+	return q.distance_to(a.lerp(b, t))
+
+## 風的樣子：地上一條淡藍色的帶子＋往下風飛的白線（畫面效果，不影響戰局）
+func _gust_visual(g: Dictionary) -> void:
+	var a: Vector2 = g.a
+	var b: Vector2 = g.b
+	var dir: Vector2 = g.dir
+	var yaw := atan2(dir.x, dir.y)
+	var strip := StandardMaterial3D.new()
+	strip.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	strip.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	strip.albedo_color = Color(0.75, 0.92, 1.0, 0.2)
+	g["strip_mat"] = strip
+	var n := int(a.distance_to(b))
+	for k in n:
+		var c := a.lerp(b, (k + 0.5) / n)
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(GUST_HW * 2.0, 0.02, a.distance_to(b) / n + 0.02)
+		mi.mesh = bm
+		mi.material_override = strip
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_fx_root.add_child(mi)
+		mi.global_position = Vector3(c.x, world.height_at(c.x, c.y) + 0.05, c.y)
+		mi.rotation.y = yaw
+		g.nodes.append(mi)
+	var smat := StandardMaterial3D.new()
+	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	smat.albedo_color = Color(1, 1, 1, 0.7)
+	g["streaks"] = []
+	for k in 18:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.05, 0.05, 1.4)
+		mi.mesh = bm
+		mi.material_override = smat
+		_fx_root.add_child(mi)
+		mi.rotation.y = yaw
+		g.nodes.append(mi)
+		g.streaks.append([mi, fmod(k * 0.381, 1.0), fmod(k * 0.617, 1.0) * 1.7 - 0.85, 0.3 + fmod(k * 0.29, 1.0) * 1.2])
+
+## 每一格：風的壽命、流線往下風飛、快結束時變淡
+func _tick_gusts(dt: float) -> void:
+	for i in range(gusts.size() - 1, -1, -1):
+		var g: Dictionary = gusts[i]
+		g.t += dt
+		var a: Vector2 = g.a
+		var b: Vector2 = g.b
+		var dir: Vector2 = g.dir
+		var fade := clampf((GUST_TIME - float(g.t)) / 0.5, 0.0, 1.0)
+		(g.strip_mat as StandardMaterial3D).albedo_color.a = 0.2 * fade
+		for st in g.streaks:
+			st[1] = fmod(float(st[1]) + dt * 14.0 / a.distance_to(b), 1.0)
+			var c: Vector2 = a.lerp(b, st[1]) + Vector2(-dir.y, dir.x) * GUST_HW * float(st[2])
+			var nd := st[0] as Node3D
+			nd.global_position = Vector3(c.x, world.height_at(c.x, c.y) + float(st[3]), c.y)
+			nd.scale = Vector3(1, 1, maxf(sin(PI * float(st[1])) * fade, 0.05))
+		if float(g.t) >= GUST_TIME:
+			for nd in g.nodes:
+				if is_instance_valid(nd):
+					nd.queue_free()
+			gusts.remove_at(i)
+
+func _tick_wind(dt: float) -> void:
+	_tick_gusts(dt)
+	if (not world.has_method("wind_at") or world.winds.is_empty()) and gusts.is_empty():
+		return
+	for f in [bird] + farmers:
+		if not f.alive() or f.is_boss or f.air > 0.3 or f.state in ["fly", "launch", "cannon", "climb", "pclimb", "drown"]:
+			continue
+		if not f.is_bird and f.state in ["idle", "look"]:
+			continue   # 站著不動的守衛穩住腳步，不會被風推走
+		var w := _wind(f.pos)
+		if w.length() < 0.01:
+			continue
+		var sliding: bool = f.state == "slip"
+		var nxt: Vector3 = f.pos + w * (WIND_SLIDE if sliding else WIND_WALK) * dt
+		if _fence_crossing(f.pos, nxt) != null or _wall_crossing(f.pos, nxt) != null or _blocked_at(nxt):
+			continue   # 被牆、圍欄、障礙物擋住
+		f.pos = _ground(world.clamp_play(nxt))
+		if not sliding:
+			continue
+		# 一路滑過去：撞倒下風處站著的守衛（被撞倒的也會跟著滑）
+		for o in farmers:
+			if o == f or not o.alive() or o.is_boss or o.state in ["slip", "down"] or o.air > 0.3:
+				continue
+			if _flat_dist(o.pos, f.pos) < 1.3:
+				o.set_state("slip")
+				o.kb_vel = Vector3.ZERO
+				o.heavy = false
+				_anim(o, "Death")
+				var root: Fighter = _bowl.get(f, f)   # 這一串最早滑倒的那個
+				_bowl[o] = root
+				var n: int = int(_bowl_n.get(root, 0)) + 1
+				_bowl_n[root] = n
+				_bowl_best = maxi(_bowl_best, n)
+				_log("%s被滑過來的%s撞倒了" % [o.name, f.name])
+				_toast("撞倒了！" if n < 2 else "連撞 %d 個！" % n, 1.2)
+				if o.kind == "bomber" and o.has_bomb and not o.dud:
+					_drop_bomb(o)
+
+## 自爆農夫滑倒：火藥桶脫手往前滾，引信點著了
+func _drop_bomb(f: Fighter) -> void:
+	f.has_bomb = false
+	f.bomb.visible = false
+	if f.state == "fuse":
+		f.set_state("slip")   # 正在點引信也一樣：桶子先脫手
+	var fwd := Vector3(sin(f.yaw), 0, cos(f.yaw))
+	var to := f.pos + fwd * BOMB_DROP_ROLL
+	if _fence_crossing(f.pos, to) != null or _blocked_at(to):
+		to = f.pos
+	to = _ground(world.clamp_play(to))
+	var node := f.bomb.duplicate() as Node3D
+	node.visible = true
+	_fx_root.add_child(node)
+	node.global_position = to + Vector3.UP * 0.3
+	node.rotation = Vector3(0, f.yaw, PI * 0.5)   # 倒在地上
+	dropped_bombs.append({"pos": to, "t": 0.0, "node": node})
+	_log("%s滑倒，火藥桶脫手滾了出去，引信點著了！" % f.name)
+	_toast("火藥桶掉了！", 1.2)
+
+func _tick_dropped_bombs(dt: float) -> void:
+	for i in range(dropped_bombs.size() - 1, -1, -1):
+		var db: Dictionary = dropped_bombs[i]
+		db.t += dt
+		var bw := _wind(db.pos)
+		if bw.length() > 0.01:
+			# 風口：火藥桶順風滾
+			var np: Vector3 = db.pos + bw * WIND_BARREL * dt
+			if _fence_crossing(db.pos, np) == null and _wall_crossing(db.pos, np) == null and not _blocked_at(np):
+				db.pos = _ground(world.clamp_play(np))
+				(db.node as Node3D).global_position = db.pos + Vector3.UP * 0.3
+				(db.node as Node3D).rotate_object_local(Vector3.UP, dt * 6.0)
+		var node := db.node as Node3D
+		var sp := node.get_node_or_null("Spark") as Node3D
+		if sp:
+			sp.scale = Vector3.ONE * (1.6 + sin(time * 60.0) * 0.6)
+		var barrel := node.get_node_or_null("Barrel") as Node3D
+		if barrel:
+			barrel.scale = Vector3.ONE * (1.0 + absf(sin(time * (14.0 + db.t * 20.0))) * 0.15)
+		if db.t >= BOMB_DROP_FUSE:
+			node.queue_free()
+			dropped_bombs.remove_at(i)
+			_log("掉在地上的火藥桶爆炸了")
+			_blast(db.pos, null)
+
+## 爆炸：範圍內的農夫一起倒（不包括 src 自己），炸到家豪扣一顆心
+func _blast(p: Vector3, src: Fighter) -> void:
+	_explosion_fx(p)
 	_noise_at(p)
 	_toast("轟！", 0.9)
-	_log("%s爆炸了" % f.name)
 	for o in farmers:
-		if o == f or o.is_boss or not o.alive() or o.air >= 1.0:
+		if o == src or o.is_boss or not o.alive() or o.air >= 1.0:
 			continue
 		if _flat_dist(o.pos, p) < BOMB_RADIUS:
 			o.hp = 0.0
@@ -2379,11 +3320,23 @@ func _bomb_explode(f: Fighter) -> void:
 	var b := bird
 	if _bird_targetable() and b.air < 1.5 and not b.state in ["launch", "cannon"] and _flat_dist(b.pos, p) < BOMB_RADIUS:
 		_log("爆炸炸到家豪")
+		_death_cause = "bomb"
 		_hit_bird(FIRST_STRIKE_DMG, false, p)
 
 # ------------------------------------------------------------------ 家豪
 
 func _nearest_farmer(from: Vector3) -> Fighter:
+	# 指揮官關：目標是指揮官，家豪直接往他走；路上被發現他的守衛追到身邊（4 公尺內）才回頭打
+	if boss and boss.cone and boss.alive():
+		var near: Fighter = null
+		var nd := 4.0
+		for f in farmers:
+			if f.alive() and not f.is_boss and f.aggro:
+				var d := _flat_dist(from, f.pos)
+				if d < nd:
+					nd = d
+					near = f
+		return near if near else boss
 	var best: Fighter = null
 	var bd := INF
 	var others := farmers.any(func(f): return f.alive() and not f.is_boss)
@@ -2420,7 +3373,7 @@ func _tick_bird(dt: float) -> void:
 		if b.state != "fly":
 			b.air = 0.0
 		_log("家豪從梯子上摔了下來")
-	if not b.state in ["fly", "cannon", "launch", "climb"]:
+	if not b.state in ["fly", "cannon", "launch", "climb", "pclimb"]:
 		_apply_knockback(b, dt)
 	var tgt := _nearest_farmer(b.pos)
 	if tgt == null:
@@ -2431,7 +3384,7 @@ func _tick_bird(dt: float) -> void:
 	var goal := tgt == _goal
 	var dist := _flat_dist(b.pos, tgt.pos)
 	# 飼料優先：不在出招、挨打、飛行中時，聞到飼料就跑去吃
-	if b.state in ["charge", "return", "feed", "linger"]:
+	if b.state in ["charge", "return", "feed", "linger", "hop", "land"] and not (b.state == "land" and b.t < 0.3):
 		var fi := _nearest_feed(b.pos, FEED_SENSE)
 		if fi >= 0:
 			if b.state != "feed":
@@ -2477,12 +3430,17 @@ func _tick_bird(dt: float) -> void:
 						(feeds[b.feed_target].node as Node3D).queue_free()
 						feeds.remove_at(b.feed_target)
 						_start_climb(_ladder_at(fp))
+					elif _at_plat_ladder(fp):
+						(feeds[b.feed_target].node as Node3D).queue_free()
+						feeds.remove_at(b.feed_target)
+						_start_pclimb()
 					else:
 						b.set_state("eat")
 		"eat":
 			if b.t >= FEED_EAT_TIME:
 				var fi := _nearest_feed(b.pos, 1.2)
 				if fi >= 0:
+					_chest_feed_at = feeds[fi].pos   # 寶箱旁邊的飼料：吃的時候順便打開寶箱
 					(feeds[fi].node as Node3D).queue_free()
 					feeds.remove_at(fi)
 					b.hp = minf(b.hp + FEED_HEAL, b.max_hp)
@@ -2500,7 +3458,9 @@ func _tick_bird(dt: float) -> void:
 			_face(b, tgt.pos)
 			if b.t >= b.windup:
 				if dist <= b.reach + 0.35 and tgt.alive():
-					if not tgt.aggro:
+					if tgt.is_boss and tgt.cone:
+						_hit_commander(tgt)
+					elif not tgt.aggro:
 						_sneak(tgt)
 					else:
 						_hit_farmer(tgt, PECK_DAMAGE, b.pos)
@@ -2532,9 +3492,17 @@ func _tick_bird(dt: float) -> void:
 			_tick_cannon(dt)
 		"climb":
 			_tick_climb(dt)
+		"pclimb":
+			_tick_pclimb()
 		"launch":
 			var k := clampf(b.t / launch_dur, 0.0, 1.0)
 			var p := launch_from.lerp(launch_to, k) + Vector3.UP * launch_peak * 4.0 * k * (1.0 - k)
+			# 被大砲射出去：比塔頂低就撞到塔身，彈回來（從上面落進塔頂才算佔領）
+			if launch_hurt and not launch_bounced:
+				var wk := _tower_wall_hit(p)
+				if wk >= 0:
+					_bounce_off_tower(wk, p)
+					p = launch_from
 			var gy: float = world.height_at(p.x, p.z)
 			b.pos = Vector3(p.x, gy, p.z)
 			b.air = maxf(p.y - gy, 0.0)
@@ -2578,8 +3546,143 @@ func _tower_goal(from: Vector3) -> Fighter:
 	_goal.pos = _ground(world.clamp_play(_avoid(Vector3(spot.x, 0, spot.y), Vector3(spot.x, 0, spot.y), 0.4)))
 	return _goal
 
+## 這一小關要不要拿下炮塔才算過關：第 1 小關只要打倒兩個農夫（炮塔可以不管）
+func _towers_required() -> bool:
+	return int(world.get("stage") if world.get("stage") != null else 3) >= 2
+
+# ------------------------------------------------------------------ 星星（選關地圖和商店用）
+## 每顆星是一個條件，過關就有第 1 顆；拿到幾個條件就是幾顆星（最多 3）。
+## 選關地圖從這裡讀（chapter.gd 的 STARS_SCRIPT）：{小關場景路徑: {條件 id: true}}
+##   第 1 小關（學時機）：35 秒內＋神蹟 10 次以內；20 秒內＋5 次以內
+##     （模擬量過：抓準時機丟香蕉皮的最佳打法約 11 秒、2～3 次；一般玩家大概 15～25 秒）
+##   第 2 小關（三座炮塔）：家豪全程沒被砲彈打到；三座炮塔用三種不同方法拿下（大砲、巨石、爬梯子）
+##   第 3 小關（指揮官）：用大砲把家豪直接射中指揮官；不開寶箱就過關
+static var best_stars := {}
+const STAR_TIME := [20.0, 35.0]
+const STAR_USES := [5, 10]
+var _tower_ways := {}              # 炮塔編號 → 怎麼拿下的（"cannon"／"rock"／"ladder"）
+var _shell_hit := false            # 家豪這場有沒有被砲彈打到
+var _boss_by_cannon := false       # 指揮官是不是被大砲射過去的家豪撞翻的
+var _chest_used := false
+var _climb_via_cannon := false     # 現在這次爬上塔頂是大砲射上去的（不是爬梯子）
+
+## 這一小關的星星條件：[[id, 說明, 有沒有達成], ...]（不含「過關」那一顆）
+func _star_goals() -> Array:
+	var uses := casts.size()
+	match int(world.get("stage")):
+		0:
+			return [["no_kick", "家豪沒被踢到", bird.hp >= bird.max_hp - 0.01],
+				["one_feed", "只用 1 把飼料", casts.size() <= 1]]
+		1:
+			return [["fast2", "%d 秒內、神蹟 %d 次以內" % [int(STAR_TIME[1]), STAR_USES[1]], time <= STAR_TIME[1] and uses <= STAR_USES[1]],
+				["fast3", "%d 秒內、神蹟 %d 次以內" % [int(STAR_TIME[0]), STAR_USES[0]], time <= STAR_TIME[0] and uses <= STAR_USES[0]]]
+		2:
+			var ways := {}
+			for k in _tower_ways:
+				ways[_tower_ways[k]] = true
+			return [["no_shell", "家豪沒被砲彈打到", not _shell_hit],
+				["three_ways", "三座炮塔用三種不同方法拿下（大砲、巨石、爬梯子）", ways.size() >= 3]]
+		4:
+			return [["wind_turret", "讓被風吹偏的炮塔炸倒守衛", _wind_turret_kills >= 1],
+				["wind_rock", "用風把巨石吹去撞倒炮塔", _wind_rock_tower]]
+		_:
+			return [["cannon_boss", "用大砲把家豪射中指揮官", _boss_by_cannon],
+				["no_chest", "不開寶箱就過關", not _chest_used]]
+
+## 這次還有沒有機會達成（「沒被踢到」這種一被打到就沒了；時間、次數超過也沒了）
+func _star_failed(id: String) -> bool:
+	var uses := casts.size()
+	match id:
+		"no_kick": return bird.hp < bird.max_hp - 0.01
+		"one_feed": return uses > 1
+		"fast2": return time > STAR_TIME[1] or uses > STAR_USES[1]
+		"fast3": return time > STAR_TIME[0] or uses > STAR_USES[0]
+		"no_shell": return _shell_hit
+		"no_chest": return _chest_used
+	return false
+
+# ---- 左上角的「目標」紙片（跟森林、冰雪大關一樣）：過關那顆＋兩個加分條件
+var _goal_rows: VBoxContainer
+var _goal_sig := ""
+
+func _build_goal_panel(layer: CanvasLayer) -> void:
+	var panel := PanelContainer.new()
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	UIStyle.paper(panel)
+	panel.position = Vector2(20, 20)
+	layer.add_child(panel)
+	_goal_rows = VBoxContainer.new()
+	_goal_rows.add_theme_constant_override("separation", 4)
+	_goal_rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(_goal_rows)
+
+func _refresh_goal_panel() -> void:
+	if _goal_rows == null:
+		return
+	var key := String(get_parent().scene_file_path)
+	var best: Dictionary = best_stars.get(key, {})
+	var won := outcome == "win"
+	var clear_text: String = ["打倒守衛", "打倒兩個農夫", "拿下三座炮塔", "打倒指揮官", "打倒所有守衛"][clampi(int(world.get("stage")), 0, 4)]
+	var rows: Array = [["clear", clear_text, won, false]]
+	for g in _star_goals():
+		rows.append([g[0], g[1], won and g[2], _star_failed(g[0])])
+	var sig := str(rows) + str(best.keys())
+	if sig == _goal_sig:
+		return
+	_goal_sig = sig
+	for c in _goal_rows.get_children():
+		c.queue_free()
+	var title := Label.new()
+	title.text = "目標"
+	title.label_settings = UIStyle.ls(20, UIStyle.INK)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_goal_rows.add_child(title)
+	for r in rows:
+		var now_done: bool = r[2]
+		var had: bool = best.has(r[0])
+		var failed: bool = r[3] and not now_done
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_goal_rows.add_child(row)
+		var st := Label.new()
+		st.text = "★"
+		st.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		# 這次做到：金色；以前做到過：淡金；還沒：白色空心感；這次已經沒機會：灰
+		var fill := Color("f6c445") if now_done else (Color("f5e2a8") if had else (Color(0.82, 0.8, 0.76) if failed else Color("fff8e7")))
+		st.label_settings = UIStyle.ls(22, fill, 6, UIStyle.INK if (now_done or had) else Color(UIStyle.INK, 0.45))
+		row.add_child(st)
+		var tx := Label.new()
+		tx.text = String(r[1])
+		tx.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tx.label_settings = UIStyle.ls(19, UIStyle.INK if (now_done or had) else Color(UIStyle.INK, 0.3 if failed else 0.6))
+		row.add_child(tx)
+
+## 這一場拿幾顆星（輸了 0）
+func _star_count() -> int:
+	if outcome != "win":
+		return 0
+	var n := 1
+	for g in _star_goals():
+		if g[2]:
+			n += 1
+	return n
+
+func _record_stars() -> void:
+	var key := String(get_parent().scene_file_path)
+	if key == "" or outcome != "win":
+		return
+	if not best_stars.has(key):
+		best_stars[key] = {}
+	best_stars[key]["clear"] = true
+	for g in _star_goals():
+		if g[2]:
+			best_stars[key][g[0]] = true
+
 ## 寶箱：家豪走過去就打開，補滿血、神蹟冷卻清空
 var _chests_open: Array = []
+var _chest_feed_at: Variant = null   # 這一格家豪在哪裡吃到飼料（寶箱看這個決定要不要打開）
+
 func _tick_chests() -> void:
 	var list = world.get("chests")
 	if list == null:
@@ -2591,7 +3694,7 @@ func _tick_chests() -> void:
 		if _chests_open[i] or not bird.alive() or bird.air > 0.5:
 			continue
 		var cp: Vector2 = list[i].pos
-		if Vector2(bird.pos.x - cp.x, bird.pos.z - cp.y).length() < CHEST_OPEN:
+		if _chest_feed_at != null and Vector2(_chest_feed_at.x - cp.x, _chest_feed_at.z - cp.y).length() < CHEST_OPEN:
 			_chests_open[i] = true
 			var node := list[i].node as Node3D
 			if node:
@@ -2599,13 +3702,20 @@ func _tick_chests() -> void:
 				if ap and ap.has_animation("open"):
 					ap.play("open")
 				_puff(node.global_position + Vector3.UP * 0.8, Color(1.0, 0.85, 0.35, 0.8), 8, 0.5)
-			# 開打後神蹟不限次數、只有冷卻，所以寶箱給的是：家豪補滿血＋冷卻全部清空
+			# 寶箱給的是：家豪補滿血＋冷卻全部清空；有次數限制的香蕉皮、巨石各 +2
 			bird.hp = bird.max_hp
 			for k in cooldowns.size():
 				cooldowns[k] = 0.0
+			var bonus := false
+			for k in SKILLS.size():
+				if SKILLS[k].has("shared") and charges[k] >= 0:
+					charges[k] += CHEST_BONUS
+					bonus = true
 			_refresh_slots()
-			_log("家豪打開了寶箱（補滿血、神蹟冷卻清空）")
-			_toast("打開寶箱！家豪補滿血、神蹟冷卻清空", 2.2)
+			_log("家豪打開了寶箱（補滿血、神蹟冷卻清空%s）" % ("、香蕉皮和巨石各 +%d" % CHEST_BONUS if bonus else ""))
+			_chest_used = true
+			_toast("打開寶箱！補滿血、冷卻清空" + ("、香蕉皮和巨石各 +%d" % CHEST_BONUS if bonus else ""), 2.4)
+	_chest_feed_at = null
 
 func _reset_chests() -> void:
 	_chests_open.clear()
@@ -2656,6 +3766,13 @@ func _bird_walk(target: Vector3, spd: float, dt: float, resume: String) -> void:
 	var sdir := _steer_dir(b, d.normalized(), step.length(), d.length())
 	b.yaw = atan2(sdir.x, sdir.z)
 	var moved: Vector3 = world.clamp_play(_avoid(b.pos, b.pos + sdir * step.length(), 0.35))
+	if world.has_method("on_plateau") and world.on_plateau(b.pos.x, b.pos.z) and not world.on_plateau(moved.x, moved.z):
+		if world.on_plateau(target.x, target.z):
+			return   # 在台頂上追指揮官：不會自己走下高台
+		# 要去台下：從邊緣跳下去
+		var out := b.pos + sdir * 2.6
+		_start_fly(_ground(world.clamp_play(out)), HOP_TIME + 0.2, 1.0, resume)
+		return
 	moved = _separate(b, moved, 0.7)
 	if _wall_crossing(b.pos, moved) == null:
 		b.pos = _ground(moved)
@@ -2677,7 +3794,7 @@ func _snap_cannon_target(p: Vector3) -> Vector3:
 		var c: Vector2 = world.PLATFORM_C
 		if Vector2(p.x, p.z).distance_to(c) < world.PLATFORM_R + CANNON_SNAP \
 				and Vector2(c.x - m.x, c.y - m.z).length() <= CANNON_RANGE + 0.5:
-			p = _ground(Vector3(c.x, 0, c.y))
+			p = _ground(boss.pos if boss.cone else Vector3(c.x, 0, c.y))   # 有 3 點血的指揮官：吸到他身上
 			lock = true
 			what = "指揮官"
 	if not lock:
@@ -2688,7 +3805,7 @@ func _snap_cannon_target(p: Vector3) -> Vector3:
 				continue
 			var tp: Vector2 = t.pos
 			if Vector2(p.x, p.z).distance_to(tp) < t.radius + CANNON_SNAP:
-				p = _ground(Vector3(tp.x, 0, tp.y))
+				p = Vector3(tp.x, _tower_top_abs(t), tp.y)   # 落點設在塔頂：弧線從上面落進塔頂
 				lock = true
 				what = "炮塔" + _tower_name(k)
 				break
@@ -2696,6 +3813,42 @@ func _snap_cannon_target(p: Vector3) -> Vector3:
 		_toast("鎖定%s！左鍵發射" % what, 1.2)
 	cannon_locked = lock
 	return p
+
+## 塔頂（家豪站的地方）的世界高度
+func _tower_top_abs(t: Dictionary) -> float:
+	var y0: float = (t.node as Node3D).global_position.y
+	var top: float = float(t.get("top_y", 0.0))
+	return y0 + (top if top > 0.0 else float(t.height))
+
+## 飛在 p（世界座標）時有沒有撞到塔身：在塔的範圍裡、而且比塔頂低。撞到哪一座（沒有 = -1）
+func _tower_wall_hit(p: Vector3) -> int:
+	for k in towers.size():
+		var t: Dictionary = towers[k]
+		if t.state != "stand" or t.node == null:
+			continue
+		if Vector2(p.x, p.z).distance_to(t.pos) < float(t.radius) and p.y < _tower_top_abs(t) - 0.15:
+			return k
+	return -1
+
+## 撞到塔身：不算佔領，從撞到的地方往外彈開、摔到地上
+func _bounce_off_tower(k: int, p: Vector3) -> void:
+	var t: Dictionary = towers[k]
+	var c: Vector2 = t.pos
+	var away := Vector2(p.x - c.x, p.z - c.y)
+	if away.length() < 0.01:
+		away = Vector2(launch_from.x - c.x, launch_from.z - c.y)
+	away = away.normalized() if away.length() > 0.01 else Vector2(0, 1)
+	var r: float = float(t.radius) + 0.15
+	launch_from = Vector3(c.x + away.x * r, p.y, c.y + away.y * r)
+	launch_to = _ground(world.clamp_play(launch_from + Vector3(away.x, 0, away.y) * 3.0))
+	launch_dur = 0.75
+	launch_peak = 0.9
+	launch_bounced = true
+	bird.t = 0.0
+	_puff(launch_from, Color(0.9, 0.85, 0.75, 0.7), 6, 0.35)
+	_noise_at(launch_from)
+	_log("家豪飛得太低，一頭撞上炮塔%s的塔壁，彈了回來" % _tower_name(k))
+	_toast("咚！撞到塔壁彈回來了", 1.4)
 
 ## 落點在哪一座敵方炮塔上（沒有 = -1）
 func _tower_top_at(p: Vector3) -> int:
@@ -2758,6 +3911,7 @@ func _fire_cannon() -> void:
 	launch_dur = 0.6 + dist * 0.038
 	launch_peak = 2.5 + dist * 0.3 + maxf(launch_to.y - m.y, 0.0)
 	launch_hurt = true
+	launch_bounced = false
 	cannon_t = -1.0
 	cannon_fire_req = false
 	cannon_locked = false
@@ -2782,11 +3936,20 @@ func _land_cannon() -> void:
 	# 落在指揮官的高台上：一頭撞翻指揮官
 	if world.has_method("on_boss_platform") and world.on_boss_platform(p):
 		b.pos = _ground(p)
-		if boss and boss.alive():
+		if boss and boss.alive() and boss.cone:
+			# 指揮官有 3 點血：砸中扣 1、頭暈；沒砸中就只是落在台頂上
+			if _flat_dist(p, boss.pos) < CANNON_SPLASH:
+				_hurt_commander(boss, "家豪從天而降，砸中了%s" % boss.name, "dizzy", DASH_DIZZY_WALL)
+				_boss_by_cannon = true
+				_toast("砸中%s！" % boss.name, 1.6)
+			else:
+				_log("家豪落在指揮官的高台上")
+		elif boss and boss.alive():
 			boss.hp = 0.0
 			boss.set_state("dead")
 			_anim(boss, "Death")
 			_log("家豪從天而降，一頭撞翻了%s！" % boss.name)
+			_boss_by_cannon = true
 			_toast("正中%s！" % boss.name, 2.0)
 		b.set_state("land")
 		return
@@ -2794,6 +3957,7 @@ func _land_cannon() -> void:
 	var tk := _tower_top_at(p)
 	if tk >= 0:
 		climb_k = tk
+		_climb_via_cannon = true
 		b.set_state("climb")
 		b.t = CLIMB_TIME + TOP_STEP   # 跳過爬梯子那段，直接在塔頂站好
 		_log("家豪從天而降，落在炮塔%s頂上" % _tower_name(tk))
@@ -2858,6 +4022,22 @@ func _gun_muzzle(t: Dictionary) -> Vector3:
 func _turret_target(k: int) -> Variant:
 	var t: Dictionary = towers[k]
 	var origin := Vector3(t.pos.x, 0, t.pos.y)
+	if float(t.get("wind_lock", 0.0)) > 0.0:
+		# 被風吹偏：砲口朝下風，打下風那一邊最近的人（誰都打，包括守衛）；沒人就打下風固定一點
+		var wd: Vector2 = t.wind_dir
+		var fwd := Vector3(wd.x, 0, wd.y)
+		var best: Variant = null
+		var bd := TURRET_RANGE
+		for f in [bird] + farmers:
+			if not f.alive() or f.is_boss or f.air > 1.0:
+				continue
+			var to: Vector3 = f.pos - origin
+			to.y = 0.0
+			var d := to.length()
+			if d > 2.0 and d <= bd and to.normalized().dot(fwd) > 0.82:
+				bd = d
+				best = f.pos
+		return best if best != null else _ground(origin + fwd * TURRET_RANGE * 0.7)
 	if t.side == "enemy":
 		var b := bird
 		if not b.alive() or b.state in ["launch", "fly"] or b.air > 1.5 or (b.state == "climb" and climb_k == k):
@@ -2887,6 +4067,10 @@ func _tick_turrets(dt: float) -> void:
 		if rec > 0.0:
 			rec = maxf(rec - dt, 0.0)
 			t.recoil = rec
+		if float(t.get("wind_lock", 0.0)) > 0.0:
+			t.wind_lock = float(t.wind_lock) - dt
+			if t.wind_lock <= 0.0:
+				_log("炮塔%s的砲口轉回來了" % _tower_name(k))
 		var kick := sin(clampf(rec / TURRET_RECOIL, 0.0, 1.0) * PI) * 0.35
 		gun.position = t.gun_pos - Vector3(sin(gun.rotation.y), 0, cos(gun.rotation.y)) * kick
 		if t.state != "stand":
@@ -2944,7 +4128,7 @@ func _fire_shell(k: int, to: Vector3) -> void:
 	_fx_root.add_child(mi)
 	var from := _gun_muzzle(t)
 	mi.global_position = from
-	shells.append({"from": from, "to": to, "t": 0.0, "node": mi, "side": t.side})
+	shells.append({"from": from, "to": to, "t": 0.0, "node": mi, "side": t.side, "wind": float(t.get("wind_lock", 0.0)) > 0.0})
 	_puff(from, Color(0.9, 0.9, 0.88, 0.6), 4, 0.35)
 	_log("炮塔%s開砲" % _tower_name(k))
 
@@ -2967,7 +4151,13 @@ func _tick_shells(dt: float) -> void:
 		if k >= 1.0:
 			(sh.node as Node3D).queue_free()
 			shells.remove_at(i)
+			_shell_wind = sh.get("wind", false)
 			_explode_shell(sh.to, sh.side)
+			_shell_wind = false
+
+var _shell_wind := false        # 這顆砲彈是被風吹偏的炮塔打的（星星條件）
+var _wind_turret_kills := 0
+var _wind_rock_tower := false
 
 func _explode_shell(p: Vector3, side: String) -> void:
 	_puff(p, Color(0.35, 0.3, 0.28, 0.6), 7, 0.55)
@@ -2983,6 +4173,8 @@ func _explode_shell(p: Vector3, side: String) -> void:
 			_anim(f, "Death")
 			f.set_state("dead" if f.hp <= 0.0 else "down")
 			_log("砲彈炸到%s（剩 %d）" % [f.name, ceili(f.hp)])
+			if _shell_wind and f.hp <= 0.0:
+				_wind_turret_kills += 1
 	if side != "enemy":
 		return
 	var b := bird
@@ -2990,6 +4182,8 @@ func _explode_shell(p: Vector3, side: String) -> void:
 		b.hp = maxf(b.hp - SHELL_DMG_BIRD, 0.0)
 		hit_spots.append(b.pos)
 		_log("砲彈炸到家豪（剩 %d）" % ceili(b.hp))
+		_death_cause = "shell"
+		_shell_hit = true
 		_toast("轟！", 0.8)
 		if b.hp <= 0.0:
 			b.set_state("dead")
@@ -2999,6 +4193,13 @@ func _explode_shell(p: Vector3, side: String) -> void:
 		away.y = 0.0
 		away = away.normalized() if away.length() > 0.01 else Vector3.BACK
 		_start_fly(b.pos + away * 4.0, FLY_TIME, FLY_PEAK, "land")
+
+## 飼料撒在高台的梯子腳下嗎
+func _at_plat_ladder(p: Vector3) -> bool:
+	if not world.has_method("platform_ladder") or world.platform_ladder().is_empty():
+		return false
+	var foot: Vector2 = world.platform_ladder()[0]
+	return Vector2(p.x, p.z).distance_to(foot) < LADDER_LURE
 
 ## 飼料撒在哪一座炮塔的梯子腳下（還站著、還沒被佔領的）
 func _ladder_at(p: Vector3) -> int:
@@ -3012,6 +4213,7 @@ func _ladder_at(p: Vector3) -> int:
 
 func _start_climb(k: int) -> void:
 	climb_k = k
+	_climb_via_cannon = false
 	bird.set_state("climb")
 	bird.kb_vel = Vector3.ZERO
 	_log("家豪吃完飼料，順著梯子爬上炮塔%s" % _tower_name(k))
@@ -3057,6 +4259,7 @@ func _tick_climb(_dt: float) -> void:
 func _capture_tower(k: int) -> void:
 	var b := bird
 	var t: Dictionary = towers[k]
+	_tower_ways[k] = "cannon" if _climb_via_cannon else "ladder"
 	t.side = "ally"
 	t.aim_t = -1.0
 	t.cd = 0.8
@@ -3131,11 +4334,16 @@ func _start_fly(to: Vector3, dur: float, peak: float, after: String) -> void:
 
 func _hit_bird(dmg: float, heavy: bool, from: Vector3, by: Fighter = null) -> void:
 	var b := bird
+	if by:
+		_death_cause = "boss" if by.is_boss else "kick"
 	b.hp = maxf(b.hp - dmg, 0.0)
 	hit_spots.append(b.pos)
 	_noise_at(b.pos)
 	if by:
-		_log("%s%s踢中家豪（剩 %d）" % [by.name, "重" if heavy else "", ceili(b.hp)])
+		if by.is_boss:
+			_log("%s一頭撞飛家豪（剩 %d）" % [by.name, ceili(b.hp)])
+		else:
+			_log("%s%s踢中家豪（剩 %d）" % [by.name, "重" if heavy else "", ceili(b.hp)])
 	var away := b.pos - from
 	away.y = 0.0
 	away = away.normalized() if away.length() > 0.01 else Vector3.BACK
@@ -3455,6 +4663,9 @@ func _apply_knockback(f: Fighter, dt: float) -> void:
 		f.kb_vel = Vector3.ZERO
 		return
 	var nxt := f.pos + f.kb_vel * dt
+	if world.has_method("on_plateau") and world.on_plateau(f.pos.x, f.pos.z) and not world.on_plateau(nxt.x, nxt.z):
+		f.kb_vel = Vector3.ZERO   # 在台頂上被推：停在邊緣，不會滑下去
+		return
 	if _fence_crossing(f.pos, nxt) != null:
 		f.kb_vel = Vector3.ZERO
 	else:
@@ -3494,15 +4705,25 @@ func _boss_pose() -> void:
 	var body := boss.node.find_child("Body", true, false) as Node3D
 	if arm:
 		var want := 0.9
-		if boss.state == "aim":
+		if boss.state == "gunaim" or (boss.state == "aim" and boss.cone == null):
 			want = 1.55
-		elif boss.alive() and boss.shoot_cd > BOSS_COOLDOWN - 0.25:
+		elif boss.alive() and boss.cone == null and boss.shoot_cd > BOSS_COOLDOWN - 0.25:
 			want = 1.85   # 開槍的後座力
 		arm.rotation.x = lerpf(arm.rotation.x, want, 0.3)
 	if body:
 		if boss.alive():
 			body.scale = Vector3.ONE
 			body.position.y = absf(sin(time * 1.6)) * 0.03   # 呼吸
+			# 指揮官：蓄力往後縮、衝刺往前傾、頭暈左右晃
+			var lean := 0.0
+			var wob := 0.0
+			match boss.state:
+				"aim": lean = -0.25
+				"dash": lean = 0.45
+				"dizzy", "startled": wob = sin(time * 11.0) * 0.18
+				"slip": lean = -1.2
+			body.rotation.x = lerpf(body.rotation.x, lean, 0.3)
+			body.rotation.z = wob
 		else:
 			body.scale = Vector3(1.25, 0.35, 1.25)
 			body.position.y = -0.4
@@ -3544,8 +4765,8 @@ func _bird_pose() -> void:
 			rx = 0.2
 			flap = 0.25
 		"eat":
-			# 低頭猛啄地上的飼料
-			rx = 0.55 + 0.35 * absf(sin(b.t * 16.0))
+			# 低頭啄一下地上的飼料（往下、再抬起來，就一下）
+			rx = 0.9 * sin(PI * clampf(b.t / FEED_EAT_TIME, 0.0, 1.0))
 			flap = 0.1
 		"return":
 			lift = absf(sin(time * 9.0)) * 0.04
@@ -3556,9 +4777,9 @@ func _bird_pose() -> void:
 			rx = -0.2 * k
 			flap = 0.3 * absf(sin(b.t * 7.0)) * float(b.t < SLIP_TIME - 0.5)
 		"linger":
-			# 慢慢左右張望，偶爾低頭啄一下
-			rz = sin(b.t * 2.2) * 0.12
-			rx = 0.45 if fmod(b.t, 1.1) < 0.25 else 0.05
+			# 吃完抬頭、往旁邊看一眼
+			rz = sin(clampf(b.t / FEED_LINGER, 0.0, 1.0) * PI) * 0.12
+			rx = 0.05
 			flap = 0.05
 		"cannon":
 			# 頭塞在砲管裡，屁股翹在外面左右扭，翅膀亂拍
@@ -3641,11 +4862,12 @@ func _build_hud() -> void:
 	_napoleon_tex = _load_tex("res://assets/ui/napoleon.png")
 	_dialog.portrait = _load_tex("res://assets/ui/jiahao_portrait.png")
 	# 教學彈窗改用共用版（scripts/ui/tutorial_popup.gd，從這裡的版本搬過去的），示範動畫還是讀要塞的影格表
+	_build_goal_panel(layer)
 	_tut = preload("res://scripts/ui/tutorial_popup.gd").new()
 	_tut.clip_dir = "res://levels/fort/assets/tutorial"
 	_tut.kicker_text = "新手教學"
 	add_child(_tut)
-	_tut.set_pages(TUT_PAGES)
+	_tut.set_pages(_tut_pages())
 	_tut.closed.connect(_on_tut_closed)
 
 	# 右上角敵人欄（米色小紙片）：老闆一張（頭像＋血條，他是過關目標）；
@@ -3680,16 +4902,16 @@ func _build_hud() -> void:
 		info.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		row.add_child(info)
 		var nm := Label.new()
-		nm.text = f.name + "（持槍）"
+		nm.text = f.name + ("" if f.cone else "（持槍）")
 		nm.label_settings = UIStyle.ls(17, UIStyle.INK)
 		info.add_child(nm)
 		var bar := PaperBar.new()
 		bar.fill = Color("e2483d")
 		bar.custom_minimum_size = Vector2(170, 16)
-		bar.visible = false   # 統一介面：不顯示敵人血量
+		bar.visible = f.cone != null   # 統一介面不顯示敵人血量；指揮官有 3 點血，例外顯示
 		info.add_child(bar)
 		_enemy_rows.append({"fighter": f, "face": face, "bar": bar})
-	var crew: Array = farmers.filter(func(f): return not f.is_boss)
+	var crew: Array = farmers.filter(func(f): return not f.is_boss and not f.reserve)
 	if not crew.is_empty():
 		var card := PanelContainer.new()
 		UIStyle.slip(card, Vector2(12, 8))
@@ -3893,23 +5115,139 @@ func _build_defeat() -> void:
 	keys.add_child(UIStyle.key_hint("R", "重試", 16))
 	keys.add_child(UIStyle.key_hint("M", "回到地圖", 16))
 
+## 輸了：畫面染紅、中間一張筆記紙，大標題寫「怎麼輸的」，下面一句教你下次怎麼避開，再一顆「再試一次」。
+## （參考動作遊戲的死亡提示；外觀用全遊戲的手帳風格。原本的「晚餐畫面」不再自動切過去）
+var _death_cause := ""            # 最後一下是被什麼打到的：kick／boss／shell／bomb／rock／tower
+var _ko_layer: CanvasLayer
+var _ko_tint: ColorRect
+var _ko_card: PanelContainer
+var _ko_title: Label
+var _ko_body: Label
+var _ko_meta: Label
+var _ko_t := -1.0
+
+const DEATH_TIPS := {
+	"kick": ["被正面發現了", "農夫會先踢正面衝過來的家豪。\n用飼料把家豪引到農夫的側面或背後，偷襲就能一下打倒。"],
+	"boss": ["被老闆打倒了", "老闆的槍瞄準時會停一下。\n趁他瞄準的空檔用神蹟讓家豪換位置，或從高處把家豪射過去。"],
+	"shell": ["被砲彈打中了", "炮塔瞄準家豪時，地上會出現紅圈。\n先拿下炮塔，或用飼料讓家豪離開紅圈。"],
+	"bomb": ["被炸飛了", "背火藥桶的農夫點火後會衝過來。\n搶在他點火前偷襲他，或讓家豪離他遠一點。"],
+	"rock": ["被自己的巨石撞到", "巨石不分敵我。\n放下去之前看清楚畫出來的滾動路線。"],
+	"tower": ["被倒下的炮塔壓到", "炮塔會往被撞的方向倒。\n撞塔之前先把家豪引到旁邊。"],
+}
+
+func _build_ko() -> void:
+	_ko_layer = CanvasLayer.new()
+	_ko_layer.layer = 15
+	add_child(_ko_layer)
+	# 畫面染紅：中間淡、四周深（像受傷時的視野）
+	_ko_tint = ColorRect.new()
+	_ko_tint.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_ko_tint.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sh := Shader.new()
+	sh.code = """shader_type canvas_item;
+uniform float k = 1.0;
+void fragment() {
+	vec2 d = UV - 0.5;
+	float v = smoothstep(0.15, 0.75, length(d * vec2(1.0, 0.8)));
+	COLOR = vec4(0.55, 0.08, 0.06, (0.28 + 0.42 * v) * k);
+}"""
+	var sm := ShaderMaterial.new()
+	sm.shader = sh
+	_ko_tint.material = sm
+	_ko_layer.add_child(_ko_tint)
+	var center := CenterContainer.new()
+	center.set_anchors_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_ko_layer.add_child(center)
+	_ko_card = PanelContainer.new()
+	UIStyle.paper(_ko_card, -0.01)
+	_ko_card.mouse_filter = Control.MOUSE_FILTER_STOP
+	center.add_child(_ko_card)
+	var col := VBoxContainer.new()
+	col.add_theme_constant_override("separation", 14)
+	col.custom_minimum_size = Vector2(560, 0)
+	_ko_card.add_child(col)
+	_ko_title = Label.new()
+	_ko_title.label_settings = UIStyle.ls(44, UIStyle.accent())
+	_ko_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(_ko_title)
+	var line := ColorRect.new()
+	line.color = Color(UIStyle.INK, 0.25)
+	line.custom_minimum_size = Vector2(0, 2)
+	col.add_child(line)
+	_ko_body = Label.new()
+	var bs := UIStyle.ls(22, UIStyle.INK)
+	bs.line_spacing = 6
+	_ko_body.label_settings = bs
+	_ko_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_ko_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	col.add_child(_ko_body)
+	_ko_meta = Label.new()
+	_ko_meta.label_settings = UIStyle.ls(16, Color(UIStyle.INK, 0.55))
+	_ko_meta.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	col.add_child(_ko_meta)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 22)
+	col.add_child(row)
+	# 再試一次：綠色主要按鈕（點它或按 R）
+	var retry := PanelContainer.new()
+	var sb := UIStyle._box(UIStyle.GO, UIStyle.GO_EDGE, 22, 3)
+	sb.content_margin_left = 22
+	sb.content_margin_right = 14
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 8
+	retry.add_theme_stylebox_override("panel", sb)
+	var rh := HBoxContainer.new()
+	rh.add_theme_constant_override("separation", 10)
+	rh.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	retry.add_child(rh)
+	var rt := Label.new()
+	rt.text = "再試一次"
+	rt.label_settings = UIStyle.ls(26, Color(1, 1, 1))
+	rh.add_child(rt)
+	rh.add_child(UIStyle.keycap("R", 16))
+	retry.gui_input.connect(func(ev):
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+			reset())
+	row.add_child(retry)
+	row.add_child(UIStyle.key_hint("M", "回地圖", 15))
+	_ko_layer.visible = false
+
 func _show_defeat() -> void:
 	defeat_shown = true
-	defeat_room.visible = true
-	defeat_room.cam.current = true
-	_hud_layer.visible = false
-	var main_hud := get_node_or_null("../HUD")
-	if main_hud:
-		main_hud.visible = false
+	if _ko_layer == null:
+		_build_ko()
 	_preview.visible = false
+	var tip: Array = DEATH_TIPS.get(_death_cause, ["家豪倒下了", "換個時機或位置降下神蹟再試一次。"])
+	_ko_title.text = tip[0]
+	_ko_body.text = tip[1]
 	var left := farmers.filter(func(f): return f.alive()).size()
-	_defeat_label.text = "家豪被抓去當晚餐了……"
-	var tip := "提示：撒飼料把家豪引開，讓他一次只對上一個農夫。" if casts.is_empty() else "提示：換個時機或位置降下神蹟再試一次。"
-	_defeat_detail.text = "第 %d 次嘗試　｜　撐了 %.1f 秒　｜　還剩 %d 個農夫\n%s" % [attempts.size(), time, left, tip]
-	_defeat_layer.visible = true
+	_ko_meta.text = "第 %d 次嘗試　｜　撐了 %.1f 秒　｜　還剩 %d 個敵人" % [attempts.size(), time, left]
+	_ko_layer.visible = true
+	_ko_t = 0.0
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+
+func _process_ko(dt: float) -> void:
+	if _ko_t < 0.0 or _ko_layer == null or not _ko_layer.visible:
+		return
+	# 進場：紅色慢慢染上來，卡片從稍小長到正常大小
+	_ko_t += dt
+	var k := clampf(_ko_t / 0.35, 0.0, 1.0)
+	var e := 1.0 - pow(1.0 - k, 3.0)
+	(_ko_tint.material as ShaderMaterial).set_shader_parameter("k", e)
+	_ko_card.pivot_offset = _ko_card.size * 0.5
+	_ko_card.scale = Vector2.ONE * lerpf(0.92, 1.0, e)
+	_ko_card.modulate.a = e
 
 func _hide_defeat() -> void:
 	_defeat_delay = -1.0
+	if _ko_layer and _ko_layer.visible:
+		_ko_layer.visible = false
+		_ko_t = -1.0
+		defeat_shown = false
+		Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+		return
 	if not defeat_shown and defeat_room and not defeat_room.visible:
 		return
 	defeat_shown = false
@@ -4056,7 +5394,10 @@ func _show_summary() -> void:
 	var lines: PackedStringArray = []
 	var left := farmers.filter(func(f): return f.alive()).size()
 	if outcome == "win":
-		lines.append("攻下農場大門！這場是你偷偷扳回來的。")
+		var n := _star_count()
+		lines.append("過關！" + "★".repeat(n) + "☆".repeat(3 - n) + "　（%.1f 秒、用了 %d 次神蹟）" % [time, casts.size()])
+		for g in _star_goals():
+			lines.append(("  ★ " if g[2] else "  ☆ ") + String(g[1]))
 	else:
 		lines.append("家豪被農夫圍毆倒下了…（還剩 %d 個農夫）" % left)
 	lines.append("")
@@ -4071,11 +5412,36 @@ func _show_summary() -> void:
 
 # ------------------------------------------------------------------ 開場教學
 
-## 第一次玩才自動跳出（記在存檔裡）；之後按 H 隨時可以再看
+## 這關用得到的教學頁：神蹟只放這關有的；小關機制（視線、先攻、自爆農夫、大砲、炮塔、寶箱）這關有才放
+func _tut_pages() -> Array:
+	var skills := SKILLS.map(func(sk): return String(sk.id))
+	var crew := farmers.filter(func(f): return not f.is_boss)
+	var has := {
+		"vision": not crew.is_empty(),
+		"first_strike": not crew.is_empty(),
+		"bomber": crew.any(func(f): return f.kind == "bomber"),
+		"cannon": has_cannon,
+		"turret": towers.any(func(t): return t.gun != null),
+		"commander": boss != null and boss.cone != null,
+		"wind": SKILLS.any(func(sk): return sk.id == "wind"),
+		"chest": not (world.get("chests") if world.get("chests") != null else []).is_empty(),
+	}
+	return TUT_PAGES.filter(func(pg):
+		var id: String = pg.id
+		if id in ["feed", "banana", "rock"]:
+			return id in skills
+		return has.get(id, true))
+
+## 只自動跳出「這關有、玩家還沒學會」的頁面（記在存檔的 [mechanics]）；按 H 隨時可以看這關全部的頁面
 func start_tutorial() -> void:
-	if _tut_seen or FortProgress.tutorial_seen():
+	if _tut_seen:
 		return
 	_tut_seen = true
+	var fresh := _tut_pages().filter(func(pg): return not FortProgress.known(pg.id))
+	if fresh.is_empty():
+		return
+	_tut_fresh = fresh.map(func(pg): return pg.id)
+	_tut.set_pages(fresh)
 	_set_tut_step(0)
 
 ## i >= 0：打開教學彈窗到第 i 頁；-1：關掉
@@ -4090,8 +5456,11 @@ func _set_tut_step(i: int) -> void:
 func _on_tut_closed() -> void:
 	if _tut_seen and casts.is_empty() and phase == Phase.PREPARE:
 		_show_first_hint(true)   # 第一次自動跳出的教學看完 → 提示先放一個試試
-	if not _auto_run():
-		FortProgress.mark_tutorial_seen()
+	if not _tut_fresh.is_empty():
+		if not _auto_run():
+			FortProgress.mark_known(_tut_fresh)   # 看過的機制記下來，其他小關不再自動跳出
+		_tut_fresh = []
+		_tut.set_pages(_tut_pages())
 	if player.has_method("_set_looking"):
 		player._set_looking(true)
 	if _hotbar:

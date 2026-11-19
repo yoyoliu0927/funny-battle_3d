@@ -121,11 +121,27 @@ func build_island(root: Node3D, ctx: Dictionary) -> void:
 ## 蓋第 k 小關的地標（root 在那個地點的島面上，+z 是鏡頭和站點那一邊）
 func build_spot(k: int, root: Node3D, _c: Dictionary) -> void:
 	match k:
-		0: _battery(root)
-		1: _three_towers(root)
+		0: _training_yard(root)   # 教學：從背後偷襲
+		1: _battery(root)
+		2: _three_towers(root)
+		4: _windy(root)          # 風口
 		_: _keep(root)
 
 # ================================================================== 三個地點
+
+## 4 風口：一排被風吹得歪向同一邊的旗子和木桶
+func _windy(root: Node3D) -> void:
+	for k in 3:
+		_piece(root, C + "flag-banner-short.glb", Vector3(-1.4 + k * 1.4, 0, -0.4 + k * 0.2), PI * 0.5, KIT * 0.7)
+	_piece(root, P + "barrel.glb", Vector3(-1.0, 0, 1.0), 0.0, KIT * 0.6)
+	_piece(root, P + "barrel.glb", Vector3(1.2, 0, 0.9), 0.0, KIT * 0.6)
+
+## 0 教學：練習場——幾個木箱、木桶圍出一小塊空地，插一支旗子
+func _training_yard(root: Node3D) -> void:
+	for it in [[P + "crate.glb", Vector3(-1.2, 0, 0.6), 0.3], [P + "crate.glb", Vector3(-0.6, 0, -0.9), -0.4],
+			[P + "barrel.glb", Vector3(1.1, 0, -0.5), 0.0], [P + "barrel.glb", Vector3(0.9, 0, 0.9), 0.0]]:
+		_piece(root, it[0], it[1], it[2], KIT * 0.6)
+	_piece(root, C + "flag-banner-short.glb", Vector3(0, 0, 0), 0.0, KIT * 0.8)
 
 ## 1 學大砲：木頭平台上的一門大砲、砲彈、木桶、瞭望台
 func _battery(root: Node3D) -> void:

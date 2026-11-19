@@ -29,3 +29,22 @@ static func mark_tutorial_seen() -> void:
 	cf.load(PATH)
 	cf.set_value("fort", "tutorial_seen", true)
 	cf.save(PATH)
+
+## 玩家已經學會的機制：教學頁看過一次就記下來，之後其他小關不會再自動跳出同一頁（按 H 還是看得到）。
+## 存在 [mechanics] 這一區，key 是機制 id（feed、banana、rock、cannon…），其他大關想沿用也可以讀同一區。
+const BASIC := ["controls", "auto", "feed", "banana", "rock"]   # 舊存檔「教學看過了」= 這幾頁都看過
+
+static func known(id: String) -> bool:
+	var cf := ConfigFile.new()
+	if cf.load(PATH) != OK:
+		return false
+	if bool(cf.get_value("mechanics", id, false)):
+		return true
+	return id in BASIC and bool(cf.get_value("fort", "tutorial_seen", false))
+
+static func mark_known(ids: Array) -> void:
+	var cf := ConfigFile.new()
+	cf.load(PATH)
+	for id in ids:
+		cf.set_value("mechanics", String(id), true)
+	cf.save(PATH)

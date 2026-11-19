@@ -11,8 +11,12 @@ const ICON := "砦"
 const DESC := "用大砲把家豪射進要塞：拿下炮塔、打倒指揮官。"
 ## 選關地圖：一座石頭城堡島（城牆、三座炮塔、指揮官的高塔），傍晚的暖色天光
 const MAP_SCRIPT := "res://levels/fort/map_isles.gd"
+## 三星制度：星星紀錄放在要塞自己的戰局腳本裡（過關 1 顆，另外每關兩個條件，見 fort_battle.gd 的 _star_goals）
+const STARS_SCRIPT := "res://levels/fort/fort_battle.gd"
 const STAGES := [
+	{"title": "教學：從背後偷襲", "desc": "守衛面向缺口站著：家豪正面衝過去會被先踢。在守衛背後撒飼料，讓家豪繞過去偷襲。", "scene": "stage_0/stage.tscn"},
 	{"title": "學大砲", "desc": "把飼料撒在砲口前面，家豪會鑽進砲管；瞄準、發射！", "scene": "stage_1/stage.tscn"},
 	{"title": "三座炮塔", "desc": "三座炮塔都要拿下：巨石撞倒，或讓家豪爬梯子上去佔領。", "scene": "stage_2/stage.tscn"},
 	{"title": "指揮官的院子", "desc": "從要塞把家豪射到東邊院子的高台上，打倒指揮官。", "scene": "stage_3/stage.tscn"},
+	{"title": "風", "desc": "多一個神蹟「風」：把炮塔的砲口吹向守衛營地，或把停住的巨石吹去撞倒炮塔。", "scene": "stage_4/stage.tscn"},
 ]
