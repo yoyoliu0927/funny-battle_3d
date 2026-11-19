@@ -57,6 +57,7 @@ var _ran := false
 ## 預告完整度：true＝畫出滑到哪、結果是什麼（教學關）；false＝只畫方向箭頭（後面的關卡自己想）
 var preview_full := true
 var _new_stars: Array = []
+var _help_gated := false        # 已經把「結算時不開教學彈窗」接到共用的教學彈窗上了
 var _guard_labels := {}        # 守衛 -> 「撲」字
 var _stars := {}               # 暈倒的人 -> 頭上轉圈的星星 [Label3D x3]
 var _vb: Array = []            # 要畫的三角形：[顏色, 頂點, 顏色, 頂點…]（沒有頂點就不開 surface）
@@ -613,6 +614,11 @@ func _update_buttons(cut: bool) -> void:
 	_retry_box.visible = phase == Phase.RUNNING and not cut
 	if _star_box and (_clock >= _star_until or cut and phase == Phase.ENDED or defeat_shown):
 		_star_box.visible = false
+	# 結算卡上 H 是「按住看沒拿到的星星的提示」：這時候不要同時打開共用的教學彈窗（兩個都用 H 會撞在一起）
+	if help_popup and not _help_gated:
+		_help_gated = true
+		var base_ok: Callable = help_popup.can_open
+		help_popup.can_open = func() -> bool: return phase != Phase.ENDED and (not base_ok.is_valid() or base_ok.call())
 	var hint_on := Input.is_physical_key_pressed(KEY_H)
 	for l in _hint_rows:
 		if is_instance_valid(l):
