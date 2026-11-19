@@ -257,7 +257,7 @@ const TUT_PAGES := [
 	# 下面是各小關才有的機制：這關有、而且玩家還沒看過，才會自動跳出（_tut_pages() 挑）
 	{"id": "vision", "title": "農夫的視線",
 		"body": "農夫腳下的紅色扇形是他看得到的範圍。家豪走進去就會被發現，附近的農夫聽到打鬥聲也會圍過來。\n\n城牆、炮塔、建築會擋住視線，躲在後面就看不到。從背後偷襲，農夫會嚇一跳。"},
-	{"id": "first_strike", "title": "先攻決勝負",
+	{"id": "first_strike", "title": "先攻決勝負", "icon": preload("res://assets/ui/jiahao_portrait.png"),
 		"body": "家豪先啄到農夫，農夫一下就倒，家豪毫髮無傷；被農夫先踢到，家豪會掉一顆心（但還是打得贏他）。\n\n家豪的心比農夫少一顆，全部正面硬碰會輸。用香蕉皮、偷襲幫他搶先手。"},
 	{"id": "bomber", "title": "自爆農夫",
 		"body": "背著紅色火藥桶的農夫。走到家豪身邊就會點引信，炸到家豪掉一顆心，旁邊的農夫也會被炸倒。\n\n讓家豪搶先啄倒他，引信就熄了；用巨石或砲彈砸他，可以順便炸掉他身邊的同伴。讓他踩到香蕉皮，火藥桶會脫手，過一下就在原地爆炸。"},
@@ -265,10 +265,15 @@ const TUT_PAGES := [
 		"body": "在砲口前撒飼料，家豪吃完會鑽進砲管。引信燒完（或按左鍵）就把家豪射向準心指的地方，可以直接射上炮塔或高台。"},
 	{"id": "turret", "title": "炮塔",
 		"body": "塔頂的砲手看到家豪會開砲；地上出現紅圈就是要炸下來了，讓家豪動起來就躲得掉。\n\n在梯子腳下撒飼料，家豪會爬上去把砲手踢下去，炮塔就換邊幫你打人類。巨石也撞得倒炮塔。"},
-	{"id": "commander", "title": "指揮官",
-		"body": "指揮官站在高台上，有 3 點血。在梯子腳下撒飼料，家豪吃完會爬上去。一開始他看到家豪就開槍、把家豪嚇飛：趁他看別處時偷襲、躲在木箱後面繞過去，或用大砲砸他（砸中會頭暈）。
+	{"id": "commander", "title": "指揮官", "icon": preload("res://assets/ui/napoleon.png"),
+		"body": "指揮官站在高台上，有 3 點血。在梯子腳下撒飼料，家豪吃完會爬上去。
 
-打掉兩點血他就發怒，改成蓄力衝撞（地上出現紅線），炮塔也會升起來。衝空了他會頭暈，這時候啄他才有用；讓他衝過香蕉皮也會摔一跤。"},
+他看到家豪就開槍、把家豪嚇飛：趁他看別處時偷襲、躲在木箱後面繞過去，或用大砲砸他（砸中會頭暈）。打掉兩點血，他會換一招。"},
+	# 指揮官發怒的那一刻才跳（炮塔升起的過場播完之後）
+	{"id": "commander_rage", "title": "指揮官發怒了", "icon": preload("res://assets/ui/napoleon.png"),
+		"body": "改成蓄力衝撞：地上出現紅線，就是他要衝過去的路線。東院的炮塔也升起來了。
+
+衝空了他會頭暈，這時候啄他才有用；讓他衝過香蕉皮也會摔一跤。"},
 	{"id": "wind", "title": "風", "keys": [["4", "選擇"], ["LMB", "朝準心吹"]],
 		"body": "開打後才能用。在準心的位置，朝你看的方向吹起一陣風（2.5 秒）。\n\n風吹到炮塔，砲口會轉向下風、固定一陣子，改轟那一邊（守衛也會被自己人炸到）；風吹到停住的巨石，巨石會順風再滾起來。走在風裡的人會被推，滑倒的人會被一路吹著滑。"},
 	{"id": "chest", "title": "寶箱",
@@ -2397,6 +2402,7 @@ func _enter_phase2(f: Fighter) -> void:
 	_roar_push = true   # 下一格才把家豪震開（現在可能正在家豪出招的途中）
 	_log("%s發怒了！改成衝撞，還叫炮塔升起來" % f.name)
 	_toast("指揮官發怒了！炮塔升起來了", 2.2)
+	_explain_later("commander_rage", 0.4)
 	var cut_at: Variant = null
 	for t in towers:
 		if t.get("boss_hidden", false) and t.state == "hidden":
@@ -4384,6 +4390,8 @@ func _hit_bird(dmg: float, heavy: bool, from: Vector3, by: Fighter = null) -> vo
 	b.hp = maxf(b.hp - dmg, 0.0)
 	hit_spots.append(b.pos)
 	_noise_at(b.pos)
+	if by and not by.is_boss:
+		_explain_later("first_strike", 0.8)
 	if by:
 		if by.is_boss:
 			_log("%s一頭撞飛家豪（剩 %d）" % [by.name, ceili(b.hp)])
@@ -5455,6 +5463,7 @@ func _tut_pages() -> Array:
 		"cannon": has_cannon,
 		"turret": towers.any(func(t): return t.gun != null),
 		"commander": boss != null and boss.cone != null,
+		"commander_rage": boss != null and boss.cone != null,
 		"wind": SKILLS.any(func(sk): return sk.id == "wind"),
 		"chest": not (world.get("chests") if world.get("chests") != null else []).is_empty(),
 	}
@@ -5557,8 +5566,11 @@ func _show_first_hint(on: bool) -> void:
 #   tip_tab     開打後家豪跑出畫面 → Tab 俯看全場
 #   tip_height  有炮塔的關卡、準備階段 → Space／Shift 飛高看清楚
 # 道具的說明頁等玩家第一次選到那個神蹟才跳（_explain_skill）。
+# 有些規則等它第一次發生才講（_explain_later）：
+#   first_strike    家豪第一次被農夫踢中（停一下讓玩家看清楚，再暫停說明）
+#   commander_rage  指揮官發怒（等炮塔升起的過場播完）
 
-const JIT_PAGES := ["controls", "controls_more", "feed", "banana", "rock", "wind"]
+const JIT_PAGES := ["controls", "controls_more", "feed", "banana", "rock", "wind", "first_strike", "commander_rage"]
 const TIP_TIME := 7.0
 var _hint_row: HBoxContainer
 var _coach := ""               # 現在的引導步驟（"" = 沒有）
@@ -5570,6 +5582,7 @@ var _coach_pos := Vector3.ZERO
 var _coach_t := 0.0
 var _arrow_t := 0.0
 var _asked := {}               # 這次已經判斷過的提示／說明（不用每一畫面讀存檔）
+var _later: Array = []         # 等著跳的說明頁 [{id, t}]
 
 ## 自動測試、錄示範動畫、自動截圖的時候：不跳引導和說明
 static func _scripted() -> bool:
@@ -5645,6 +5658,9 @@ func _tip_used(id: String) -> void:
 func _tick_coach(dt: float) -> void:
 	if _scripted() or (_tut and _tut.is_open()):
 		return
+	_tick_later(dt)
+	if _tut.is_open():
+		return
 	if view and view.overview:
 		_tip_used("tip_tab")
 	if Input.is_action_pressed("fly_up") or Input.is_action_pressed("fly_down"):
@@ -5675,6 +5691,33 @@ func _tick_coach(dt: float) -> void:
 				_coach_set("tip_tab")
 			elif phase == Phase.PREPARE and not towers.is_empty() and FortProgress.known("controls") and _tip_new("tip_height"):
 				_coach_set("tip_height")
+
+## 某個規則第一次發生：過 delay 秒（而且沒有過場、沒有別的彈窗）再跳出那一頁說明
+func _explain_later(id: String, delay: float) -> void:
+	if _scripted() or _asked.has("page_" + id):
+		return
+	_asked["page_" + id] = true
+	if FortProgress.known(id):
+		return
+	_later.append({"id": id, "t": delay})
+
+func _tick_later(dt: float) -> void:
+	if _later.is_empty() or _tut.is_open():
+		return
+	var it: Dictionary = _later[0]
+	it.t -= dt
+	if it.t > 0.0 or _cut_t >= 0.0:
+		return
+	_later.pop_front()
+	if phase == Phase.ENDED or defeat_shown:
+		_asked.erase("page_" + String(it.id))   # 這一下就輸了：下次再發生時再講
+		return
+	var pg := _tut_pages().filter(func(p): return p.id == it.id)
+	if pg.is_empty():
+		return
+	_tut_fresh = [it.id]
+	_tut.set_pages(pg)
+	_set_tut_step(0)
 
 ## 第一次選到某個神蹟：跳出它那一頁說明（只有一頁，看完就記成學會了）
 func _explain_skill(id: String) -> void:
