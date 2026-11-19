@@ -43,8 +43,8 @@ const HOP_TIME := 0.7          # 飛越圍欄的小跳
 const FENCE_CLEAR := 1.0
 const SLIP_TIME := 3.0         # 滑倒後躺在地上的時間
 const FEED_SENSE := 10.0       # 家豪聞得到多遠的飼料
-const FEED_EAT_TIME := 0.9
-const FEED_LINGER := 3.0       # 吃完飼料後，家豪會在原地東張西望這麼久才繼續衝
+const FEED_EAT_TIME := 0.35    # 低頭啄一下就吃完
+const FEED_LINGER := 0.6       # 吃完飼料後在原地停一下（抬頭看一眼）就繼續衝
 const FEED_HEAL := 1.0         # 吃一把飼料回的血
 # 一般近戰敵人（農夫型）的預設值；每個敵人可以在 _enemy_specs() 個別改
 const ENEMY_MAX_HP := 2.0     # 小兵：家豪啄一下就倒（PECK_DAMAGE 2.5）；Boss 在 _enemy_specs() 另外給 "hp"
@@ -1583,8 +1583,8 @@ func _bird_pose() -> void:
 			rx = 0.2
 			flap = 0.25
 		"eat":
-			# 低頭猛啄地上的飼料
-			rx = 0.55 + 0.35 * absf(sin(b.t * 16.0))
+			# 低頭啄一下地上的飼料（往下、再抬起來，就一下）
+			rx = 0.9 * sin(PI * clampf(b.t / FEED_EAT_TIME, 0.0, 1.0))
 			flap = 0.1
 		"return":
 			lift = absf(sin(time * 9.0)) * 0.04
@@ -1595,9 +1595,9 @@ func _bird_pose() -> void:
 			rx = -0.2 * k
 			flap = 0.3 * absf(sin(b.t * 7.0)) * float(b.t < SLIP_TIME - 0.5)
 		"linger":
-			# 慢慢左右張望，偶爾低頭啄一下
-			rz = sin(b.t * 2.2) * 0.12
-			rx = 0.45 if fmod(b.t, 1.1) < 0.25 else 0.05
+			# 吃完抬頭、往旁邊看一眼
+			rz = sin(clampf(b.t / FEED_LINGER, 0.0, 1.0) * PI) * 0.12
+			rx = 0.05
 			flap = 0.05
 		"dead":
 			rz = minf(b.t * 6.0, 1.0) * 1.5
