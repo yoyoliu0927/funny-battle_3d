@@ -823,7 +823,8 @@ func _make_finale_card() -> Control:
 		if String((l as Label).text).contains("完成"):
 			(l as Label).text = "山海畫卷　全破！"
 	# 全遊戲的最後一張卡：多一行收尾的話
-	var vb := panel.get_child(0) as VBoxContainer
+	var vbs := panel.find_children("*", "VBoxContainer", true, false)
+	var vb: VBoxContainer = vbs[0] if not vbs.is_empty() else null
 	if vb:
 		var thanks := Label.new()
 		thanks.text = "家豪回家了。感謝遊玩！"
@@ -952,8 +953,8 @@ func _start_finale() -> void:
 		away = away.normalized() if away.length() > 0.5 else Vector3(0, 0, 1)
 		var side := Vector3(-away.z, 0, away.x)
 		# 鏡頭退到洞的外側、高一點：畫面下緣是泡在洞裡回頭看鏡頭的人，後面遠處是天上的鳳凰
-		_finale_shots.d_pos = ctr + away * 5.4 + side * 1.4 + Vector3(0, 2.7, 0)
-		_finale_shots.d_look = disc + Vector3(0, 2.3, 0)
+		_finale_shots.d_pos = ctr + away * 7.0 + side * 1.4 + Vector3(0, 2.7, 0)
+		_finale_shots.d_look = disc + Vector3(0, 1.8, 0)
 		for e in sunk2:
 			e.data.sunk_yaw = atan2(away.x, away.z)
 			e.yaw = e.data.sunk_yaw
