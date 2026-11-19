@@ -146,6 +146,92 @@ func _how_to() -> String:
 func _tutorial_texts() -> Array:
 	return []
 
+# ---------------------------------------------------------------- 新手教學（前三關；格式見 ice_tutorial.gd）
+
+const IceTutorial := preload("res://levels/ice/ice_tutorial.gd")
+var tut: IceTutorial
+static var _ice_tut_seen := {}       # 這次開遊戲已經看完（或跳過）教學的關卡
+
+## 這一關的新手教學步驟；空陣列＝沒有教學（第 4 關以後）
+func _tutorial_steps() -> Array:
+	return []
+
+func tut_on() -> bool:
+	return tut != null and tut.active()
+
+func _start_tut() -> void:
+	var key := String(get_parent().scene_file_path)
+	if _ice_tut_seen.has(key):
+		return
+	if _automated_run() and not Engine.has_meta("ice_tut_force"):   # 自動測試不跑教學（截圖腳本會設 ice_tut_force）
+		return
+	var list := _tutorial_steps()
+	if list.is_empty():
+		return
+	tut = IceTutorial.new()
+	tut.name = "IceTutorial"
+	add_child(tut)
+	tut.finished.connect(func(): _ice_tut_seen[key] = true)
+	tut.begin(self, list)
+
+## 給教學步驟用的小工具
+func tut_enemy(n: String) -> Fighter:
+	for f in enemies:
+		if f.name == n:
+			return f
+	return null
+
+## 某個人頭頂上方一點（箭頭指人時用）
+func tut_head(n: String) -> Callable:
+	return func():
+		var f := tut_enemy(n)
+		return null if f == null else f.pos + Vector3(0, 2.9, 0)
+
+## 某個人紅線的第 k 段的中點（k 從 0 開始）
+func tut_seg(n: String, k: int) -> Callable:
+	return func():
+		var f := tut_enemy(n)
+		if f == null:
+			return null
+		var pts := _raw_route(f)
+		if k + 1 >= pts.size():
+			return null
+		return ground(((pts[k] as Vector3) + (pts[k + 1] as Vector3)) * 0.5)
+
+## 家豪黃線的第 k 段的中點
+func tut_bird_seg(k: int) -> Callable:
+	return func():
+		var pts: Array = [bird.start_pos]
+		for p in path:
+			pts.append(ground(p))
+		pts.append(world.cage)
+		if k + 1 >= pts.size():
+			return null
+		return ground(((pts[k] as Vector3) + (pts[k + 1] as Vector3)) * 0.5)
+
+## 準心正對著紅線（手上拿香蕉皮）
+func tut_aiming_route() -> bool:
+	return _aim_on_route
+
+## 準心對著紅線、而且預告的結果是 text（例如 "冰洞"、"咚"、"守衛"）
+func tut_aim_says(text: String) -> bool:
+	return _aim_on_route and _aim_results.any(func(r): return String(r.get("text", "")) == text)
+
+## 準心對著紅線、而且白色箭頭的終點停在某個人身上（第 2 關起預告的字都寫「停」，所以看終點的位置）
+func tut_aim_hits(n: String) -> bool:
+	var o := tut_enemy(n)
+	if o == null or not _aim_on_route:
+		return false
+	return _aim_results.any(func(r): return r.has("end") and flat_dist(r.end as Vector3, o.pos) < HIT_R + 0.6)
+
+## 這一輪放了幾個某種道具
+func tut_used(id: String) -> int:
+	return casts.filter(func(c): return String(c.id) == id).size()
+
+## 按 H 的說明彈窗：換成冰雪島的規則（共用的預設寫的是別的玩法）
+func _hero_logic_text() -> String:
+	return "家豪會沿著地上的黃色虛線，自己走去開籠子。\n\n工人沿紅色虛線衝過來，碰到家豪就把他抓走。\n雞在冰上不會滑，人會。"
+
 # ---------------------------------------------------------------- 建立、重置
 
 func _level_setup() -> void:
@@ -346,6 +432,7 @@ func _level_setup() -> void:
 		UISkin.pill(hint, Color(0.1, 0.13, 0.2, 0.75), Color(1, 1, 1, 0.35), Color(1, 1, 1))
 	_skin_hud()
 	_hint_until = Time.get_ticks_msec() + 3000
+	_start_tut.call_deferred()      # 前三關的新手教學（HUD 都建好之後才開始）
 
 func _mesh_node(m: Material) -> MeshInstance3D:
 	var n := MeshInstance3D.new()
@@ -1924,12 +2011,13 @@ func _process(dt: float) -> void:
 		var first_time: bool = attempts.is_empty()     # 說明、大標題、示範都只在第一次進這一關時出現
 		# 示範播放時先不貼說明（畫面上只留示範的一行字）；示範播完再貼幾秒
 		var show_how: bool = (first_time and not _demo_playing and t_in < (15.0 if _aid("demo") else 5.0)) or Input.is_physical_key_pressed(KEY_H)
+		show_how = show_how and not tut_on()      # 新手教學進行中：畫面上只留教學的便利貼
 		_how_panel.visible = show_how and not (_top_cam != null and _top_cam.current)
 		if _goal_label:
 			# 紅色大標題只在第一關、第一次進來時出現一下
 			_goal_label.visible = false
 		if _how_tab:
-			_how_tab.visible = not show_how and not _demo_playing
+			_how_tab.visible = not show_how and not _demo_playing and not tut_on()
 	elif _how_tab:
 		_how_tab.visible = false
 	if _list_label:

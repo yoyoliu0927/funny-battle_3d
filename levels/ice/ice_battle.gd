@@ -72,7 +72,14 @@ func worker(name: String, route: Array, extra := {}) -> Dictionary:
 
 # ---------------------------------------------------------------- 建立、重置、輸贏
 
+## 冰雪島不顯示血條：家豪被碰到就是被抓走，愛心數字沒有意義。共用程式照樣建（其他地方會讀 _hearts），建好就藏起來
+func _build_hero_card(layer: CanvasLayer, hb: Vector2) -> void:
+	super(layer, hb)
+	if _hero_card:
+		_hero_card.visible = false
+
 func _level_setup() -> void:
+	show_float_bars = false     # 頭上的血條也不要
 	# 音效和配樂是程式合成的（sfx.gd）。沒有畫面的自動測試（headless）不合成，省啟動時間
 	var sounds: Dictionary = Sfx.make_all() if SOUND_ON and DisplayServer.get_name() != "headless" else {}
 	for k in sounds:
