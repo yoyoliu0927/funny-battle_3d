@@ -128,7 +128,15 @@ func _sheet(clip: String) -> Texture2D:
 		return null
 	if not _sheets.has(clip):
 		var path := clip_dir.path_join(clip + ".jpg")
-		_sheets[clip] = load(path) if ResourceLoader.exists(path) else null
+		var tex: Texture2D = null
+		if ResourceLoader.exists(path):
+			tex = load(path)
+		elif FileAccess.file_exists(path):
+			# 剛錄好、編輯器還沒匯入的影格表：直接讀檔
+			var img := Image.load_from_file(ProjectSettings.globalize_path(path))
+			if img:
+				tex = ImageTexture.create_from_image(img)
+		_sheets[clip] = tex
 	return _sheets[clip]
 
 func _set_frame(n: int) -> void:

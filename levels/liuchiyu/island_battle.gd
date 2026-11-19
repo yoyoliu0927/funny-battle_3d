@@ -309,6 +309,9 @@ func _tick_night() -> void:
 	# 放在道具欄右邊、隔開一段，跟道具欄底部對齊
 	var hb_w: float = maxf(_hotbar.size.x, float(items.size()) * 84.0 + 4.0)
 	_night_slot.position = _hotbar.global_position + Vector2(hb_w + NIGHT_GAP, 84.0 - NIGHT_SLOT)
+	if _hero_card:
+		# 家豪的愛心紙片排在「夜晚」那一格的右邊
+		_hero_card.offset_left = _night_slot.position.x + NIGHT_SLOT + 18.0
 	_night_slot.visible = _hotbar.visible and not _leaving
 	_night_box.border_color = Color(0.55, 0.95, 0.9) if held else Color(0.45, 0.46, 0.48)
 
@@ -809,7 +812,9 @@ func _tick_item_hint(dt: float) -> void:
 	if _hint_label.visible:
 		var hb := _hotbar.get_global_rect()
 		_hint_label.size = Vector2(700.0, 28.0)
-		_hint_label.position = Vector2(hb.position.x + hb.size.x * 0.5 - 350.0, hb.position.y - 78.0)
+		# 道具欄在左下角：說明靠左對齊道具欄（置中會跑出畫面左邊）
+		_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		_hint_label.position = Vector2(hb.position.x + 4.0, hb.position.y - 78.0)
 		_hint_label.modulate.a = clampf(_hint_t / 0.5, 0.0, 1.0)
 
 ## 準心沒有指到地面的時候（例如看著天空或海），就當成指著正前方 10 公尺的地面

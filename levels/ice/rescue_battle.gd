@@ -151,6 +151,7 @@ func _level_setup() -> void:
 	super()
 	show_tutorial = false
 	show_start_button = false  # 這一系列自己畫了右下角的開始鈕
+	show_corner_keys = false   # 也自己畫了右上角的「R 重來」
 	use_view_toggle = false    # 這一系列自己有「準備時按住 Tab 從正上方看」
 	auto_next = false          # 這一系列過關後自己有「下一關」的按鈕
 	avoid_thin = true
@@ -1844,9 +1845,8 @@ func _process(dt: float) -> void:
 	for f in all_fighters():
 		if f.bar:
 			f.bar.visible = false
-	if not _enemy_rows.is_empty():
-		var col: Control = (_enemy_rows[0].face as Control).get_parent().get_parent()
-		col.visible = false
+	if _enemy_col:
+		_enemy_col.visible = false
 	var hint := get_node_or_null("../HUD/Hint") as Label
 	if hint:
 		hint.visible = not cut and Input.is_physical_key_pressed(KEY_H)   # 操作說明只在按住 H 時出現

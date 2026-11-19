@@ -106,11 +106,13 @@ func _place_goal_line() -> void:
 	var hb: Vector2 = _hotbar.bar_size()
 	_hotbar.offset_top = -hb.y - 58.0
 	_hotbar.offset_bottom = -58.0
-	_phase_label.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_phase_label.offset_left = -560
-	_phase_label.offset_right = 560
-	_phase_label.offset_top = -46
-	_phase_label.offset_bottom = -6
+	# 跟其他大關一樣放在畫面上方中間（底下是道具欄、愛心和開始鈕）
+	_phase_label.set_anchors_preset(Control.PRESET_CENTER_TOP)
+	_phase_label.offset_left = 0
+	_phase_label.offset_right = 0
+	_phase_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_phase_label.offset_top = 18
+	_phase_label.offset_bottom = 58
 	_phase_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	if _dialog:
 		_dialog.offset_top = -hb.y - 58.0 - 20.0 - 120.0

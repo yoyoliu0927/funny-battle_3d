@@ -1165,24 +1165,30 @@ func _build_ui() -> void:
 	add_child(_layer)
 	_overlay = _pad(_layer, _paint_overlay, false)
 	_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	# 操作說明（只留最少的字）：一張米色小紙片，按鍵畫成鍵帽
-	var hint := PanelContainer.new()
-	UIStyle.slip(hint, Vector2(16, 6))
-	hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	var hrow := HBoxContainer.new()
-	hrow.add_theme_constant_override("separation", 24)
-	hrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	hint.add_child(hrow)
-	hrow.add_child(UIStyle.key_hint("←／→", "走", 14))
-	hrow.add_child(UIStyle.key_hint("↑／↓", "換島", 14))
-	hrow.add_child(UIStyle.key_hint("Enter", "開始", 14))
-	hrow.add_child(UIStyle.key_hint("B", "商店", 14))
-	hrow.add_child(UIStyle.key_hint("Esc", "返回", 14))
-	_layer.add_child(hint)
-	hint.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
-	hint.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	hint.grow_vertical = Control.GROW_DIRECTION_BEGIN
-	hint.offset_bottom = -10
+	# 操作說明：右下角只放一組方向鍵（倒 T 字排列，跟鍵盤上一樣），鍵帽用全遊戲共用的手帳風格；
+	# 左右走、上下換島一看就懂，不另外寫字。商店（B）、聲音（V）在右上角，開始（Enter）在小關的對話框上
+	var pad := GridContainer.new()
+	pad.columns = 3
+	pad.add_theme_constant_override("h_separation", 5)
+	pad.add_theme_constant_override("v_separation", 5)
+	pad.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pad.modulate.a = 0.9
+	for k in ["", "↑", "", "←", "↓", "→"]:
+		if k == "":
+			var gap := Control.new()
+			gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			pad.add_child(gap)
+		else:
+			var cap := UIStyle.keycap(k, 20)
+			cap.custom_minimum_size = Vector2(44, 40)
+			cap.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+			pad.add_child(cap)
+	_layer.add_child(pad)
+	pad.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	pad.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	pad.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	pad.offset_right = -24
+	pad.offset_bottom = -24
 	# 提示字卡
 	_toast = Label.new()
 	_toast.label_settings = UIStyle.ls(26)
