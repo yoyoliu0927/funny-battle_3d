@@ -120,7 +120,12 @@ void fragment() {
 	c = mix(c, stroke_c, smoothstep(0.70 + 0.05 * zoom, 0.76 + 0.05 * zoom, w) * keep * mix(0.75, 0.6, zoom) * calm * (1.0 - floe));
 	// 浪花：海面後面的東西離海面很近的地方
 	float zd = texture(depth_tex, SCREEN_UV).r;
+#if CURRENT_RENDERER == RENDERER_COMPATIBILITY
+	// Compatibility（OpenGL）的深度範圍是 -1~1，要跟螢幕座標一起換算
+	vec4 up = INV_PROJECTION_MATRIX * vec4(vec3(SCREEN_UV, zd) * 2.0 - 1.0, 1.0);
+#else
 	vec4 up = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, zd, 1.0);
+#endif
 	float gap = -up.z / up.w + VERTEX.z;
 	float n = vnoise(vec3(p * 1.4, TIME * 0.7));
 	float foam = 1.0 - smoothstep(0.10, 0.35 + n * 0.55, gap);
