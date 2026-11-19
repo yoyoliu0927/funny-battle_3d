@@ -87,6 +87,8 @@ const ALL_SKILLS := [
 	{"id": "feed", "name": "飼料", "key": "1", "prep": -1, "live": -1, "cooldown": 1.5, "radius": 0.6, "color": Color(1.0, 0.85, 0.3)},
 	{"id": "banana", "name": "香蕉皮", "key": "2", "prep": -1, "live": -1, "cooldown": 4.0, "radius": 0.5, "color": Color(1.0, 0.9, 0.25)},
 	{"id": "rock", "name": "巨石", "key": "3", "prep": 1, "live": -1, "cooldown": 8.0, "radius": 0.9, "color": Color(0.85, 0.85, 0.8)},
+	# 風（只有第 4 小關有）：開打後才能用，在準心位置朝鏡頭看的方向起一陣風
+	{"id": "wind", "name": "風", "key": "4", "prep": 0, "live": -1, "cooldown": 5.0, "radius": 2.2, "color": Color(0.75, 0.92, 1.0)},
 ]
 const PEEL_RADIUS := 0.55      # 走到香蕉皮這麼近就會踩到
 const SLIP_TIME := 3.0         # 滑倒後躺在地上的時間
@@ -267,10 +269,8 @@ const TUT_PAGES := [
 		"body": "指揮官站在高台上，有 3 點血。在梯子腳下撒飼料，家豪吃完會爬上去。一開始他看到家豪就開槍、把家豪嚇飛：趁他看別處時偷襲、躲在木箱後面繞過去，或用大砲砸他（砸中會頭暈）。
 
 打掉兩點血他就發怒，改成蓄力衝撞（地上出現紅線），炮塔也會升起來。衝空了他會頭暈，這時候啄他才有用；讓他衝過香蕉皮也會摔一跤。"},
-	{"id": "wind", "title": "風口",
-		"body": "地上淡藍色、有箭頭的帶子是強風。走在裡面的人會被往箭頭方向推；在風裡滑倒的人會被一路吹著滑，撞倒下風處站著的守衛（被撞倒的也會跟著滑）。
-
-巨石放進風裡會被吹著滾，自爆農夫掉下的火藥桶也會順風滾。家豪自己也會被吹，要小心。"},
+	{"id": "wind", "title": "風", "keys": [["4", "選擇"], ["LMB", "朝準心吹"]],
+		"body": "開打後才能用。在準心的位置，朝你看的方向吹起一陣風（2.5 秒）。\n\n風吹到炮塔，砲口會轉向下風、固定一陣子，改轟那一邊（守衛也會被自己人炸到）；風吹到停住的巨石，巨石會順風再滾起來。走在風裡的人會被推，滑倒的人會被一路吹著滑。"},
 	{"id": "chest", "title": "寶箱",
 		"body": "家豪走過去不會自己打開。在寶箱旁邊撒飼料，家豪過去吃的時候會順便打開：補滿血、神蹟冷卻全部清空；有次數限制的香蕉皮和巨石各多 2 次。"},
 ]
@@ -643,6 +643,17 @@ class Hotbar extends Control:
 				_px(c, 6, 0, Color(0.4, 0.26, 0.1).darkened(dim))
 				_px(c, 1, 10, Color(0.4, 0.26, 0.1).darkened(dim))
 				_px(c, 10, 10, Color(0.4, 0.26, 0.1).darkened(dim))
+			"wind":
+				# 三道捲起來的風
+				var rows := ["....WWW.....", "...W...W....", ".......W....", "WWWWWWW.....", "............",
+					"........BB..", ".......B..B.", "..........B.", "BBBBBBBBBB..", "............", "..WWWWW.W...", ".......W...."]
+				for y in rows.size():
+					var row: String = rows[y]
+					for x in row.length():
+						if row[x] == "W":
+							_px(c, x, y, Color(0.96, 0.99, 1.0).darkened(dim))
+						elif row[x] == "B":
+							_px(c, x, y, Color(0.62, 0.86, 1.0).darkened(dim))
 
 ## 畫面中下方的對話框：左邊家豪的頭像、右邊文字，自己滑上來、停一下、再自己滑下去
 ## 可以另外帶一張圖放在右側，圖比框高，會超出框外
@@ -720,15 +731,17 @@ class DialogBox extends Control:
 # ------------------------------------------------------------------ 初始化
 
 ## 這一小關能用的神蹟：教學關只有飼料（學「引導」），其他小關三種都有
-var SKILLS: Array = ALL_SKILLS
+var SKILLS: Array = ALL_SKILLS.filter(func(sk): return sk.id != "wind")
 
 func _ready() -> void:
 	world = get_node("../World")
 	if int(world.get("stage")) == 0:
 		SKILLS = ALL_SKILLS.filter(func(sk): return sk.id == "feed")
+	elif int(world.get("stage")) == 4:
+		SKILLS = ALL_SKILLS   # 風口：多一個「風」
 	elif int(world.get("stage")) == 3:
 		# 指揮官關：香蕉皮、巨石整關各 3 次（準備階段和開打後共用），開寶箱各 +2
-		SKILLS = ALL_SKILLS.map(func(sk):
+		SKILLS = ALL_SKILLS.filter(func(sk): return sk.id != "wind").map(func(sk):
 			var d: Dictionary = sk.duplicate()
 			if d.id in ["banana", "rock"]:
 				d["shared"] = 3
@@ -792,7 +805,7 @@ class SmokeFoe:
 func _ensure_actions() -> void:
 	var map := {
 		"battle_start": [KEY_ENTER, KEY_KP_ENTER], "battle_reset": [KEY_R], "back_to_map": [KEY_M],
-		"skill_1": [KEY_1, KEY_KP_1], "skill_2": [KEY_2, KEY_KP_2], "skill_3": [KEY_3, KEY_KP_3],
+		"skill_1": [KEY_1, KEY_KP_1], "skill_2": [KEY_2, KEY_KP_2], "skill_3": [KEY_3, KEY_KP_3], "skill_4": [KEY_4, KEY_KP_4],
 		"tutorial": [KEY_H],
 	}
 	for action in map:
@@ -899,8 +912,8 @@ func _build_fighters() -> void:
 	var crew := farmers.filter(func(f): return not f.is_boss and not f.reserve).size()
 	if crew > 0:
 		bird.max_hp = maxf(crew - 1, 1) * FIRST_STRIKE_DMG
-		if boss and boss.cone:
-			bird.max_hp += FIRST_STRIKE_DMG
+		if (boss and boss.cone) or int(world.get("stage")) == 4:
+			bird.max_hp += FIRST_STRIKE_DMG   # 指揮官關、風關：多一顆心
 	# 骨牌
 	for t in world.towers:
 		var td := {"node": t.node, "pos": t.pos, "radius": t.radius, "height": t.height,
@@ -1027,6 +1040,11 @@ func reset() -> void:
 	_bowl.clear()
 	_bowl_n.clear()
 	_bowl_best = 0
+	gusts.clear()   # 節點在 _fx_root 底下，上面已經一起清掉
+	_wind_turret_kills = 0
+	_wind_rock_tower = false
+	for t in towers:
+		t["wind_lock"] = 0.0
 	_roar_push = false
 	shells.clear()
 	climb_k = -1
@@ -1283,6 +1301,8 @@ func _unhandled_input(event: InputEvent) -> void:
 		select_skill(1)
 	elif event.is_action_pressed("skill_3"):
 		select_skill(2)
+	elif event.is_action_pressed("skill_4") and SKILLS.size() > 3:
+		select_skill(3)
 	elif event is InputEventMouseButton and event.pressed and event.button_index in [MOUSE_BUTTON_WHEEL_UP, MOUSE_BUTTON_WHEEL_DOWN]:
 		# 滾輪換技能：游標有沒有鎖住都可以（觸控板滑動剛觸發過就不重複算）
 		if Time.get_ticks_msec() - _pan_ms > 250:
@@ -1415,6 +1435,8 @@ func cast(i: int, p: Vector3) -> bool:
 			_spawn_feed(p)
 		"banana":
 			_spawn_peel(p)
+		"wind":
+			_spawn_gust(p)
 	_refresh_slots()
 	_show_first_hint(false)
 	return true
@@ -1434,7 +1456,7 @@ func _spawn_rock(p: Vector3) -> void:
 	rocks.append({"path": path, "i": 0, "node": rock, "done": path.size() < 2, "hit": []})
 
 ## 從 start 放下巨石，預測它每個物理幀的位置（和實際滾動完全一樣，用來畫路徑）
-func simulate_roll(start: Vector3) -> PackedVector3Array:
+func simulate_roll(start: Vector3, gust: Dictionary = {}, gust_steps := 0) -> PackedVector3Array:
 	var pts := PackedVector3Array()
 	var p := Vector2(start.x, start.z)
 	var v := Vector2.ZERO
@@ -1444,8 +1466,13 @@ func simulate_roll(start: Vector3) -> PackedVector3Array:
 		var g := Vector2(world.height_at(p.x + 0.15, p.y) - world.height_at(p.x - 0.15, p.y),
 			world.height_at(p.x, p.y + 0.15) - world.height_at(p.x, p.y - 0.15)) / 0.3
 		v += -g * ROLL_GRAVITY * dt
-		var wv: Vector3 = _wind(Vector3(p.x, 0, p.y))
-		v += Vector2(wv.x, wv.z) * WIND_ROCK * dt   # 風口：巨石被風吹著滾
+		var wv: Vector3 = Vector3.ZERO
+		if world.has_method("wind_at"):
+			var ww: Vector2 = world.wind_at(p.x, p.y)
+			wv = Vector3(ww.x, 0, ww.y)
+		if not gust.is_empty() and i < gust_steps:
+			wv += _gust_vec(gust, Vector3(p.x, 0, p.y))   # 神蹟「風」：只吹這麼多格
+		v += Vector2(wv.x, wv.z) * WIND_ROCK * dt   # 巨石被風吹著滾
 		var sp := v.length()
 		# 台地上（高起來的地方）幾乎沒有阻力，巨石會沿著微斜的台面一路滾到邊緣再滾下去
 		var resist := ROLL_RESIST if world.hill_bump(p.x, p.y) < 1.0 else 0.2
@@ -1661,6 +1688,8 @@ func _tick_miracles(dt: float) -> void:
 			var t: Dictionary = towers[k]
 			if t.state == "stand" and speed >= 0.6 and Vector2(cur.x - t.pos.x, cur.z - t.pos.y).length() < t.radius + ROCK_RADIUS + 0.45:
 				_log("巨石撞倒了第 %d 座塔！" % (k + 1))
+				if r.get("wind", false):
+					_wind_rock_tower = true
 				_tower_ways[k] = "rock"
 				_toast("撞到塔了！", 1.4)
 				_topple(k, flat)
@@ -3036,13 +3065,162 @@ var _bowl_n: Dictionary = {}   # 最早滑倒的那個 → 這一串總共撞倒
 var _bowl_best := 0
 
 func _wind(p: Vector3) -> Vector3:
-	if not world.has_method("wind_at"):
+	var out := Vector3.ZERO
+	if world.has_method("wind_at"):
+		var w: Vector2 = world.wind_at(p.x, p.z)
+		out = Vector3(w.x, 0, w.y)
+	for g in gusts:
+		out += _gust_vec(g, p)
+	return out
+
+# ---- 神蹟「風」：一陣 2.5 秒的風（參考劉啟佑大關的風，改成要塞的玩法）
+#   起風那一下：風吹到的炮塔，砲口會轉向下風、固定一陣子，改轟那個方向（下風處的守衛會被自己人的砲彈炸到）；
+#              風吹到停住的巨石，巨石會順風再滾起來（撞人、撞倒炮塔）
+#   吹的那 2.5 秒：跟風口一樣，走路的人被推、滑倒的人一路滑、火藥桶順風滾
+const GUST_TIME := 2.5
+const GUST_BACK := 3.0          # 準心往上風多遠開始吹
+const GUST_LEN := 9.0           # 吹多長
+const GUST_HW := 2.2            # 半寬
+const GUST_TURRET_LOCK := 6.0   # 炮塔被吹偏後固定多久
+var gusts: Array = []           # {a, b, hw, dir, t, nodes}
+
+func _gust_vec(g: Dictionary, p: Vector3) -> Vector3:
+	var a: Vector2 = g.a
+	var b: Vector2 = g.b
+	var ab := b - a
+	var q := Vector2(p.x, p.z)
+	var t := (q - a).dot(ab) / ab.length_squared()
+	if t < 0.0 or t > 1.0:
 		return Vector3.ZERO
-	var w: Vector2 = world.wind_at(p.x, p.z)
-	return Vector3(w.x, 0, w.y)
+	var d := (q - a.lerp(b, t)).length()
+	var hw: float = g.hw
+	if d >= hw:
+		return Vector3.ZERO
+	var dir: Vector2 = g.dir
+	var k := (1.0 - smoothstep(hw - 0.5, hw, d)) * (1.0 - smoothstep(0.9, 1.0, t))
+	return Vector3(dir.x, 0, dir.y) * k
+
+## 風從哪個方向吹：鏡頭往準心看的方向（水平）
+func _gust_dir(p: Vector3) -> Vector2:
+	var d := Vector2(p.x - camera.global_position.x, p.z - camera.global_position.z)
+	if d.length() < 0.5:
+		var f := -camera.global_basis.z
+		d = Vector2(f.x, f.z)
+	return d.normalized() if d.length() > 0.01 else Vector2(0, -1)
+
+func _spawn_gust(p: Vector3, dir_override := Vector2.ZERO) -> void:
+	var dir := dir_override.normalized() if dir_override.length() > 0.01 else _gust_dir(p)
+	var c := Vector2(p.x, p.z)
+	var g := {"a": c - dir * GUST_BACK, "b": c + dir * GUST_LEN, "hw": GUST_HW, "dir": dir, "t": 0.0, "nodes": []}
+	gusts.append(g)
+	_log("起風（%.1f, %.1f）風向（%.2f, %.2f）" % [p.x, p.z, dir.x, dir.y])
+	_gust_visual(g)
+	_puff(p + Vector3.UP * 0.5, Color(0.95, 0.75, 0.3, 0.7), 8, 0.3)   # 捲起一陣落葉
+	# 炮塔：砲口被吹向下風
+	for k in towers.size():
+		var t: Dictionary = towers[k]
+		if t.gun == null or t.state != "stand":
+			continue
+		var tp := Vector3(t.pos.x, 0, t.pos.y)
+		if _gust_vec(g, tp).length() > 0.05 or _seg_dist(c - dir * GUST_BACK, c + dir * GUST_LEN, t.pos) < GUST_HW + float(t.radius):
+			t["wind_lock"] = GUST_TURRET_LOCK
+			t["wind_dir"] = dir
+			t.aim_t = -1.0
+			(t.warn as Node3D).visible = false
+			_log("風把炮塔%s的砲口吹向下風" % _tower_name(k))
+			_toast("炮塔被風吹偏了！", 1.4)
+	# 停住的巨石：順風再滾起來
+	for r in rocks:
+		if not r.done:
+			continue
+		var node := r.node as Node3D
+		if not is_instance_valid(node):
+			continue
+		var rp := node.global_position
+		if _gust_vec(g, rp).length() < 0.05:
+			continue
+		if r.has("obs"):
+			world.obstacles.erase(r.obs)
+			r.erase("obs")
+		r.rested = false
+		r.path = simulate_roll(Vector3(rp.x, 0, rp.z), g, int(GUST_TIME / SIM_DT))
+		r.i = 0
+		r.done = r.path.size() < 2
+		r.hit = []
+		r["wind"] = true
+		if not r.done:
+			_log("風把巨石吹得滾了起來")
+
+func _seg_dist(a: Vector2, b: Vector2, q: Vector2) -> float:
+	var ab := b - a
+	var t := clampf((q - a).dot(ab) / ab.length_squared(), 0.0, 1.0)
+	return q.distance_to(a.lerp(b, t))
+
+## 風的樣子：地上一條淡藍色的帶子＋往下風飛的白線（畫面效果，不影響戰局）
+func _gust_visual(g: Dictionary) -> void:
+	var a: Vector2 = g.a
+	var b: Vector2 = g.b
+	var dir: Vector2 = g.dir
+	var yaw := atan2(dir.x, dir.y)
+	var strip := StandardMaterial3D.new()
+	strip.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	strip.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	strip.albedo_color = Color(0.75, 0.92, 1.0, 0.2)
+	g["strip_mat"] = strip
+	var n := int(a.distance_to(b))
+	for k in n:
+		var c := a.lerp(b, (k + 0.5) / n)
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(GUST_HW * 2.0, 0.02, a.distance_to(b) / n + 0.02)
+		mi.mesh = bm
+		mi.material_override = strip
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		_fx_root.add_child(mi)
+		mi.global_position = Vector3(c.x, world.height_at(c.x, c.y) + 0.05, c.y)
+		mi.rotation.y = yaw
+		g.nodes.append(mi)
+	var smat := StandardMaterial3D.new()
+	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	smat.albedo_color = Color(1, 1, 1, 0.7)
+	g["streaks"] = []
+	for k in 18:
+		var mi := MeshInstance3D.new()
+		var bm := BoxMesh.new()
+		bm.size = Vector3(0.05, 0.05, 1.4)
+		mi.mesh = bm
+		mi.material_override = smat
+		_fx_root.add_child(mi)
+		mi.rotation.y = yaw
+		g.nodes.append(mi)
+		g.streaks.append([mi, fmod(k * 0.381, 1.0), fmod(k * 0.617, 1.0) * 1.7 - 0.85, 0.3 + fmod(k * 0.29, 1.0) * 1.2])
+
+## 每一格：風的壽命、流線往下風飛、快結束時變淡
+func _tick_gusts(dt: float) -> void:
+	for i in range(gusts.size() - 1, -1, -1):
+		var g: Dictionary = gusts[i]
+		g.t += dt
+		var a: Vector2 = g.a
+		var b: Vector2 = g.b
+		var dir: Vector2 = g.dir
+		var fade := clampf((GUST_TIME - float(g.t)) / 0.5, 0.0, 1.0)
+		(g.strip_mat as StandardMaterial3D).albedo_color.a = 0.2 * fade
+		for st in g.streaks:
+			st[1] = fmod(float(st[1]) + dt * 14.0 / a.distance_to(b), 1.0)
+			var c: Vector2 = a.lerp(b, st[1]) + Vector2(-dir.y, dir.x) * GUST_HW * float(st[2])
+			var nd := st[0] as Node3D
+			nd.global_position = Vector3(c.x, world.height_at(c.x, c.y) + float(st[3]), c.y)
+			nd.scale = Vector3(1, 1, maxf(sin(PI * float(st[1])) * fade, 0.05))
+		if float(g.t) >= GUST_TIME:
+			for nd in g.nodes:
+				if is_instance_valid(nd):
+					nd.queue_free()
+			gusts.remove_at(i)
 
 func _tick_wind(dt: float) -> void:
-	if not world.has_method("wind_at") or world.winds.is_empty():
+	_tick_gusts(dt)
+	if (not world.has_method("wind_at") or world.winds.is_empty()) and gusts.is_empty():
 		return
 	for f in [bird] + farmers:
 		if not f.alive() or f.is_boss or f.air > 0.3 or f.state in ["fly", "launch", "cannon", "climb", "pclimb", "drown"]:
@@ -3405,8 +3583,8 @@ func _star_goals() -> Array:
 			return [["no_shell", "家豪沒被砲彈打到", not _shell_hit],
 				["three_ways", "三座炮塔用三種不同方法拿下（大砲、巨石、爬梯子）", ways.size() >= 3]]
 		4:
-			return [["bowl2", "一次滑倒連撞 2 個守衛", _bowl_best >= 2],
-				["no_kick", "家豪沒被踢到", bird.hp >= bird.max_hp - 0.01]]
+			return [["wind_turret", "讓被風吹偏的炮塔炸倒守衛", _wind_turret_kills >= 1],
+				["wind_rock", "用風把巨石吹去撞倒炮塔", _wind_rock_tower]]
 		_:
 			return [["cannon_boss", "用大砲把家豪射中指揮官", _boss_by_cannon],
 				["no_chest", "不開寶箱就過關", not _chest_used]]
@@ -3844,6 +4022,22 @@ func _gun_muzzle(t: Dictionary) -> Vector3:
 func _turret_target(k: int) -> Variant:
 	var t: Dictionary = towers[k]
 	var origin := Vector3(t.pos.x, 0, t.pos.y)
+	if float(t.get("wind_lock", 0.0)) > 0.0:
+		# 被風吹偏：砲口朝下風，打下風那一邊最近的人（誰都打，包括守衛）；沒人就打下風固定一點
+		var wd: Vector2 = t.wind_dir
+		var fwd := Vector3(wd.x, 0, wd.y)
+		var best: Variant = null
+		var bd := TURRET_RANGE
+		for f in [bird] + farmers:
+			if not f.alive() or f.is_boss or f.air > 1.0:
+				continue
+			var to: Vector3 = f.pos - origin
+			to.y = 0.0
+			var d := to.length()
+			if d > 2.0 and d <= bd and to.normalized().dot(fwd) > 0.82:
+				bd = d
+				best = f.pos
+		return best if best != null else _ground(origin + fwd * TURRET_RANGE * 0.7)
 	if t.side == "enemy":
 		var b := bird
 		if not b.alive() or b.state in ["launch", "fly"] or b.air > 1.5 or (b.state == "climb" and climb_k == k):
@@ -3873,6 +4067,10 @@ func _tick_turrets(dt: float) -> void:
 		if rec > 0.0:
 			rec = maxf(rec - dt, 0.0)
 			t.recoil = rec
+		if float(t.get("wind_lock", 0.0)) > 0.0:
+			t.wind_lock = float(t.wind_lock) - dt
+			if t.wind_lock <= 0.0:
+				_log("炮塔%s的砲口轉回來了" % _tower_name(k))
 		var kick := sin(clampf(rec / TURRET_RECOIL, 0.0, 1.0) * PI) * 0.35
 		gun.position = t.gun_pos - Vector3(sin(gun.rotation.y), 0, cos(gun.rotation.y)) * kick
 		if t.state != "stand":
@@ -3930,7 +4128,7 @@ func _fire_shell(k: int, to: Vector3) -> void:
 	_fx_root.add_child(mi)
 	var from := _gun_muzzle(t)
 	mi.global_position = from
-	shells.append({"from": from, "to": to, "t": 0.0, "node": mi, "side": t.side})
+	shells.append({"from": from, "to": to, "t": 0.0, "node": mi, "side": t.side, "wind": float(t.get("wind_lock", 0.0)) > 0.0})
 	_puff(from, Color(0.9, 0.9, 0.88, 0.6), 4, 0.35)
 	_log("炮塔%s開砲" % _tower_name(k))
 
@@ -3953,7 +4151,13 @@ func _tick_shells(dt: float) -> void:
 		if k >= 1.0:
 			(sh.node as Node3D).queue_free()
 			shells.remove_at(i)
+			_shell_wind = sh.get("wind", false)
 			_explode_shell(sh.to, sh.side)
+			_shell_wind = false
+
+var _shell_wind := false        # 這顆砲彈是被風吹偏的炮塔打的（星星條件）
+var _wind_turret_kills := 0
+var _wind_rock_tower := false
 
 func _explode_shell(p: Vector3, side: String) -> void:
 	_puff(p, Color(0.35, 0.3, 0.28, 0.6), 7, 0.55)
@@ -3969,6 +4173,8 @@ func _explode_shell(p: Vector3, side: String) -> void:
 			_anim(f, "Death")
 			f.set_state("dead" if f.hp <= 0.0 else "down")
 			_log("砲彈炸到%s（剩 %d）" % [f.name, ceili(f.hp)])
+			if _shell_wind and f.hp <= 0.0:
+				_wind_turret_kills += 1
 	if side != "enemy":
 		return
 	var b := bird
@@ -5217,7 +5423,7 @@ func _tut_pages() -> Array:
 		"cannon": has_cannon,
 		"turret": towers.any(func(t): return t.gun != null),
 		"commander": boss != null and boss.cone != null,
-		"wind": world.get("winds") != null and not (world.get("winds") as Array).is_empty(),
+		"wind": SKILLS.any(func(sk): return sk.id == "wind"),
 		"chest": not (world.get("chests") if world.get("chests") != null else []).is_empty(),
 	}
 	return TUT_PAGES.filter(func(pg):

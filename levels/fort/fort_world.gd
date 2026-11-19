@@ -89,20 +89,18 @@ const STAGES := {
 			{"route": [Vector3(2.7, 0, 4.7), Vector3(13.5, 0, -5.5)], "loop": false, "pause": 1.2}],
 		# 指揮官發怒（第二階段）時從遠處跑來的援兵：東院最東邊、和通道那頭
 		"reinforce": [Vector2(38.0, -7.0), Vector2(13.5, 0.5)]},
-	# 4 = 風口：中庭一條由西往東的強風帶。走在風裡的人會被往下風推；滑倒的人會被一路吹著滑，
-	#   撞倒下風處的守衛（像保齡球）；平地上的巨石在風裡會被吹著滾；掉下的火藥桶也會順風滾。
-	4: {"towers": [],
+	# 4 = 風：一般的關卡，多一個神蹟「風」（4）。中庭一座炮塔盯著往守衛營地的路；
+	#   用風把炮塔的砲口吹向營地，炮塔就會轟自己人；或先放一顆巨石，再用風把它吹去撞倒炮塔或撞人。
+	4: {"towers": [Vector2(1.0, -5.0)],
 		"cannons": [],
 		"chests": [],
-		"winds": [{"a": Vector2(-13.0, -1.0), "b": Vector2(9.5, -1.0), "hw": 2.0}],
 		"routes": [
-			# 上風處一個巡邏的守衛橫越風帶；下風處兩個站崗的（像保齡球瓶），最下風是自爆農夫
-			# 站著不動的人會穩住腳步、不被風推；滑倒的人才會被一路吹過去
-			{"route": [Vector3(-6.0, 0, 4.5), Vector3(-6.0, 0, -6.5)], "loop": false, "pause": 1.2},
-			{"route": [Vector3(2.0, 0, 0.1), Vector3(2.0, 0, 0.3)], "loop": false, "pause": 9999.0},
-			{"route": [Vector3(6.0, 0, 0.3), Vector3(6.0, 0, 0.5)], "loop": false, "pause": 9999.0, "kind": "bomber"},
-			# 風帶北邊（上風側後方）巡邏的一個
-			{"route": [Vector3(-5.0, 0, -8.5), Vector3(4.0, 0, -8.5)], "loop": false, "pause": 1.4}]},
+			# 東邊營地：三個守衛（自爆農夫混在中間）來回走
+			{"route": [Vector3(6.0, 0, -1.0), Vector3(9.0, 0, -2.0)], "loop": false, "pause": 1.4},
+			{"route": [Vector3(8.5, 0, -5.5), Vector3(6.0, 0, -4.0)], "loop": false, "pause": 1.4, "kind": "bomber"},
+			{"route": [Vector3(5.5, 0, -7.5), Vector3(9.0, 0, -7.0)], "loop": false, "pause": 1.4},
+			# 城門內側巡邏的一個
+			{"route": [Vector3(-9.0, 0, 3.0), Vector3(-3.0, 0, 4.5)], "loop": false, "pause": 1.4}]},
 }
 const FUSE_TIME := 4.0            # 引信從點燃到發射的秒數（= 瞄準時間）
 const FORT_HERO_START := Vector3(-5.0, 0.0, 15.5)
@@ -273,7 +271,7 @@ func _ready() -> void:
 		OUTER_YARD = Rect2(oc.x - 5.5, gate_pos.y - 0.8, 11.0, 10.0)   # 上緣蓋過門洞，門口才不會有走不過去的縫
 	farmer_routes = stage_routes(stage)
 	east = stage == 3
-	stage_name = ["教學　從背後偷襲", "第 1 小關　學大砲", "第 2 小關　三座炮塔", "第 3 小關　指揮官的院子", "第 4 小關　風口"][stage]
+	stage_name = ["教學　從背後偷襲", "第 1 小關　學大砲", "第 2 小關　三座炮塔", "第 3 小關　指揮官的院子", "第 4 小關　風"][stage]
 	stage_goal = ["目標：打倒守衛（正面衝過去會被他先踢）", "目標：打倒兩個農夫（炮塔可以不管）", "目標：拿下三座炮塔（撞倒或佔領）", "目標：打倒指揮官（3 點血），路上的守衛可以避開或打倒", "目標：打倒所有守衛"][stage]
 	for w in STAGES[stage].get("winds", []):
 		var a: Vector2 = w.a
@@ -1100,7 +1098,7 @@ func _place_player() -> void:
 ## 進場的三個鏡頭（battle.gd 播）：入口推進 → 西南邊俯瞰 → 東北邊俯瞰
 func intro_shots() -> Array:
 	var c := Vector3(12.0, 0.0, -5.0) if east else Vector3(0.0, 0.0, -3.0)
-	var hint: String = ["提示：在守衛背後撒飼料，家豪會繞過去，從後面偷襲", "提示：在大砲口前撒飼料，把家豪射上炮塔", "提示：三座炮塔各有不同的拆法", "提示：趁指揮官看別處時讓家豪爬梯子偷襲，或用東院的大砲砸他；打掉兩點血他會發怒", "提示：在風帶裡丟香蕉皮，滑倒的守衛會被吹著撞倒下風的人；巨石放進風裡會自己滾"][stage]
+	var hint: String = ["提示：在守衛背後撒飼料，家豪會繞過去，從後面偷襲", "提示：在大砲口前撒飼料，把家豪射上炮塔", "提示：三座炮塔各有不同的拆法", "提示：趁指揮官看別處時讓家豪爬梯子偷襲，或用東院的大砲砸他；打掉兩點血他會發怒", "提示：按 4 用風把炮塔的砲口吹向守衛營地；或先放巨石，開打後用風把它吹去撞倒炮塔"][stage]
 	var g := Vector3(gate_pos.x, 0, gate_pos.y)
 	var out := Vector3(gate_dir.x, 0, gate_dir.y)
 	var sw := Vector3(-26, 24, 20) if not east else Vector3(-22, 32, 26)
