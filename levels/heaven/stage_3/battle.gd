@@ -25,7 +25,7 @@ func _enemy_specs() -> Array:
 func _checklist() -> Array:
 	return [
 		{"id": "rescue", "text": "抵達天門"},
-		{"id": "boss_hole", "text": "大老闆掉進雲洞", "hint": "他不怕香蕉皮，後面那個怕"},
+		{"id": "boss_hole", "text": "大老闆掉進星洞", "hint": "他不怕香蕉皮，後面那個怕"},
 		{"id": "boss_blown", "text": "陸吾吹走大老闆", "hint": "陸吾只吹一次，留給誰？"},
 	]
 

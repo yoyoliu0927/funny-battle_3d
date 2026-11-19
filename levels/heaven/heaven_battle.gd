@@ -34,6 +34,11 @@ var _rock_hits := 0
 
 # ================================================================== 場地給的東西
 
+## 這一關怎麼叫「洞」「不會滑的地面」「堆」（場地的 hole_word、rough_word、pile_word）
+func _word(key: String, fallback: String) -> String:
+	var v = world.get(key)
+	return String(v) if v != null and String(v) != "" else fallback
+
 func _doors() -> Array:
 	var d = world.get("doors")
 	return d if d != null else []
@@ -254,7 +259,7 @@ func predict_slide(f: Fighter, dir: Vector3, start = null) -> Array:
 		match String(res.get("kind", "stop")):
 			"hole":
 				one.end = res.pos
-				one.text = "✕ %s 掉進雲洞" % who.name
+				one.text = "✕ %s 掉進%s" % [who.name, _word("hole_word", "洞")]
 				one.color = Color(1.0, 0.3, 0.2)
 				out.append(one)
 				return out
@@ -326,7 +331,7 @@ func _terrain_slide(f: Fighter, dir: Vector3, start: Vector3) -> Dictionary:
 	if kind == "person":
 		t = (res.who as Fighter).name
 	elif kind == "hole":
-		t = "雲洞"
+		t = _word("hole_word", "洞")
 	elif kind == "gaze":
 		t = "陸吾"
 	elif kind == "wall" or kind == "door":
@@ -342,8 +347,8 @@ func peel_outcome(p: Vector3, skip = null) -> Array:
 	var out: Array = super(p, skip)
 	for r in out:
 		match String(r.text):
-			"冰洞": r.text = "雲洞"
-			"雪地": r.text = "雲毯"
+			"冰洞": r.text = _word("hole_word", "洞")
+			"雪地": r.text = _word("rough_word", "地面")
 	return out
 
 ## 畫滑行線：穿過門的那一條拆成門前、門後兩段各畫各的
@@ -372,7 +377,7 @@ func _line_blocked(a: Vector3, b: Vector3) -> String:
 		return "畫門"
 	var why := super(a, b)
 	match why:
-		"冰洞": return "雲洞"
+		"冰洞": return _word("hole_word", "洞")
 		"雪人或松樹": return "香爐或石柱"
 		"籠子": return "終點"
 	return why
@@ -589,7 +594,7 @@ func feed_error(p: Vector3) -> String:
 	if feed_pos != null:
 		return "黃線只能彎一次（另一把放唱盤上）" if _needs_turntable() else "已經放過了"
 	var why := super(p)
-	return why.replace("冰洞", "雲洞").replace("水裡", "雲洞裡")
+	return why.replace("冰洞", _word("hole_word", "洞")).replace("水裡", _word("hole_word", "洞") + "裡")
 
 func place_feed(p: Vector3, node: Node3D) -> void:
 	if _needs_turntable() and flat_dist(p, _turntable() as Vector3) <= DISC_R:
@@ -629,13 +634,13 @@ func fall_in(f: Fighter) -> void:
 # ================================================================== 字、標籤、視線的光
 
 ## 冰雪島的字換成仙境的說法
-const WORDS := {"撲通！": "咻——", "喀喀喀…": "卡住了…", "噗！": "噗！"}
+const WORDS := {"喀喀喀…": "咕嚕嚕…"}
 
 func pop_label(text: String, pos: Vector3, color: Color, ms: int, follow: Fighter = null) -> void:
 	super(String(WORDS.get(text, text)), pos, color, ms, follow)
 
 func toast(text: String, dur: float) -> void:
-	super(text.replace("雪地上不會滑", "雲毯上不會滑"), dur)
+	super(text.replace("雪地上不會滑", _word("rough_word", "這裡") + "上不會滑"), dur)
 
 func _defeat_tip_for(who: String) -> String:
 	match who:

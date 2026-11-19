@@ -21,7 +21,7 @@ func _enemy_specs() -> Array:
 func _checklist() -> Array:
 	return [
 		{"id": "rescue", "text": "抵達南天門"},
-		{"id": "pair_hole", "text": "一個洞泡兩個", "hint": "兩條紅線都通到同一扇門"},
+		{"id": "pair_hole", "text": "一個水潭泡兩個", "hint": "兩條紅線都通到同一扇門"},
 		{"id": "one_banana", "text": "只丟一片香蕉皮", "hint": "等第二個人走到線上 [Tab]"},
 	]
 
