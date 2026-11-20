@@ -49,6 +49,7 @@ const SHOP_SCENE := "res://scenes/shop.tscn"
 const SeaShader := preload("res://shaders/map_sea.gdshader")
 const TEX := "res://assets/textures/"
 const INTRO_SCENE := "res://scenes/intro.tscn"
+const TitleScreen := preload("res://scripts/ui/title_screen.gd")   # 一開遊戲的標題畫面（掛在這個場景上，拿世界地圖當背景）
 const ENDING_SCENE := "res://levels/heaven/ending/ending.tscn"   # 結局動畫（隱藏按鍵 Shift＋E 直接播，展示用）
 
 ## 正式的「島」一共幾座（四個組員各一座）；不夠的用「建造中」補滿
@@ -193,6 +194,7 @@ var _map := false            # 現在是不是拉遠看世界地圖
 var _zoom := 0.0             # 0 = 島上、1 = 世界地圖（中間是鏡頭正在拉）
 var _map_center := Vector3.ZERO   # 世界地圖鏡頭看的地方（所有島的正中間）
 var _map_cam := Vector3(0, 140, 90)   # 世界地圖鏡頭的位置（相對 _map_center）
+var _title: Node             # 標題畫面（還開著的時候：這裡的介面藏起來、不收按鍵）
 var _map_rect := Rect2()     # 右上角地圖按鈕在畫面上的位置
 var _go_rect := Rect2()      # 世界地圖下方「登島」按鈕在畫面上的位置
 var _tag_rects: Array = []   # 世界地圖上每張島牌在畫面上的位置
@@ -265,10 +267,22 @@ func _ready() -> void:
 	elif not testing:
 		_zoom = 1.0                      # 剛開遊戲：先看一眼整張世界地圖，再拉近到主島
 	_place_hero(true)
+	if TitleScreen.wanted():
+		# 剛開遊戲：先放標題畫面。按下開始之後鏡頭直接滑到主島（第一次玩會先接開場劇情）
+		_zoom = 0.0
+		_layer.visible = false
+		_title = TitleScreen.new()
+		_title.map = self
+		add_child(_title)
 	if "--autotest" in args:
 		_autotest.call_deferred()
 	if shots != "":
 		_mapshots.call_deferred(shots)
+
+## 標題畫面收掉了：介面拿出來，開始收按鍵
+func _title_end() -> void:
+	_title = null
+	_layer.visible = true
 
 ## 讀大關清單：第 0 座是主島（農莊：商店、冒險紀錄、家、告示牌、碼頭），接著是主題島（不夠 ISLAND_SLOTS 座的用「還沒開放」補滿）
 func _load_chapters() -> void:
@@ -3134,6 +3148,8 @@ func _isle_at(pos: Vector2) -> int:
 	return best
 
 func _unhandled_input(ev: InputEvent) -> void:
+	if _title != null:
+		return                       # 標題畫面還開著：按鍵都給它
 	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
 		if _snd_rect.has_point(ev.position):
 			_toggle_sound()
@@ -3189,7 +3205,11 @@ func _unhandled_input(ev: InputEvent) -> void:
 					set_map(true)                # 島上按 Esc：先退到世界地圖
 				elif not _starting and not _busy() and ResourceLoader.exists(INTRO_SCENE):
 					if _esc_t > 0.0:
-						get_tree().change_scene_to_file(INTRO_SCENE)
+						# 回標題畫面（不用再播一次羽毛飄下來的開場動畫）
+						Engine.remove_meta("title_done")
+						Engine.remove_meta("map_last")
+						Engine.set_meta("title_skip_open", true)
+						get_tree().reload_current_scene()
 					else:
 						_esc_t = 2.0
 						_show_toast("再按一次 Esc 返回標題")

@@ -12,6 +12,7 @@ extends "res://scripts/ui/cutscene.gd"
 ##   cue 決定這一句演什麼（運鏡和動作寫在 _on_line()）。切換 shot 時會自動淡出淡入。
 
 const NEXT_SCENE := "res://scenes/level_select.tscn"
+const TitleScreen := preload("res://scripts/ui/title_screen.gd")
 const ENDING_SCENE := "res://levels/heaven/ending/ending.tscn"   # 結局動畫（隱藏按鍵 Shift＋E 直接播，展示用）
 const BARN_Z := 200.0
 const DREAM_Z := 400.0
@@ -47,7 +48,22 @@ func _lines() -> Array:
 	]
 
 func _next_scene() -> String:
+	TitleScreen.mark_intro_seen()        # 看過（或跳過）開場劇情了：下次開遊戲按下開始就直接到農莊
 	return NEXT_SCENE
+
+## 這個場景是專案的主場景，所以一開遊戲會先到這裡：還沒經過標題畫面就先轉過去
+## （標題畫面掛在選關場景上；第一次玩按下開始才會回來播這段劇情）
+func _ready() -> void:
+	var args := OS.get_cmdline_user_args()
+	var testing := "--autotest" in args
+	for a in args:
+		testing = testing or a.begins_with("--cutshots=")
+	if not testing and not Engine.has_meta("title_done") and not Engine.has_meta("map_last") and ResourceLoader.exists(NEXT_SCENE):
+		set_process(false)
+		set_process_unhandled_input(false)
+		get_tree().change_scene_to_file.call_deferred(NEXT_SCENE)
+		return
+	super()
 
 ## 隱藏按鍵（展示用，畫面上不提示）：開場播到一半按 Shift＋E，直接跳去播結局
 func _unhandled_input(e: InputEvent) -> void:
