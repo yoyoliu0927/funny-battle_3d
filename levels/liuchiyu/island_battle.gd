@@ -257,7 +257,7 @@ func _fetch_star(dt: float, may_start: bool) -> bool:
 # ---------------------------------------------------------------- 夜晚（不是道具：按住右鍵就是晚上）
 
 const NightIcon := preload("res://levels/liuchiyu/items/night_item.gd")      # 只借它的月亮圖示
-const NIGHT_SLOT := 70.0         # 夜晚那一格多大
+const NIGHT_SLOT := 74.0         # 夜晚那一格多大（跟技能欄的卡片一樣大）
 const NIGHT_GAP := 34.0          # 跟道具欄隔多遠
 
 var _night_slot: Panel
@@ -275,6 +275,8 @@ func _tick_night() -> void:
 	if _hotbar == null:
 		return
 	if _night_slot == null:
+		# 跟共用的技能欄（scripts/ui/hotbar.gd）同一種手帳風格：米色圓角紙卡、深色描邊、底下一點陰影，
+		# 中間一顆咖啡色圓貼紙放圖示；按住的時候跟「選中的道具」一樣變成紅框、往上浮一點
 		var layer := CanvasLayer.new()
 		layer.layer = 20
 		add_child(layer)
@@ -283,37 +285,62 @@ func _tick_night() -> void:
 		_night_slot.size = Vector2(NIGHT_SLOT, NIGHT_SLOT)
 		_night_slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_night_box = StyleBoxFlat.new()
-		_night_box.bg_color = Color(0.17, 0.18, 0.19, 0.92)
-		_night_box.set_border_width_all(4)
-		_night_box.set_corner_radius_all(4)
+		_night_box.bg_color = Color(1.0, 0.973, 0.906)
+		_night_box.set_corner_radius_all(14)
+		_night_box.shadow_color = Color(0, 0, 0, 0.28)
+		_night_box.shadow_size = 5
+		_night_box.shadow_offset = Vector2(2, 4)
 		_night_slot.add_theme_stylebox_override("panel", _night_box)
 		layer.add_child(_night_slot)
+		var sticker := Panel.new()
+		var sb := StyleBoxFlat.new()
+		sb.bg_color = Color(0.36, 0.27, 0.2, 0.92)
+		sb.set_corner_radius_all(29)
+		sticker.add_theme_stylebox_override("panel", sb)
+		sticker.size = Vector2(58.0, 58.0)
+		sticker.position = Vector2((NIGHT_SLOT - 58.0) * 0.5, (NIGHT_SLOT - 58.0) * 0.5 + 2.0)
+		sticker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_night_slot.add_child(sticker)
 		var icon := TextureRect.new()
 		icon.texture = NightIcon.new().icon
 		icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 		icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 		icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
-		icon.position = Vector2(9.0, 7.0)
-		icon.size = Vector2(NIGHT_SLOT - 18.0, NIGHT_SLOT - 18.0)
+		icon.size = Vector2(44.0, 44.0)
+		icon.position = Vector2((NIGHT_SLOT - 44.0) * 0.5, (NIGHT_SLOT - 44.0) * 0.5 + 2.0)
 		icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_night_slot.add_child(icon)
+		# 按鍵：一顆小小的鍵帽貼在卡片底下（跟畫面右下角「H 操作說明」那一排同一種樣子）
 		var key := Label.new()
 		key.text = "右鍵"
-		key.add_theme_font_size_override("font_size", 15)
-		key.add_theme_color_override("font_color", Color(1, 1, 1))
-		key.add_theme_color_override("font_outline_color", Color(0.05, 0.05, 0.06))
-		key.add_theme_constant_override("outline_size", 5)
-		key.position = Vector2(4.0, NIGHT_SLOT - 22.0)
+		key.add_theme_font_size_override("font_size", 14)
+		key.add_theme_color_override("font_color", UIStyle.INK)
+		var kb := StyleBoxFlat.new()
+		kb.bg_color = Color(1.0, 0.973, 0.906)
+		kb.border_color = UIStyle.INK
+		kb.set_border_width_all(2)
+		kb.border_width_bottom = 3
+		kb.set_corner_radius_all(6)
+		kb.content_margin_left = 6.0
+		kb.content_margin_right = 6.0
+		kb.content_margin_top = 0.0
+		kb.content_margin_bottom = 1.0
+		key.add_theme_stylebox_override("normal", kb)
+		key.position = Vector2(-8.0, -10.0)
 		key.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		_night_slot.add_child(key)
 	# 放在道具欄右邊、隔開一段，跟道具欄底部對齊
 	var hb_w: float = maxf(_hotbar.size.x, float(items.size()) * 84.0 + 4.0)
-	_night_slot.position = _hotbar.global_position + Vector2(hb_w + NIGHT_GAP, 84.0 - NIGHT_SLOT)
+	# 跟技能欄的卡片對齊（卡片在 84 的格子裡上下各縮 5）；按住時往上浮 7，跟選中的道具一樣
+	_night_slot.position = _hotbar.global_position + Vector2(hb_w + NIGHT_GAP, 2.0 + 5.0 - (7.0 if held else 0.0))
 	if _hero_card:
 		# 家豪的愛心紙片排在「夜晚」那一格的右邊
 		_hero_card.offset_left = _night_slot.position.x + NIGHT_SLOT + 18.0
-	_night_slot.visible = _hotbar.visible and not _leaving
-	_night_box.border_color = Color(0.55, 0.95, 0.9) if held else Color(0.45, 0.46, 0.48)
+	# 輸了（畫面下半變黑、顯示「家豪被抓去當晚餐了」）的時候技能欄會收起來，這一格也跟著收
+	_night_slot.visible = _hotbar.is_visible_in_tree() and not _leaving and not defeat_shown
+	_night_box.border_color = UIStyle.accent() if held else UIStyle.INK
+	_night_box.set_border_width_all(4 if held else 3)
+	_night_box.border_width_bottom = 6 if held else 5
 
 # ---------------------------------------------------------------- 家豪不踩水（水灘、湖）
 
@@ -505,6 +532,7 @@ func _daze_tint(f: Fighter, on: bool) -> void:
 		_daze_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		_daze_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
 		_daze_mat.albedo_color = Color(1.0, 0.16, 0.10, 0.3)
+		_daze_mat.next_pass = _outline_mat()        # 暈的時候紅框也還在
 	_daze_mat.albedo_color.a = 0.22 + 0.12 * sin(float(Time.get_ticks_msec()) * 0.008)
 	if f.node == null or _daze_tinted.get(f, false) == on:
 		return
@@ -513,12 +541,73 @@ func _daze_tint(f: Fighter, on: bool) -> void:
 	while not todo.is_empty():
 		var n: Node = todo.pop_back()
 		if n is GeometryInstance3D:
-			(n as GeometryInstance3D).material_overlay = _daze_mat if on else null
+			# 暈的時候蓋一層紅；不暈了要把紅框放回去（紅框也是用同一個 overlay 的位置）
+			(n as GeometryInstance3D).material_overlay = _daze_mat if on else (_outline_mat() if n is MeshInstance3D and _outlined.get(f, false) else null)
 		for c in n.get_children():
 			todo.append(c)
 
+# ---------------------------------------------------------------- 敵人的紅框（被擋住也看得到）
+
+const OUTLINE_COLOR := Color(1.0, 0.16, 0.10)
+const OUTLINE_WIDTH := 0.07      # 紅框多粗（公尺）
+
+var _outline_a: StandardMaterial3D
+var _outlined := {}              # 敵人 → 現在有沒有紅框
+
+## 敵人身上的紅框：沿著整個人的輪廓描一圈紅線，隔著樹、石頭、山坡也看得到（只畫輪廓，不會蓋住他本人）。
+## 做法是引擎內建的 stencil（模板）：
+##   第一層：看不見，只在「這個人佔到的每一個像素」上做記號（被擋住的部分也記）
+##   第二層：把模型往外長一圈、塗成紅色、不管前面有沒有東西擋都畫，但做過記號的地方不畫 → 只剩外面那一圈
+## 兩層都是很簡單的材質，全部敵人共用同一份，幾乎不花效能。
+func _outline_mat() -> StandardMaterial3D:
+	if _outline_a != null:
+		return _outline_a
+	var ring := StandardMaterial3D.new()
+	ring.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	ring.albedo_color = OUTLINE_COLOR
+	ring.grow = true
+	ring.grow_amount = OUTLINE_WIDTH
+	ring.no_depth_test = true
+	ring.render_priority = 2
+	ring.stencil_mode = BaseMaterial3D.STENCIL_MODE_CUSTOM
+	ring.stencil_flags = BaseMaterial3D.STENCIL_FLAG_READ
+	ring.stencil_compare = BaseMaterial3D.STENCIL_COMPARE_NOT_EQUAL
+	ring.stencil_reference = 1
+	_outline_a = StandardMaterial3D.new()
+	_outline_a.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	_outline_a.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	_outline_a.albedo_color = Color(1, 1, 1, 0.0)        # 完全透明：只做記號
+	_outline_a.no_depth_test = true
+	_outline_a.render_priority = 1
+	_outline_a.stencil_mode = BaseMaterial3D.STENCIL_MODE_CUSTOM
+	_outline_a.stencil_flags = BaseMaterial3D.STENCIL_FLAG_WRITE
+	_outline_a.stencil_compare = BaseMaterial3D.STENCIL_COMPARE_ALWAYS
+	_outline_a.stencil_reference = 1
+	_outline_a.next_pass = ring
+	return _outline_a
+
+## 每一畫面看一次：還活著、已經上場的敵人有紅框；倒下的、還沒上場的（飛機上的騎士）沒有
+func _tick_outline() -> void:
+	for f in enemies:
+		if f.node == null or not is_instance_valid(f.node):
+			continue
+		var want: bool = f.alive() and not f.data.get("hidden", false)
+		if _outlined.get(f, false) == want:
+			continue
+		_outlined[f] = want
+		if _daze_tinted.get(f, false):
+			continue        # 正在暈：overlay 現在是那層紅，紅框接在它後面，等不暈的時候再換回來
+		var todo: Array = [f.node]
+		while not todo.is_empty():
+			var n: Node = todo.pop_back()
+			if n is MeshInstance3D:
+				(n as MeshInstance3D).material_overlay = _outline_mat() if want else null
+			for c in n.get_children():
+				todo.append(c)
+
 func _level_visuals() -> void:
 	super()
+	_tick_outline()
 	_tick_daze_fx(1.0 / 60.0)
 	_tick_glow()
 	_tick_sand_highlight()
@@ -1220,8 +1309,59 @@ func _go_next() -> void:
 	get_tree().change_scene_to_file.call_deferred("res://levels/liuchiyu/stage_%d/stage.tscn" % n)
 
 ## 過關、而且可以走了之後：鏡頭飛進下一小關的空地就直接接下去
+# ---------------------------------------------------------------- 提示字（「要開打後才能用」「神不能直接干預凡人」…）
+
+const NOTE_FONT := 20            # 提示字多大（跟技能欄上面那行道具說明一樣）
+const NOTE_BOTTOM := 34.0        # 離畫面底邊多遠
+
+var _note_label: Label
+var _note_t := 0.0
+
+## 共用程式的提示是畫面正中間一顆大膠囊，在這個大關裡太擋畫面（準心就在那裡）：
+## 改成畫面最下面中間小小的一行白字，過一下淡掉。所有 toast() 都走這裡，不再顯示中間那一顆。
+func toast(text: String, dur: float) -> void:
+	if _note_label == null:
+		var layer := CanvasLayer.new()
+		layer.layer = 20
+		add_child(layer)
+		_note_label = Label.new()
+		_note_label.add_theme_font_size_override("font_size", NOTE_FONT)
+		_note_label.add_theme_color_override("font_color", Color(1, 1, 1))
+		_note_label.add_theme_color_override("font_outline_color", Color(0.08, 0.08, 0.08))
+		_note_label.add_theme_constant_override("outline_size", 6)
+		_note_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_note_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		# 貼著畫面底邊、左右置中
+		_note_label.anchor_left = 0.0
+		_note_label.anchor_right = 1.0
+		_note_label.anchor_top = 1.0
+		_note_label.anchor_bottom = 1.0
+		_note_label.offset_top = -NOTE_BOTTOM - 30.0
+		_note_label.offset_bottom = -NOTE_BOTTOM
+		layer.add_child(_note_label)
+	_note_label.text = text
+	_note_t = dur if text != "" else 0.0
+	# 共用的那顆膠囊收起來（不叫 super，它就不會再被打開；一開始可能是開著的，所以這裡關一次）
+	if _toast_label:
+		_toast_label.text = ""
+		_toast_label.visible = false
+
+func _tick_note(dt: float) -> void:
+	if _note_label == null:
+		return
+	if _note_t > 0.0:
+		_note_t -= dt
+	_note_label.visible = _note_t > 0.0 and not defeat_shown
+	_note_label.modulate.a = clampf(_note_t / 0.4, 0.0, 1.0)
+
+## 地上那個表示道具範圍的白色大圓圈：這個大關先不顯示（準心和「可以互動的東西變白」就夠了）。
+## 想再打開就改成 true。
+const SHOW_AIM_RING := false
+
 func _process(dt: float) -> void:
 	super(dt)
+	if not SHOW_AIM_RING and _preview:
+		_preview.visible = false        # 共用程式每一畫面會把它打開，這裡再關掉
 	_hide_texts()
 	_hide_dead_bars()
 	_tick_night()
@@ -1232,6 +1372,7 @@ func _process(dt: float) -> void:
 	if phase == Phase.PREPARE:
 		_hold_tick(dt)        # 按 Enter 之前也能用「準備階段也能按」的按住型道具（變成晚上）
 	_tick_item_hint(dt)
+	_tick_note(dt)
 	_tick_star_view(dt)
 	if hands:
 		# 鏡頭被借走（拿星星的小過場、跟著家豪走去下一關）的時候把手收起來

@@ -26,6 +26,9 @@ vec3 night_ramp(vec3 c) {
 	return mix(r, night_light, smoothstep(0.42, 0.80, l));
 }
 uniform vec2 origin = vec2(0.0);    // 島的原點在這一小關座標裡的位置（x, z）
+// 筆觸的方向每一塊區域轉多少。轉得越多越有「漩渦」的筆觸感，但離原點越遠筆觸會被拉得越細；
+// 小關裡隔著油畫濾鏡看剛好，世界地圖沒有濾鏡、看得又遠，會變成一圈一圈的摩爾紋，所以地圖上設成 0
+uniform float swirl = 2.2;
 varying vec3 wp;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
@@ -41,7 +44,7 @@ vec3 pick5(float r, vec3 a, vec3 b, vec3 c, vec3 d, vec3 e) {
 // 一層筆觸：回傳 (這一筆的亂數, 筆觸的遮罩)
 vec2 strokes(vec2 p, float size, float ang, float cover, float seed) {
 	// 每一塊區域筆的方向不太一樣
-	float a = ang + (vnoise(p * 0.18 + seed) - 0.5) * 2.2;
+	float a = ang + (vnoise(p * 0.18 + seed) - 0.5) * swirl;
 	vec2 q = vec2(cos(a) * p.x - sin(a) * p.y, sin(a) * p.x + cos(a) * p.y) / size;
 	q.y *= 3.2;                               // 筆觸是長條形
 	q.x += floor(q.y) * 0.37 + seed;          // 每一排錯開

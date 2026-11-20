@@ -752,7 +752,8 @@ func _land(at: Vector3) -> void:
 	var n := 0
 	for f in enemies:
 		if f.alive() and f.air < 0.5 and flat_dist(f.pos, at) <= BOMB_RADIUS:
-			f.hp = maxf(f.hp - BOMB_DAMAGE, 0.0)
+			# 盔甲騎士（Boss）：被岩漿球打中一發就倒，不管還有多少血；其他人照 BOMB_DAMAGE 扣
+			f.hp = 0.0 if f.kind == "knight" else maxf(f.hp - BOMB_DAMAGE, 0.0)
 			f.data.erase("blind_t")
 			aggro(f)
 			f.heavy = false
@@ -975,8 +976,12 @@ func _star_back() -> Array[Vector3]:
 
 # ---------------------------------------------------------------- 瞄準、畫面
 
-## 火山可以用雷劈（準心指在它身上就算指到）
+## 火山可以用雷劈（準心指在它身上就算指到）。只有手上拿著雷的時候才算：
+## 拿著風的時候如果也算，視線只要經過火山附近（半徑 6 公尺、高 11 公尺的範圍，岩漿球剛噴出來就在這裡），
+## 準心就會被吸到火山腳下，風變成「朝火山吹」，岩漿球就往回飛。
 func _aim_targets() -> Array:
+	if selected < 0 or selected >= items.size() or items[selected].id != "thunder":
+		return []
 	var vt: Vector3 = world.volcano_top()
 	return [{"pos": vt - Vector3(0.0, 9.0, 0.0), "h": 11.0, "r": 6.0}]
 
