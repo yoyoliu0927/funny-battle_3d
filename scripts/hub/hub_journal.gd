@@ -257,7 +257,8 @@ func _paint_stickers(c: Control, u: float, body: Rect2) -> void:
 	var list := Journal.stickers(_ctx)
 	var cols := 5
 	var cw := body.size.x / cols
-	var chh := 104.0 * u
+	var rows := int(ceil(float(list.size()) / cols))
+	var chh := minf(104.0 * u, (body.size.y - 70.0 * u) / maxf(rows, 1))      # 貼紙多了就把每一列縮小一點，才放得下
 	sel = clampi(sel, 0, list.size() - 1)
 	for i in list.size():
 		var s: Dictionary = list[i]

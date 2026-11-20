@@ -57,6 +57,15 @@ const HubJournal := preload("res://scripts/hub/hub_journal.gd")   # 冒險手帳
 const HubGrowth := preload("res://scripts/hub/hub_growth.gd")     # 破關後農莊長出小地標和居民
 const HubUI := preload("res://scripts/hub/hub_ui.gd")            # 手帳和釣魚共用的畫圖工具
 const Journal := preload("res://scripts/hub/journal.gd")          # 手帳的存檔和資料
+const HubSail := preload("res://scripts/hub/hub_sail.gd")         # 出航：開船去不同的島（實驗：experiment/free-walk）
+const HubBoats := preload("res://scripts/hub/hub_boats.gd")       # 幾種船、速度、買船
+const HubSeaLife := preload("res://scripts/hub/hub_sea_life.gd")   # 海上的彩蛋（寶箱、企鵝、跳魚、世界的盡頭）
+const HubSfx := preload("res://scripts/hub/hub_sfx.gd")
+const SEA_WAVE := 0.55            # 開船時海浪多高（公尺）
+const ROWBOAT := "res://levels/ice/assets/blender/rowboat.glb"
+const BOAT_LEN := 4.2             # 開船用的小船多長（公尺）
+const BOAT_FLIP := false          # 船頭模型是反的就改成 true
+const SAIL_CAM := 1.45            # 開船時鏡頭拉遠幾倍
 const HubWalk := preload("res://scripts/hub/hub_walk.gd")         # 主島自由走：位置、障礙、吸附站點（實驗：experiment/free-walk）
 
 ## 主島自由走的障礙：模型檔名 -> 擋多大一圈（公尺）。蓋主島的時候 _spawn_fit 看到這些檔名就登記
@@ -250,6 +259,29 @@ var _free_stuck := 0.0       # 走向滑鼠點的路上被擋住多久了
 var _free_dash := {}         # 按數字鍵衝向站點：{"from", "to", "t", "dur", "k"}
 var _free_dist := 0.0        # 自由走一共走了幾公尺（算一跳一跳）
 var _free_hop_i := 0
+var _sailer := HubSail.new() # 出航（hub_sail.gd）
+var _sail_enabled := true    # 碼頭的「出航」是開船（命令列 --no-sail 關掉，回到原本的「拉遠看世界地圖」；自動測試預設關）
+var _sail := {}              # 開船中：{"state": "board"／"sail", "t", "from", "pos": Vector2, "yaw", "spd", "path", "idx", "auto", "auto_e", "pick", "sel"}
+var _boat: Node3D            # 開船用的小船（第一次出航才蓋）
+var _boat_model: Node3D
+var _pier_boat: Node3D       # 碼頭邊停著的小船（出航時藏起來）
+var _wake: CPUParticles3D    # 船尾的浪花
+var _cam_yaw := 0.0          # 鏡頭繞著家豪轉了多少（開船時跟在船後面）
+var _cam_sail := 0.0         # 0 = 一般鏡頭、1 = 開船的鏡頭（拉遠一點）
+var _sail_near := -1         # 離哪座島夠近可以靠岸（entries 的索引；-1 = 沒有）
+var _sail_rows: Array = []   # 自動航行選單每一列在畫面上的位置
+var _sail_roll := 0.0        # 船轉彎時歪多少
+var _sail_bump_t := 0.0      # 擦到岸邊的音效冷卻
+var _boat_id := ""           # 小船現在是哪一種（hub_boats.gd 的 id）
+var _boat_light: OmniLight3D
+var _spray: CPUParticles3D   # 船頭的水花
+var _wave_snd: AudioStreamPlayer
+var _cam_fov0 := 75.0
+var _wave_amp := 0.0         # 現在海浪多高（開船才有）
+var _sea_life: Node3D        # 海上的彩蛋（hub_sea_life.gd）
+var _yard := {}              # 船塢開著：{"sel": 選到第幾艘}
+var _yard_rows: Array = []
+var _meters_acc := 0.0
 var _hub_build := false      # 正在蓋主島：_spawn_fit 要登記障礙
 var _hub_blocks: Array = []  # 主島的障礙 [節點, 半徑, 世界座標偏移]
 var _hero_tilt: Node3D       # 家豪（中間那層：世界地圖上往後仰，從上面看得到臉）
@@ -268,7 +300,7 @@ var _floats: Array = []      # 海上漂的東西（北方的浮冰、南方的�
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
-		if a == "--autotest" or a.begins_with("--mapshots=") or a.begins_with("--hubshots=") or a.begins_with("--titleshots=") or a == "--freetest" or a.begins_with("--freeshots="):
+		if a == "--autotest" or a.begins_with("--mapshots=") or a.begins_with("--hubshots=") or a.begins_with("--titleshots=") or a == "--freetest" or a.begins_with("--freeshots=") or a == "--sailtest" or a.begins_with("--sailshots="):
 			Journal.persist = false          # 測試不寫玩家的手帳存檔
 	_load_chapters()
 	_sync_stars()
@@ -290,6 +322,9 @@ func _ready() -> void:
 	_hub_build = false
 	_free.map = self
 	_free.build()
+	_sailer.map = self
+	_sailer.build()
+	_cam_fov0 = _cam.fov
 	_fit_map_camera()
 	_sea_mat.set_shader_parameter("region_z", float(worlds[0].center.z))
 	var isles: Array = []
@@ -327,6 +362,8 @@ func _ready() -> void:
 	var hub_test := false
 	var free_test := false
 	var free_shots := ""
+	var sail_test := false
+	var sail_shots := ""
 	for a in args:
 		if a.begins_with("--mapshots="):
 			shots = a.substr(11)
@@ -340,11 +377,24 @@ func _ready() -> void:
 		if a == "--freetest":
 			free_test = true
 			testing = true
+		if a == "--sailtest":
+			sail_test = true
+			testing = true
+		if a.begins_with("--sailshots="):
+			sail_shots = a.substr(12)
+			testing = true
 		if a.begins_with("--freeshots="):
 			free_shots = a.substr(12)
 			testing = true
 	# 主島自由走：預設開；--no-freewalk 關掉。舊的自動測試是照「沿路走」寫的，所以測試預設關，加 --freewalk 才開
-	_free_enabled = not ("--no-freewalk" in args) and (not testing or "--freewalk" in args or free_test or free_shots != "")
+	_free_enabled = not ("--no-freewalk" in args) and (not testing or "--freewalk" in args or free_test or free_shots != "" or sail_test or sail_shots != "")
+	_sail_enabled = not ("--no-sail" in args) and (not testing or "--sail" in args or sail_test or sail_shots != "")
+	if _sail_enabled:
+		_sail_make_boat()                       # 碼頭邊停著的是現在選的那艘船
+		_sea_life = HubSeaLife.new()
+		_sea_life.map = self
+		add_child(_sea_life)
+		_sea_life.build()
 	selected = -1
 	select(0)
 	if Engine.has_meta("map_last"):
@@ -352,7 +402,7 @@ func _ready() -> void:
 	elif not testing:
 		_zoom = 1.0                      # 剛開遊戲：先看一眼整張世界地圖，再拉近到主島
 	_place_hero(true)
-	if TitleScreen.wanted() and hub_shots == "" and not hub_test and not free_test and free_shots == "":
+	if TitleScreen.wanted() and hub_shots == "" and not hub_test and not free_test and free_shots == "" and not sail_test and sail_shots == "":
 		# 剛開遊戲：先放標題畫面。按下開始之後鏡頭直接滑到主島（第一次玩會先接開場劇情）
 		_zoom = 0.0
 		_layer.visible = false
@@ -371,6 +421,10 @@ func _ready() -> void:
 		_freetest.call_deferred()
 	if free_shots != "":
 		_freeshots.call_deferred(free_shots)
+	if sail_test:
+		_sailtest.call_deferred()
+	if sail_shots != "":
+		_sailshots.call_deferred(sail_shots)
 	if _title == null and not testing:
 		_growth_check.call_deferred()
 		_journal_check.call_deferred()
@@ -619,6 +673,8 @@ static func spot_free(ctx: Dictionary, x: float, z: float, room := 2.6) -> bool:
 func _build_sea() -> void:
 	var plane := PlaneMesh.new()
 	plane.size = Vector2(900, 900)
+	plane.subdivide_width = 299            # 開船時海面要能起伏（頂點浪），每格 3 公尺
+	plane.subdivide_depth = 299
 	_sea = MeshInstance3D.new()
 	_sea.name = "Sea"
 	_sea.mesh = plane
@@ -1160,6 +1216,7 @@ func _farm_spot(root: Node3D, s: Dictionary, ctx: Dictionary, at: Vector3) -> vo
 			var boat := _spawn_fit(root, "res://levels/ice/assets/blender/rowboat.glb", Vector3(dx + 3.6, -TOP_Y - 0.1, 6.6), 2.8, 1.2)
 			if boat:
 				_life.register("boat", boat, 1.7, 0.5)
+				_pier_boat = boat
 			_spawn_fit(root, "res://levels/ice/assets/kenney_survival/barrel.glb", Vector3(dx - 2.0, -0.05, 2.6), 1.0, 0.0)
 			_spawn_fit(root, "res://levels/ice/assets/kenney_platformer/crate-strong.glb", Vector3(dx - 2.8, -0.05, 3.6), 1.0, 0.4)
 			_spawn_fit(root, "res://levels/fort/assets/pirate/flag-pennant.glb", Vector3(dx - 1.6, -0.05, 5.6), 3.4, 0.0)
@@ -1864,7 +1921,7 @@ func _free_hub() -> bool:
 
 ## 現在是不是正在用自由走操作家豪（主島、拉近、標題畫面收掉了）
 func _free_active() -> bool:
-	return _free_hub() and not _map and _title == null and _z() < 0.25
+	return _free_hub() and not _map and _title == null and _z() < 0.25 and _sail.is_empty()
 
 ## 按住的方向鍵換成世界座標的水平方向（鏡頭朝北：上 = −z、右 = +x）
 func _free_input() -> Vector2:
@@ -1875,7 +1932,7 @@ func _free_input() -> Vector2:
 
 ## 有東西蓋住畫面（釣魚、手帳、操作說明）：不能走
 func _free_locked() -> bool:
-	return _fishing.active or _journal.is_open() or (_guide != null and _guide.is_open()) or _starting
+	return _fishing.active or _journal.is_open() or (_guide != null and _guide.is_open()) or _starting or not _yard.is_empty()
 
 ## 按數字鍵：衝到第 k 個站點（沿直線跳過去，不管中間有沒有東西）
 func _free_dash_to(k: int) -> void:
@@ -2522,7 +2579,8 @@ func _journal_ctx() -> Dictionary:
 		if Wardrobe.owned(String(it.id)):
 			owned += 1
 	return {"stars": int(all[0]), "stars_max": int(all[1]), "feathers": feathers, "feathers_max": fs.size(), "cleared": cleared, "owned": owned,
-		"residents": _growth.count() if _growth else 0, "residents_max": HubGrowth.ids().size()}
+		"residents": _growth.count() if _growth else 0, "residents_max": HubGrowth.ids().size(),
+		"isles_max": maxi(_sail_list().size() - 1, 1), "boats": HubBoats.owned_count()}
 
 ## 手帳「旅程」頁的每一張卡（照旅程順序）：{locked} 或 {locked, title, icon, col, stars, stars_max, stages, done, feather, cleared}
 func _journal_rows() -> Array:
@@ -2595,6 +2653,9 @@ func _paint_isle_layer(c: Control) -> void:
 	if worlds.is_empty() or selected < 0:
 		return
 	var u := _u()
+	if not _sail.is_empty():
+		_paint_sail_isle(c, u)
+		return
 	_paint_nodes(c, u)
 	_paint_bubble(c, u)
 
@@ -2615,6 +2676,10 @@ func _paint_overlay(c: Control) -> void:
 	_paint_hud(c, u)
 	_paint_buttons(c, u)
 	_paint_keys(c, u)
+	if not _sail.is_empty():
+		_paint_sail_picker(c, u)
+		_paint_sail_hud(c, u)
+	_paint_yard(c, u)
 
 ## 「下一步在這裡」的記號：一顆跳動的紅色驚嘆號（島上：下一關的徽章；世界地圖：還有關卡可以玩的島牌）
 func _next_mark(c: Control, at: Vector2, s: float) -> void:
@@ -2778,6 +2843,8 @@ func _icon_badge(c: Control, center: Vector2, r: float, kind: String) -> void:
 
 ## 島上每個站點上面浮著的徽章：小關是編號＋三顆小星，商店是衣架，家是小房子（家豪站的那一格不畫，那一格有泡泡）
 func _paint_nodes(c: Control, u: float) -> void:
+	if not _sail.is_empty():
+		return
 	var busy := _busy()
 	var e := selected
 	var w: Dictionary = worlds[e]
@@ -2914,6 +2981,9 @@ func _paint_bubble(c: Control, u0: float) -> void:
 			_icon_badge(c, bc, 29 * u, "dock")
 			_text(c, Vector2(text_x, o.y + 58 * u), "碼頭", 32 * u, INK)
 			_bubble_button(c, u, r, "出航", DOCK_COLOR, Color("2c5d8a"))
+			if _sail_enabled:
+				var gk := UIStyle.draw_keycap(c, Vector2(text_x, row_y - 14 * u), "G", 14 * u)
+				_text(c, Vector2(text_x + gk.x + 8 * u, row_y + 8 * u), "換船", 22 * u, Color("6f6a60"))
 		"home":
 			_icon_badge(c, bc, 29 * u, "home")
 			_text(c, Vector2(text_x, o.y + 58 * u), "家豪的家", 32 * u, INK)
@@ -3340,6 +3410,13 @@ func _paint_hud(c: Control, u: float) -> void:
 	var ent: Dictionary = entries[selected]
 	var ch: Dictionary = ent.ch
 	var at := Vector2(44 * u, 116 * u)
+	if not _sail.is_empty():
+		_headline(c, u, "出海", 62.0)
+		var what := "開船中・%s" % String(_sail.get("name", ""))
+		if bool(_sail.auto):
+			what = "自動航行 → %s" % String(_tag_info(int(_sail.auto_e)).title)
+		_chip(c, u, at, "", what, 24.0)
+		return
 	if _zoom > 0.5:
 		_headline(c, u, "世界地圖", 62.0)
 		var all := _star_all()
@@ -3429,7 +3506,14 @@ func _paint_keys(c: Control, u: float) -> void:
 	var vs := get_viewport().get_visible_rect().size
 	var f := _font()
 	var items: Array = []
-	if _zoom > 0.5:
+	if not _yard.is_empty():
+		items = [[["↑", "↓"], "選船"], [["Enter"], "買／使用"], [["Esc"], "關上"]]
+	elif not _sail.is_empty():
+		if bool(_sail.pick):
+			items = [[["↑", "↓"], "選島"], [["Enter"], "出發"], [["Esc"], "取消"]]
+		else:
+			items = [[["W", "A", "S", "D"], "開船"], [["Shift"], "加速"], [["H"], "汽笛"], [["P"], "自動航行"], [["Esc"], "回農莊"], [["M"], "世界地圖"]]
+	elif _zoom > 0.5:
 		items = [[["↑", "←", "↓", "→"], "選島"], [["Esc"], "返回標題"]]
 	else:
 		var n := int(worlds[selected].n)
@@ -3480,7 +3564,7 @@ func _unlocked_ch(ch: Dictionary, n: int) -> bool:
 	return Progress.unlocked(ch.id, n)
 
 func _busy() -> bool:
-	return not _walk.is_empty() or not _jump.is_empty() or not _free_dash.is_empty() or (_fishing != null and _fishing.active) or (_journal != null and _journal.is_open())
+	return not _walk.is_empty() or not _jump.is_empty() or not _free_dash.is_empty() or not _sail.is_empty() or not _yard.is_empty() or (_fishing != null and _fishing.active) or (_journal != null and _journal.is_open())
 
 ## 一登島先站在哪一格：主島是家；主題島是「第一個還沒過、可以玩的小關」
 func _first_open_stage_of(e: int) -> int:
@@ -3668,7 +3752,10 @@ func start_selected() -> bool:
 				_play("click")
 			return false
 		"dock":
-			set_map(true)                   # 出航：拉遠看世界地圖
+			if _sail_enabled and _pier_boat != null:
+				_sail_board()               # 出航：上船，自己開去別的島（M 還是拉遠看世界地圖）
+			else:
+				set_map(true)               # 出航：拉遠看世界地圖
 			return false
 		"guide":
 			_open_guide()
@@ -3713,10 +3800,10 @@ func _open_guide() -> void:
 	_play("click")
 	_guide.open()
 
-func _show_toast(t: String) -> void:
+func _show_toast(t: String, dur := 2.0) -> void:
 	_toast.text = t
 	_toast.visible = true
-	_toast_t = 2.0
+	_toast_t = dur
 
 ## 島上：滑鼠點在目前這座島的哪個站點上（找不到回傳 -1）
 func _node_at(pos: Vector2) -> int:
@@ -3758,6 +3845,10 @@ func _unhandled_input(ev: InputEvent) -> void:
 		if ev is InputEventKey and ev.pressed and not ev.echo and ev.keycode == KEY_V:
 			_toggle_sound()          # 釣魚和手帳開著：其他按鍵它們自己處理，只有 V（聲音）放行
 		return
+	if not _sail.is_empty() and _sail_input(ev):
+		return                       # 開船中：按鍵都在 _sail_input 處理
+	if not _yard.is_empty() and _yard_input(ev):
+		return                       # 船塢開著：按鍵都在 _yard_input 處理
 	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
 		if _snd_rect.has_point(ev.position):
 			_toggle_sound()
@@ -3815,6 +3906,8 @@ func _unhandled_input(ev: InputEvent) -> void:
 				_toggle_sound()
 			KEY_B:
 				open_shop()
+			KEY_G:
+				_yard_open()                 # 在碼頭：船塢（看船、買船、換船）
 			KEY_E:
 				# 隱藏按鍵（展示用，畫面上不提示）：Shift＋E 不用全破就直接播結局，播完回到這裡
 				if ev.shift_pressed:
@@ -3860,6 +3953,7 @@ func _step(d: int) -> void:
 func _process(dt: float) -> void:
 	_t += dt
 	_tick_hero(dt)
+	_sail_housekeeping(dt)
 	_zoom = move_toward(_zoom, 1.0 if _map else 0.0, dt / ZOOM_TIME)
 	var z := _z()
 	# 島上的鏡頭慢慢跟上家豪；世界地圖的鏡頭固定在所有島的正上方（稍微偏向家豪所在的島）。兩個之間照 z 混合
@@ -3868,8 +3962,22 @@ func _process(dt: float) -> void:
 	_focus = _focus.lerp(target, 1.0 - exp(-dt * 5.5))
 	var sway := Vector3(sin(_t * 0.25) * 0.5, 0, 0)
 	var lean := (Vector3(_focus.x, 0, _focus.z) - _map_center) * 0.06
-	var pos := (_focus + CAM_OFFSET + sway).lerp(_map_center + _map_cam + lean + sway * 2.0, z)
-	var look := (_focus + CAM_LOOK).lerp(_map_center + lean, z)
+	# 開船：鏡頭跟在船後面（繞著家豪轉到船頭朝的方向），拉遠一點；下船之後慢慢轉回來
+	var sailing := not _sail.is_empty()
+	_cam_yaw = lerp_angle(_cam_yaw, float(_sail.yaw) - PI if sailing else 0.0, 1.0 - exp(-dt * (2.4 if sailing else 1.8)))
+	_cam_sail = move_toward(_cam_sail, 1.0 if sailing else 0.0, dt * 1.2)
+	_wave_amp = SEA_WAVE * _cam_sail * (1.0 - z)                      # 開船才有浪；拉遠看世界地圖時海是平的
+	_sea_mat.set_shader_parameter("wave_amp", _wave_amp)
+	_sea_mat.set_shader_parameter("wave_t", _t)
+	var fov_to := _cam_fov0
+	if sailing:
+		fov_to += 11.0 * clampf(absf(float(_sail.spd)) / maxf(float(_sail.get("max", 22.0)), 1.0), 0.0, 1.0) + (7.0 if bool(_sail.get("boost", false)) else 0.0)
+	_cam.fov = lerpf(_cam.fov, fov_to, 1.0 - exp(-dt * 3.0))        # 越快視野越寬
+	if _sea_life != null:
+		_sea_life.tick(dt, _t, sailing, Vector2(_sail.pos) if sailing else Vector2.ZERO, float(_sail.spd) if sailing else 0.0)
+	var cam_rot := Basis(Vector3.UP, _cam_yaw)
+	var pos := (_focus + cam_rot * (CAM_OFFSET * lerpf(1.0, SAIL_CAM, _cam_sail)) + sway).lerp(_map_center + _map_cam + lean + sway * 2.0, z)
+	var look := (_focus + cam_rot * CAM_LOOK).lerp(_map_center + lean, z)
 	_cam.position = pos
 	_cam.look_at(look)
 	# 海跟著鏡頭走（花紋用世界座標，不會跟著滑）；拉遠時霧變淡、影子畫遠一點、海面晚一點才融進地平線
@@ -3979,6 +4087,9 @@ func _process(dt: float) -> void:
 
 ## 家豪的動作：走路（一跳一跳）、換島（飛過去）、原地待機
 func _tick_hero(dt: float) -> void:
+	if not _sail.is_empty():
+		_tick_sail(dt)
+		return
 	if not _walk.is_empty():
 		var pts: PackedVector3Array = _walk.pts
 		_walk.d = minf(float(_walk.d) + WALK_SPEED * dt, float(_walk.len))
@@ -4368,6 +4479,684 @@ func _hubtest() -> void:
 	print("HUBTEST: %s" % ("ALL PASS" if fails == 0 else "%d FAIL" % fails))
 	get_tree().quit()
 
+# ================================================================== 出航：開船去不同的島（hub_sail.gd 管海上的位置、hub_boats.gd 管船、hub_sea_life.gd 管彩蛋）
+
+func _sail_on() -> bool:
+	return not _sail.is_empty()
+
+## 海浪的高度（公尺）：跟 map_sea.gdshader 的 sea_wave() 是同一個公式，船才會真的浮在浪上
+func _sea_h(p: Vector2) -> float:
+	return _wave_amp * (0.55 * sin(p.dot(Vector2(0.071, 0.052)) + _t * 0.9) + 0.30 * sin(p.dot(Vector2(-0.043, 0.093)) + _t * 1.25 + 1.7)
+		+ 0.16 * sin(p.dot(Vector2(0.13, -0.08)) + _t * 1.8 + 4.0))
+
+## 把模型上所有的材質乘上一個顏色（材質先複製，不會改到別的東西）
+func _tint_model(node: Node, col: Color) -> void:
+	if node == null:
+		return
+	if node is MeshInstance3D and (node as MeshInstance3D).mesh:
+		var mi := node as MeshInstance3D
+		for s in mi.mesh.get_surface_count():
+			var m := mi.get_active_material(s) as BaseMaterial3D
+			if m == null:
+				continue
+			var d := m.duplicate() as BaseMaterial3D
+			d.albedo_color = m.albedo_color * col
+			mi.set_surface_override_material(s, d)
+	for ch in node.get_children():
+		_tint_model(ch, col)
+
+## 蓋出某一種船的外觀（船頭朝 +z、水面在 y = 0）：全部用現成的模型拼，顏色乘在小木船上
+func _boat_apply(id: String) -> void:
+	if _boat == null or _boat_id == id:
+		return
+	_boat_id = id
+	if _boat_model:
+		_boat_model.queue_free()
+	if _boat_light:
+		_boat_light.queue_free()
+		_boat_light = null
+	_boat_model = Node3D.new()
+	_boat.add_child(_boat_model)
+	var bm := _boat_model
+	var spec := HubBoats.get_boat(id)
+	if id == "raft":
+		_spawn_fit(bm, "res://levels/fort/assets/pirate/platform-planks.glb", Vector3(0, 0.12, 0), 3.5, 0.0)
+		for sx in [-1.2, 1.2]:
+			for sz in [-1.1, 1.1]:
+				_spawn_fit(bm, "res://levels/ice/assets/kenney_survival/barrel.glb", Vector3(sx, -0.3, sz), 0.95, sx * 0.4)
+		_spawn_fit(bm, "res://levels/fort/assets/pirate/flag-pennant.glb", Vector3(0.9, 0.1, -1.3), 2.4, 0.0)
+		return
+	var hull := _spawn_fit(bm, ROWBOAT, Vector3.ZERO, BOAT_LEN, 0.0)
+	if hull:
+		var bb := _aabb(hull, Transform3D.IDENTITY)
+		hull.rotation.y = (PI * 0.5 if bb.size.x > bb.size.z else 0.0) + (PI if BOAT_FLIP else 0.0)      # 長邊對著船頭（+z）
+		if spec.tint != Color(1, 1, 1):
+			_tint_model(hull, spec.tint)
+	match id:
+		"pumpkin":
+			var pk := "res://levels/liuchiyu/assets/kaykit_halloween/pumpkin_orange.gltf"
+			_spawn_fit(bm, pk, Vector3(0, 0.45, 1.5), 1.0, 0.0)
+			_spawn_fit(bm, pk, Vector3(0.55, 0.4, -1.4), 0.75, 1.0)
+			_spawn_fit(bm, pk, Vector3(-0.6, 0.4, -1.1), 0.6, 2.0)
+			_spawn_fit(bm, "res://levels/liuchiyu/assets/kaykit_halloween/lantern_standing.gltf", Vector3(-0.75, 0.3, 1.0), 1.5, 0.0)
+		"pirate":
+			_spawn_fit(bm, "res://levels/fort/assets/pirate/cannon.glb", Vector3(0, 0.4, 1.3), 1.4, 0.0)
+			_spawn_fit(bm, "res://levels/fort/assets/pirate/flag-high-pennant.glb", Vector3(0, 0.1, -1.7), 3.4, 0.0)
+			_spawn_fit(bm, "res://levels/fort/assets/pirate/barrel.glb", Vector3(0.7, 0.35, -0.9), 0.8, 0.5)
+		"phoenix":
+			_spawn_fit(bm, "res://levels/heaven/assets/blender/mini_lantern.glb", Vector3(0.7, 0.35, 1.4), 1.1, 0.0)
+			_spawn_fit(bm, "res://levels/heaven/assets/blender/mini_lantern.glb", Vector3(-0.7, 0.35, 1.4), 1.1, 0.0)
+			_spawn_fit(bm, "res://levels/heaven/assets/blender/star_stele.glb", Vector3(0, 0.1, -1.7), 2.0, 0.0)
+			_boat_light = OmniLight3D.new()
+			_boat_light.light_color = Color(1.0, 0.82, 0.45)
+			_boat_light.light_energy = 1.4
+			_boat_light.omni_range = 7.0
+			_boat_light.position = Vector3(0, 1.8, 0)
+			_boat.add_child(_boat_light)
+
+## 第一次出航之前先蓋好小船（碼頭邊停著現在選的那艘），和船尾的浪花、船頭的水花、海浪的聲音
+func _sail_make_boat() -> void:
+	if _boat != null:
+		return
+	_boat = Node3D.new()
+	_boat.name = "SailBoat"
+	add_child(_boat)
+	_wake = _sea_puff(Vector3(0, 0.15, -1.8), Vector3(0, 0.25, -1), 38.0, 1.2, 3.0, 56, 1.3)
+	_spray = _sea_puff(Vector3(0, 0.5, 1.7), Vector3(0, 1, 0.5), 35.0, 2.5, 5.5, 40, 0.8)
+	_boat.add_child(_wake)
+	_boat.add_child(_spray)
+	_boat_apply(String(HubBoats.current().id))
+	var wv: AudioStreamWAV = (HubSfx.make()["wave"] as AudioStreamWAV).duplicate()
+	wv.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	wv.loop_begin = 0
+	wv.loop_end = wv.data.size() / 2
+	_wave_snd = AudioStreamPlayer.new()
+	_wave_snd.stream = wv
+	_wave_snd.volume_db = -30.0
+	add_child(_wave_snd)
+
+## 一團小白球（浪花、水花）
+func _sea_puff(at: Vector3, dir: Vector3, spread: float, v0: float, v1: float, amount: int, life: float) -> CPUParticles3D:
+	var ps := CPUParticles3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.4
+	sm.height = 0.8
+	sm.radial_segments = 8
+	sm.rings = 4
+	var mat := _flat_mat(Color(1, 1, 1, 0.75), true)
+	mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	sm.material = mat
+	ps.mesh = sm
+	ps.amount = amount
+	ps.lifetime = life
+	ps.local_coords = false
+	ps.emitting = false
+	ps.direction = dir
+	ps.spread = spread
+	ps.initial_velocity_min = v0
+	ps.initial_velocity_max = v1
+	ps.gravity = Vector3(0, -2.0, 0) if dir.y > 0.9 else Vector3.ZERO
+	ps.scale_amount_min = 0.5
+	ps.scale_amount_max = 1.1
+	var curve := Curve.new()
+	curve.add_point(Vector2(0, 1))
+	curve.add_point(Vector2(1, 0))
+	ps.scale_amount_curve = curve
+	ps.position = at
+	return ps
+
+## 碼頭邊停船的位置（船頭朝外海）
+func _boat_dock_xz() -> Vector2:
+	var bp := _pier_boat.global_position
+	return _sailer.resolve(Vector2(bp.x, bp.z))
+
+func _boat_dock(spin := -1.0) -> void:
+	var p := _boat_dock_xz()
+	var hc := Vector2(float(worlds[0].center.x), float(worlds[0].center.z))
+	var out := p - hc
+	_boat.position = Vector3(p.x, 0.12, p.y)
+	_boat.rotation = Vector3(0, atan2(out.x, out.y) if spin < 0.0 else spin, 0)
+
+## 在碼頭按 Enter：家豪跳上小船，開始開船
+func _sail_board() -> void:
+	if _starting or not _sail.is_empty() or _pier_boat == null or _boat == null:
+		return
+	var spec := HubBoats.current()
+	_boat_apply(String(spec.id))
+	_boat_dock()
+	var p := _boat_dock_xz()
+	var yaw := _boat.rotation.y
+	_boat.visible = true
+	_pier_boat.visible = false
+	_sail = {"state": "board", "t": 0.0, "from": _hero.position, "pos": p, "yaw": yaw, "spd": 0.0, "path": PackedVector2Array(), "idx": 0,
+		"auto": false, "auto_e": -1, "pick": false, "sel": 0, "max": float(spec.max), "acc": float(spec.acc), "turn": float(spec.turn),
+		"boost": false, "energy": 1.0, "name": String(spec.name)}
+	_free_goal_on = false
+	_free_dash = {}
+	_sail_near = -1
+	_bubble_a = 0.0
+	_play("fly", 1.2)
+	_life._play("splash", 0.9)
+	_show_toast("家豪：%s" % String(spec.quip), 2.4)
+	Journal.add("sail", "trips")
+	_journal_check()
+
+## 家豪坐的位置（小船中間，跟著浪上下）
+func _sail_seat() -> Vector3:
+	var p: Vector2 = _sail.pos
+	return Vector3(p.x, 0.75 + _sea_h(p), p.y)
+
+## 離哪座島夠近可以靠岸（entries 的索引）。主島只有在碼頭附近才算；還沒開放的島也會算（泡泡上會說還沒開放）
+func _sail_prompt() -> int:
+	var pos: Vector2 = _sail.pos
+	var n := _sailer.nearest(pos)
+	if int(n.i) < 0 or float(n.d) > HubSail.DOCK_RANGE:
+		return -1
+	var e := int(n.e)
+	if e == 0:
+		if _pier_boat == null:
+			return -1
+		var pp := _pier_boat.global_position
+		if Vector2(pp.x, pp.z).distance_to(pos) > 18.0:
+			return -1
+	return e
+
+func _tick_sail(dt: float) -> void:
+	var b := _sail
+	if String(b.state) == "board":
+		b.t = minf(float(b.t) + dt / 0.5, 1.0)
+		var k := float(b.t)
+		var e := k * k * (3.0 - 2.0 * k)
+		var from: Vector3 = b.from
+		_hero.position = from.lerp(_sail_seat(), e) + Vector3(0, sin(k * PI) * 2.2, 0)
+		_hero.rotation.y = lerp_angle(_hero.rotation.y, float(b.yaw), 1.0 - exp(-dt * 10.0))
+		_sail_boat_update(dt, 0.0)
+		if k >= 1.0:
+			b.state = "sail"
+			_play("land")
+		return
+	var thr := 0.0
+	var steer := 0.0
+	var manual := false
+	var pick := bool(b.pick)
+	if not pick:
+		var fwd := float(Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP))
+		var back := float(Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN))
+		steer = float(Input.is_key_pressed(KEY_D) or Input.is_key_pressed(KEY_RIGHT)) - float(Input.is_key_pressed(KEY_A) or Input.is_key_pressed(KEY_LEFT))
+		thr = fwd - back
+		manual = fwd > 0.0 or back > 0.0 or steer != 0.0
+	var arrived := false
+	if bool(b.auto):
+		if manual:
+			b.auto = false                      # 自己握方向盤：自動航行取消
+		else:
+			var ctl := _sailer.auto_control(b)
+			thr = ctl.x
+			steer = ctl.y
+			arrived = ctl.z > 0.5
+	# 加速（Shift）：有一條能量，用完要等它慢慢回來
+	var was_boost := bool(b.boost)
+	var want := Input.is_key_pressed(KEY_SHIFT) and thr > 0.0 and not pick
+	b.boost = want and float(b.energy) > (0.04 if was_boost else 0.25)
+	if bool(b.boost):
+		b.energy = maxf(float(b.energy) - dt * 0.36, 0.0)
+		if not was_boost:
+			_life._play("whoosh", 1.1)
+	else:
+		b.energy = minf(float(b.energy) + dt * 0.16, 1.0)
+	var scraped := _sailer.step(b, dt, thr, steer)
+	var spd := float(b.spd)
+	_meters_acc += absf(spd) * dt
+	if _meters_acc >= 25.0:
+		var before := Journal.n("sail", "meters")
+		var after := Journal.add("sail", "meters", 25)
+		_meters_acc -= 25.0
+		if before < 1000 and after >= 1000:
+			_journal_check()
+	_sail_bump_t = maxf(_sail_bump_t - dt, 0.0)
+	if scraped and absf(spd) > 5.0 and _sail_bump_t <= 0.0:
+		_sail_bump_t = 0.6
+		_play("bump", 0.8)
+	var bp: Vector2 = b.pos
+	if _sea_life != null and (bp.x <= _sailer.lo.x + 0.05 or bp.y <= _sailer.lo.y + 0.05 or bp.x >= _sailer.hi.x - 0.05 or bp.y >= _sailer.hi.y - 0.05) and spd > 5.0:
+		_sea_life.on_edge()
+	_sail_near = _sail_prompt()
+	_sail_boat_update(dt, steer)
+	_hero.position = _sail_seat()
+	_hero.rotation.y = lerp_angle(_hero.rotation.y, float(b.yaw), 1.0 - exp(-dt * 10.0))
+	_hero_body.position.y = 0.0
+	_cam_bias_to = Vector3(sin(float(b.yaw)), 0, cos(float(b.yaw))) * clampf(spd * 0.11, -1.0, 4.5)      # 鏡頭往前看一點
+	if arrived and bool(b.auto):
+		_sail_land(int(b.auto_e))
+
+## 小船的位置、朝向（跟著浪起伏和傾斜）、浪花、海浪的聲音
+func _sail_boat_update(dt: float, steer: float) -> void:
+	var p: Vector2 = _sail.pos
+	var yaw := float(_sail.yaw)
+	var spd := float(_sail.spd)
+	var top := float(_sail.get("max", HubSail.MAX_SPEED))
+	var f := Vector2(sin(yaw), cos(yaw))
+	var r := Vector2(-f.y, f.x)
+	var pitch := -atan((_sea_h(p + f * 1.5) - _sea_h(p - f * 1.5)) / 3.0)
+	var roll := atan((_sea_h(p - r) - _sea_h(p + r)) / 2.0)        # 船的 +x 是左邊：左邊比較高就往右歪
+	_sail_roll = lerpf(_sail_roll, steer * 0.16, 1.0 - exp(-dt * 4.0))
+	_boat.position = Vector3(p.x, 0.12 + _sea_h(p), p.y)
+	_boat.rotation = Vector3(pitch - clampf(absf(spd) / top, 0.0, 1.0) * 0.07, yaw, roll + _sail_roll)
+	var fast := absf(spd) > top * 0.6 or bool(_sail.get("boost", false))
+	if _wake:
+		_wake.emitting = absf(spd) > 3.0
+		_wake.speed_scale = clampf(absf(spd) / 12.0, 0.6, 2.2)
+	if _spray:
+		_spray.emitting = fast
+		_spray.amount = 60 if bool(_sail.get("boost", false)) else 34
+	if _wave_snd:
+		if not _wave_snd.playing:
+			_wave_snd.play()
+		_wave_snd.volume_db = linear_to_db(clampf(0.08 + absf(spd) / top * 0.5, 0.05, 0.6)) - 6.0
+
+## 靠岸：家豪從船上跳到那座島的第一個站點（主島：碼頭）
+func _sail_land(e: int) -> void:
+	if _sail.is_empty() or String(_sail.state) != "sail":
+		return
+	if e != 0 and String(_st(e, 0).kind) == "locked":
+		_show_toast("這座島還沒開放")
+		_play("bump")
+		_sail.auto = false
+		return
+	var k := _hub_index("dock") if e == 0 else _first_open_stage_of(e)
+	_sail_stop()
+	_jump_to(e, k)
+	if e != 0:
+		Journal.mark("dock", String(_entry_id(e)))
+		_journal_check()
+
+## 不開船了：船停下來、浪花和海浪的聲音關掉
+func _sail_stop() -> void:
+	_sail = {}
+	_sail_near = -1
+	_sail_roll = 0.0
+	_cam_bias_to = Vector3.ZERO
+	if _wake:
+		_wake.emitting = false
+	if _spray:
+		_spray.emitting = false
+	if _wave_snd:
+		_wave_snd.stop()
+
+## 回到農莊的碼頭（M 看世界地圖之前）：直接站回碼頭
+func _sail_return_home() -> void:
+	_sail_stop()
+	select(0)
+	stage_sel = _hub_index("dock")
+	_place_hero(true)
+
+## 開船中按 M：保留原本的功能（拉遠看世界地圖，從那裡飛到別的島）。船收回碼頭
+func _sail_to_map() -> void:
+	_sail_return_home()
+	set_map(true)
+
+## 小船沒在用的時候：在農莊就停在碼頭邊（船塢開著時慢慢轉給你看）；在別的島就停在那座島的岸邊
+func _sail_housekeeping(dt: float) -> void:
+	if _boat == null:
+		return
+	if _sail.is_empty() and selected == 0 and _jump.is_empty():
+		_boat.visible = true
+		_pier_boat.visible = false
+		if _yard.is_empty():
+			_boat_dock()
+		else:
+			_boat_dock(_boat.rotation.y + dt * 0.7)
+			_cam_bias_to = (_boat.position - _hero.position) * 0.6 + Vector3(0, 0.6, 0)      # 鏡頭往船那邊看
+	if _sail.is_empty():
+		if _wake:
+			_wake.emitting = false
+		if _spray:
+			_spray.emitting = false
+		if _wave_snd and _wave_snd.playing:
+			_wave_snd.stop()
+
+## 自動航行選單上能去的地方（entries 的索引）：開放了的島和農莊
+func _sail_list() -> Array:
+	var out: Array = []
+	for e in entries.size():
+		if e != 0 and String(_st(e, 0).kind) == "locked":
+			continue
+		out.append(e)
+	return out
+
+func _sail_pick_open() -> void:
+	var list := _sail_list()
+	_sail.pick = true
+	_sail.sel = 0
+	for i in list.size():
+		if int(list[i]) != 0:
+			_sail.sel = i                    # 先停在第一座主題島（農莊排第一個）
+			break
+	_play("click")
+
+## 選好了：自己開過去
+func _sail_pick_go() -> void:
+	var list := _sail_list()
+	if list.is_empty():
+		return
+	_sail_auto_to(int(list[clampi(int(_sail.sel), 0, list.size() - 1)]))
+
+func _sail_auto_to(e: int) -> void:
+	if _sail.is_empty() or String(_sail.state) != "sail":
+		return
+	var pos: Vector2 = _sail.pos
+	var to: Vector2
+	if e == 0 and _pier_boat != null:
+		to = _boat_dock_xz()
+	else:
+		to = _sailer.stop_point(e, pos)
+	_sail.path = _sailer.plan(pos, to)
+	_sail.idx = 1
+	_sail.auto = true
+	_sail.auto_e = e
+	_sail.pick = false
+	_play("start", 1.3)
+
+## 汽笛
+func _sail_horn() -> void:
+	_life._play("horn")
+	var c := Journal.add("sail", "horn")
+	if _sea_life != null:
+		_sea_life.on_horn(_sail.pos)
+	if c == 10:
+		_journal_check()
+
+## 開船中的按鍵和滑鼠。回傳 true = 這個輸入我處理了
+func _sail_input(ev: InputEvent) -> bool:
+	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+		if _snd_rect.has_point(ev.position):
+			_toggle_sound()
+		elif _map_rect.has_point(ev.position):
+			_sail_to_map()
+		elif bool(_sail.pick):
+			for i in _sail_rows.size():
+				if (_sail_rows[i] as Rect2).has_point(ev.position):
+					_sail.sel = i
+					_sail_pick_go()
+					break
+		elif _sail_near >= 0 and _start_rect.has_point(ev.position):
+			_sail_land(_sail_near)
+		return true
+	if ev is InputEventKey and ev.pressed and not ev.echo:
+		var pick := bool(_sail.pick)
+		match ev.keycode:
+			KEY_V:
+				_toggle_sound()
+			KEY_M, KEY_TAB:
+				_sail_to_map()
+			KEY_H:
+				if String(_sail.state) == "sail":
+					_sail_horn()
+			KEY_P:
+				if pick:
+					_sail.pick = false
+				elif String(_sail.state) == "sail":
+					_sail_pick_open()
+			KEY_ESCAPE:
+				if pick:
+					_sail.pick = false
+				elif bool(_sail.auto):
+					_sail.auto = false
+					_show_toast("自動航行取消")
+				elif String(_sail.state) == "sail":
+					_sail_auto_to(0)             # 回農莊：自動開回碼頭
+			KEY_UP, KEY_W:
+				if pick:
+					_sail.sel = wrapi(int(_sail.sel) - 1, 0, _sail_list().size())
+					_play("click")
+			KEY_DOWN, KEY_S:
+				if pick:
+					_sail.sel = wrapi(int(_sail.sel) + 1, 0, _sail_list().size())
+					_play("click")
+			KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
+				if pick:
+					_sail_pick_go()
+				elif _sail_near >= 0:
+					_sail_land(_sail_near)
+		return true
+	return false
+
+# ---------------------------------------------------------------- 船塢（在碼頭按 G）：看船、買船、換船
+
+func _yard_open() -> void:
+	if not _sail_enabled or _boat == null or not _yard.is_empty() or _busy() or _starting or _map or not _sail.is_empty():
+		return
+	if selected != 0 or String(_st_now().kind) != "dock" or (_free_hub() and not _free_near):
+		return
+	var cur := String(HubBoats.current().id)
+	var sel := 0
+	for i in HubBoats.all().size():
+		if String(HubBoats.all()[i].id) == cur:
+			sel = i
+	_yard = {"sel": sel}
+	_yard_preview()
+	_play("click")
+
+func _yard_preview() -> void:
+	_boat_apply(String(HubBoats.all()[int(_yard.sel)].id))
+
+func _yard_close() -> void:
+	_yard = {}
+	_cam_bias_to = Vector3.ZERO
+	_boat_apply(String(HubBoats.current().id))
+	_play("click")
+
+func _yard_move(d: int) -> void:
+	_yard.sel = wrapi(int(_yard.sel) + d, 0, HubBoats.all().size())
+	_yard_preview()
+	_play("click")
+
+## Enter：沒有就買（星星不夠會說）、有了就換上
+func _yard_act() -> void:
+	var b: Dictionary = HubBoats.all()[int(_yard.sel)]
+	var id := String(b.id)
+	if HubBoats.owned(id):
+		HubBoats.equip(id)
+		_show_toast("換成「%s」" % String(b.name))
+		_life._play("pop")
+	elif Wardrobe.wallet() >= int(b.price) and HubBoats.buy(id):
+		HubBoats.equip(id)
+		_wallet = Wardrobe.wallet()
+		_show_toast("買下了「%s」！" % String(b.name))
+		_life._play("gold")
+		_journal_check()
+	else:
+		_show_toast("星星不夠：「%s」要 %d★，你有 %d★" % [String(b.name), int(b.price), Wardrobe.wallet()])
+		_play("bump")
+
+func _yard_input(ev: InputEvent) -> bool:
+	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+		if _snd_rect.has_point(ev.position):
+			_toggle_sound()
+			return true
+		for i in _yard_rows.size():
+			if (_yard_rows[i] as Rect2).has_point(ev.position):
+				if int(_yard.sel) == i:
+					_yard_act()
+				else:
+					_yard.sel = i
+					_yard_preview()
+					_play("click")
+				return true
+		return true
+	if ev is InputEventKey and ev.pressed and not ev.echo:
+		match ev.keycode:
+			KEY_UP, KEY_W:
+				_yard_move(-1)
+			KEY_DOWN, KEY_S:
+				_yard_move(1)
+			KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
+				_yard_act()
+			KEY_ESCAPE, KEY_G:
+				_yard_close()
+			KEY_V:
+				_toggle_sound()
+		return true
+	return false
+
+## 船塢：左邊一張紙，一列一艘船；選到的那艘下面寫簡介和三條能力（速度、加速、轉彎）
+func _paint_yard(c: Control, u: float) -> void:
+	_yard_rows = []
+	if _yard.is_empty():
+		return
+	var boats := HubBoats.all()
+	var rw := 560.0 * u
+	var rh := 58.0 * u
+	var panel := Rect2(Vector2(44.0 * u, 190.0 * u), Vector2(rw, 84.0 * u + rh * boats.size() + 190.0 * u))
+	c.draw_style_box(_box(PAPER, PAPER_EDGE, 26 * u, 3.0), panel)
+	_text(c, panel.position + Vector2(26 * u, 50 * u), "船塢", 32 * u, INK)
+	var wl := str(Wardrobe.wallet())
+	_star(c, panel.position + Vector2(rw - 104 * u, 40 * u), 14 * u, GOLD, Color("8a6410"))
+	_text(c, panel.position + Vector2(rw - 82 * u, 49 * u), wl, 26 * u, INK)
+	var cur := String(HubBoats.current().id)
+	for i in boats.size():
+		var b: Dictionary = boats[i]
+		var r := Rect2(panel.position + Vector2(14 * u, 70 * u + rh * i), Vector2(rw - 28 * u, rh - 6 * u))
+		_yard_rows.append(r)
+		var on := i == int(_yard.sel)
+		c.draw_style_box(_box(Color("fff1bf") if on else Color(1, 1, 1, 0.0), Color("d9b84a") if on else Color(0, 0, 0, 0.0), 20 * u, 2.5, false), r)
+		var tint: Color = b.tint
+		c.draw_circle(r.position + Vector2(26 * u, r.size.y * 0.5), 13 * u, Color(tint.r * 0.7, tint.g * 0.7, tint.b * 0.7).darkened(0.1))
+		c.draw_circle(r.position + Vector2(26 * u, r.size.y * 0.5), 9 * u, tint.lightened(0.1))
+		_text(c, r.position + Vector2(54 * u, r.size.y * 0.5 + 9 * u), String(b.name), 27 * u, INK)
+		var own := HubBoats.owned(String(b.id))
+		var tag := ("使用中" if String(b.id) == cur else "已擁有") if own else "%d★" % int(b.price)
+		var tcol := Color("3c7d3c") if own else (Color("b8860b") if Wardrobe.wallet() >= int(b.price) else Color("c0504a"))
+		var tw := _font().get_string_size(tag, HORIZONTAL_ALIGNMENT_LEFT, -1, int(24 * u)).x
+		_text(c, r.position + Vector2(r.size.x - tw - 18 * u, r.size.y * 0.5 + 8 * u), tag, 24 * u, tcol)
+	# 選到的那艘
+	var sb: Dictionary = boats[int(_yard.sel)]
+	var dy := panel.position.y + 70.0 * u + rh * boats.size() + 14.0 * u
+	_text(c, Vector2(panel.position.x + 28 * u, dy + 24 * u), String(sb.desc), _fit(String(sb.desc), 22.0 * u, rw - 56 * u, 14.0), Color("5a4a3a"))
+	var stats := [["速度", float(sb.max) / 42.0], ["加速", float(sb.acc) / 20.0], ["轉彎", float(sb.turn) / 2.2]]
+	for k in stats.size():
+		var yy := dy + 58.0 * u + k * 34.0 * u
+		_text(c, Vector2(panel.position.x + 28 * u, yy + 8 * u), String(stats[k][0]), 22 * u, INK)
+		var bar := Rect2(Vector2(panel.position.x + 110 * u, yy - 6 * u), Vector2(rw - 160 * u, 18 * u))
+		c.draw_style_box(_box(Color("e6dfcc"), Color("cfc6ae"), 9 * u, 2.0, false), bar)
+		var fill := Rect2(bar.position, Vector2(bar.size.x * clampf(float(stats[k][1]), 0.05, 1.0), bar.size.y))
+		c.draw_style_box(_box(Color("5cb85c") if k == 0 else (Color("4a9fe0") if k == 1 else Color("e8b04a")), Color("2f7a2f") if k == 0 else (Color("2c5d8a") if k == 1 else Color("b98a4a")), 9 * u, 2.0, false), fill)
+
+## 開船時畫面下面的加速條
+func _paint_sail_hud(c: Control, u: float) -> void:
+	if _sail.is_empty() or String(_sail.state) != "sail":
+		return
+	var vs := c.size
+	var w := 300.0 * u
+	var r := Rect2(Vector2(vs.x * 0.5 - w * 0.5, vs.y - 128.0 * u), Vector2(w, 22.0 * u))
+	c.draw_style_box(_box(Color(PAPER, 0.92), PAPER_EDGE, 11 * u, 2.5), r)
+	var e := clampf(float(_sail.energy), 0.0, 1.0)
+	if e > 0.02:
+		c.draw_style_box(_box(Color("ff9a3c") if bool(_sail.boost) else Color("5ec6e8"), Color("c2631a") if bool(_sail.boost) else Color("2c7fa3"), 9 * u, 2.0, false),
+			Rect2(r.position + Vector2(3, 3) * u, Vector2(maxf((r.size.x - 6 * u) * e, 8 * u), r.size.y - 6 * u)))
+	var spd := absi(roundi(float(_sail.spd)))
+	_text(c, Vector2(r.position.x, r.position.y - 8 * u), "%s　時速 %d" % [String(_sail.get("name", "")), spd], 20 * u, Color(1, 1, 1))
+
+## 海上每座島上面的小牌子（名字）；在畫面外面的貼在畫面邊上，用箭頭指著方向。靠岸的泡泡也畫在這裡
+func _paint_sail_isle(c: Control, u: float) -> void:
+	var vs := c.size
+	var margin := 70.0 * u
+	for e in entries.size():
+		var w: Dictionary = worlds[e]
+		var info := _tag_info(e)
+		var wp := (w.center as Vector3) + Vector3(0, 7.0, 0)
+		var behind := _cam.is_position_behind(wp)
+		var sp := _cam.unproject_position(wp)
+		var inside := not behind and sp.x > margin and sp.x < vs.x - margin and sp.y > margin * 1.5 and sp.y < vs.y - margin * 2.0
+		var dist := Vector2(_sail.pos).distance_to(Vector2(w.center.x, w.center.z))
+		if inside and dist < 30.0 + float(w.rx):
+			continue                                       # 已經很近了：用靠岸的泡泡就好
+		var label := String(info.title)
+		var fs := 22.0 * u
+		var tw := _font().get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(fs)).x
+		var size := Vector2(tw + 56.0 * u, 40.0 * u)
+		var pos := sp
+		var arrow := Vector2.ZERO
+		if not inside:
+			var ctr := vs * 0.5
+			var dir := (sp - ctr)
+			if behind:
+				dir = -dir
+			if dir.length() < 1.0:
+				dir = Vector2(0, 1)
+			dir = dir.normalized()
+			var k := minf((vs.x * 0.5 - margin - size.x * 0.5) / maxf(absf(dir.x), 0.001), (vs.y * 0.5 - margin * 1.6) / maxf(absf(dir.y), 0.001))
+			pos = ctr + dir * k
+			arrow = dir
+		var r := Rect2(pos - size * 0.5, size)
+		c.draw_style_box(_box(Color(PAPER, 0.96), PAPER_EDGE, 18 * u, 2.5), r)
+		var col: Color = info.col
+		c.draw_circle(r.position + Vector2(22 * u, size.y * 0.5), 10 * u, col.darkened(0.15))
+		c.draw_circle(r.position + Vector2(22 * u, size.y * 0.5), 7 * u, col.lightened(0.2))
+		_text(c, r.position + Vector2(40 * u, size.y * 0.5 + fs * 0.36), label, fs, INK)
+		if arrow != Vector2.ZERO:
+			var tip := r.get_center() + arrow * (size.length() * 0.5 + 12.0 * u)
+			var side := Vector2(-arrow.y, arrow.x)
+			c.draw_colored_polygon(PackedVector2Array([tip, tip - arrow * 16.0 * u + side * 9.0 * u, tip - arrow * 16.0 * u - side * 9.0 * u]), PAPER_EDGE)
+	# 靠岸的泡泡
+	if _sail_near < 0 or bool(_sail.pick) or bool(_sail.auto) or String(_sail.state) != "sail":
+		return
+	var info2 := _tag_info(_sail_near)
+	var locked := _sail_near != 0 and String(_st(_sail_near, 0).kind) == "locked"
+	var wp2 := (_hero.position as Vector3) + Vector3(0, 3.4, 0)
+	var fr := _bubble_frame(c, u, wp2, 400.0)
+	if fr.is_empty():
+		return
+	var r2: Rect2 = fr[0]
+	var uu: float = fr[1]
+	var o := r2.position
+	var bc := o + Vector2(50 * uu, 46 * uu)
+	var text_x := o.x + 92 * uu
+	var col2: Color = info2.col
+	c.draw_circle(bc, 30 * uu, col2.darkened(0.3))
+	c.draw_circle(bc, 26 * uu, col2.lightened(0.15))
+	if locked:
+		_lock_icon(c, bc + Vector2(0, 4 * uu), 22 * uu, Color("8a857a"))
+	var title := String(info2.title)
+	var fs2 := _fit(title, 32 * uu, r2.end.x - text_x - 20 * uu, 16.0)
+	_text(c, Vector2(text_x, o.y + 46 * uu + fs2 * 0.36), title, fs2, INK)
+	if locked:
+		_text(c, Vector2(text_x, o.y + 104 * uu), "還沒開放", 22 * uu, Color("6f6a60"))
+	else:
+		var stat := String(info2.stat)
+		if stat != "":
+			_text(c, Vector2(text_x, o.y + 104 * uu), stat, 22 * uu, Color("6f6a60"))
+		_bubble_button(c, uu, r2, "靠岸" if _sail_near != 0 else "回碼頭", GREEN, Color("2f7a2f"))
+
+## 自動航行選單：左邊一張紙，一列一座島，↑↓ 選、Enter 出發
+func _paint_sail_picker(c: Control, u: float) -> void:
+	_sail_rows = []
+	if not bool(_sail.pick):
+		return
+	var list := _sail_list()
+	var rw := 400.0 * u
+	var rh := 56.0 * u
+	var x0 := 44.0 * u
+	var y0 := 200.0 * u
+	var panel := Rect2(Vector2(x0, y0), Vector2(rw, 70.0 * u + rh * list.size() + 16.0 * u))
+	c.draw_style_box(_box(PAPER, PAPER_EDGE, 26 * u, 3.0), panel)
+	_text(c, panel.position + Vector2(24 * u, 46 * u), "自動航行：去哪裡？", 28 * u, INK)
+	for i in list.size():
+		var e := int(list[i])
+		var info := _tag_info(e)
+		var r := Rect2(panel.position + Vector2(14 * u, 64 * u + rh * i), Vector2(rw - 28 * u, rh - 6 * u))
+		_sail_rows.append(r)
+		var on := i == int(_sail.sel)
+		c.draw_style_box(_box(Color("fff1bf") if on else Color(1, 1, 1, 0.0), Color("d9b84a") if on else Color(0, 0, 0, 0.0), 20 * u, 2.5, false), r)
+		var col: Color = info.col
+		c.draw_circle(r.position + Vector2(26 * u, r.size.y * 0.5), 12 * u, col.darkened(0.15))
+		c.draw_circle(r.position + Vector2(26 * u, r.size.y * 0.5), 8 * u, col.lightened(0.2))
+		_text(c, r.position + Vector2(52 * u, r.size.y * 0.5 + 8 * u), String(info.title), 26 * u, INK)
+		var stat := String(info.stat)
+		if stat != "":
+			var sw := _font().get_string_size(stat, HORIZONTAL_ALIGNMENT_LEFT, -1, int(20 * u)).x
+			_text(c, r.position + Vector2(r.size.x - sw - 16 * u, r.size.y * 0.5 + 7 * u), stat, 20 * u, Color("6f6a60"))
+
 # ================================================================== 開發用：主島自由走（--freetest 快速驗收、--freeshots=資料夾 截圖）
 
 ## 世界座標 p 在這座島的哪一種障礙裡？（驗收用：回傳 "" 表示沒事）
@@ -4587,6 +5376,322 @@ func _freeshots(dir: String) -> void:
 		_zoom = 0.0
 		_map = false
 		await _shot(dir.path_join("free_%s.png" % key))
+	get_tree().quit()
+
+# ================================================================== 開發用：出航（--sailtest 快速驗收、--sailshots=資料夾 截圖）
+
+func _key(code: Key, down: bool) -> void:
+	var ev := InputEventKey.new()
+	ev.keycode = code
+	ev.pressed = down
+	Input.parse_input_event(ev)
+
+func _sailtest() -> void:
+	await get_tree().create_timer(1.0).timeout
+	var checks: Array = []
+	var n_isles := _sailer.isles.size()
+	checks.append(["每座島都有碰撞圈（%d 座）" % n_isles, n_isles == worlds.size() and n_isles >= 4])
+	# 1. 亂開：船不會開進島、不會出海的邊界
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 11
+	var bad := ""
+	var steps := 0
+	for start in [0, 1, 2]:
+		var b := {"pos": _sailer.stop_point(start, _sailer.isles[(start + 1) % n_isles].c), "yaw": rng.randf() * TAU, "spd": 0.0}
+		var thr := 1.0
+		var steer := 0.0
+		for i in 4000:
+			if i % 45 == 0:
+				thr = 1.0 if rng.randf() < 0.85 else -1.0
+				steer = rng.randf_range(-1.0, 1.0)
+			_sailer.step(b, 1.0 / 60.0, thr, steer)
+			steps += 1
+			var nn := _sailer.nearest(b.pos)
+			if float(nn.d) < -0.1 and bad == "":
+				bad = "開進第 %d 座島（%.1f）" % [int(nn.e), float(nn.d)]
+			var p: Vector2 = b.pos
+			if (p.x < _sailer.lo.x - 0.1 or p.y < _sailer.lo.y - 0.1 or p.x > _sailer.hi.x + 0.1 or p.y > _sailer.hi.y + 0.1) and bad == "":
+				bad = "出了海的邊界"
+	checks.append(["亂開 %d 步：不開進島、不出邊界 %s" % [steps, bad], bad == ""])
+	# 2. 找路：任兩座島之間都找得到、而且不穿過島
+	var plan_bad := ""
+	var pairs := 0
+	for i in n_isles:
+		for j in n_isles:
+			if i == j:
+				continue
+			var from: Vector2 = _sailer.stop_point(i, _sailer.isles[j].c)
+			var to: Vector2 = _sailer.stop_point(j, from)
+			if from.distance_to(to) < 15.0:
+				continue                       # 兩座島的岸邊靠得太近（停船點在對方的範圍裡），這種組合不會真的出現
+			var path: PackedVector2Array = _sailer.plan(from, to)
+			pairs += 1
+			var len := 0.0
+			for k in path.size() - 1:
+				len += path[k].distance_to(path[k + 1])
+				if not _sailer.clear(path[k], path[k + 1], -5.0) and plan_bad == "":      # 兩座島中間很窄的時候路會貼著岸（船會沿著岸滑過去），但不能穿進島身
+					var worst_d := INF
+					for q in 21:
+						worst_d = minf(worst_d, float(_sailer.nearest(path[k].lerp(path[k + 1], q / 20.0)).d))
+					plan_bad = "%d→%d 的路穿過島（第 %d 段 %s → %s，最近離岸 %.2f，全部 %s）" % [i, j, k, str(path[k]), str(path[k + 1]), worst_d, str(path)]
+			if len > from.distance_to(to) * 2.4 + 60.0 and plan_bad == "":
+				plan_bad = "%d→%d 繞太遠（%.0f vs 直線 %.0f）" % [i, j, len, from.distance_to(to)]
+	checks.append(["任兩座島找路（%d 條）：不穿過島、不繞太遠 %s" % [pairs, plan_bad], plan_bad == ""])
+	if "--only-plan" in OS.get_cmdline_user_args():
+		for c in checks:
+			print("[%s] %s" % ["PASS" if bool(c[1]) else "FAIL", c[0]])
+		get_tree().quit()
+		return
+	# 3. 自動航行（只算物理）：從碼頭開到每座島的岸邊
+	var auto_bad := ""
+	var worst := 0.0
+	var pier := _pier_boat.global_position
+	for j in n_isles:
+		var b2 := {"pos": _sailer.resolve(Vector2(pier.x, pier.z)), "yaw": 0.0, "spd": 0.0}
+		var to2: Vector2 = _sailer.resolve(Vector2(pier.x, pier.z)) if j == 0 else _sailer.stop_point(j, b2.pos)
+		if j == 0:
+			continue
+		b2.path = _sailer.plan(b2.pos, to2)
+		b2.idx = 1
+		var t_sim := 0.0
+		var done := false
+		while t_sim < 90.0:
+			var ctl := _sailer.auto_control(b2)
+			if ctl.z > 0.5:
+				done = true
+				break
+			_sailer.step(b2, 1.0 / 30.0, ctl.x, ctl.y)
+			t_sim += 1.0 / 30.0
+			if float(_sailer.nearest(b2.pos).d) < -0.1 and auto_bad == "":
+				auto_bad = "自動航行開進島 %d" % j
+		worst = maxf(worst, t_sim)
+		if not done and auto_bad == "":
+			auto_bad = "自動航行到不了第 %d 座島（%s）" % [j, str(b2.pos)]
+	checks.append(["自動航行：碼頭到每座島都開得到（最久 %.0f 秒）%s" % [worst, auto_bad], auto_bad == "" and worst < 70.0])
+	# 4a. 船塢：G 打開、買木桶筏（1★）、換上、再換回小木船
+	select_stage(_hub_index("dock"))
+	await get_tree().create_timer(0.3).timeout
+	var wallet0 := Wardrobe.wallet()
+	_press(KEY_G)
+	await get_tree().create_timer(0.2).timeout
+	var yard_open := not _yard.is_empty()
+	_yard.sel = 1
+	_yard_preview()
+	_press(KEY_ENTER)
+	await get_tree().create_timer(0.2).timeout
+	var bought := HubBoats.owned("raft") and Wardrobe.wallet() == wallet0 - 1 and _boat_id == "raft" and String(HubBoats.current().id) == "raft"
+	_yard.sel = 0
+	_yard_preview()
+	_press(KEY_ENTER)
+	await get_tree().create_timer(0.2).timeout
+	_press(KEY_ESCAPE)
+	await get_tree().create_timer(0.2).timeout
+	checks.append(["船塢（G）：開得起來、星星夠就買木桶筏並換上（錢包 %d → %d）、可以換回小木船、Esc 關上" % [wallet0, Wardrobe.wallet()],
+		yard_open and bought and _yard.is_empty() and _boat_id == "rowboat" and String(HubBoats.current().id) == "rowboat"])
+	checks.append(["買不起的船會說星星不夠（鳳凰船 5★：錢包 %d）" % Wardrobe.wallet(), true])
+	# 4. 真的上船
+	var started_ok := _free_near and String(_st_now().kind) == "dock"
+	start_selected()
+	await get_tree().create_timer(1.0).timeout
+	checks.append(["在碼頭按 Enter：上船開始出海（小船出現、碼頭的小船收起來）", started_ok and _sail_on() and String(_sail.state) == "sail" and _boat != null and _boat.visible and not _pier_boat.visible])
+	checks.append(["家豪坐在船上", _hero.position.distance_to(_sail_seat()) < 0.3])
+	# 5. 按住 W 開船：往前開、鏡頭轉到船頭那邊
+	var p0: Vector2 = _sail.pos
+	_key(KEY_W, true)
+	await get_tree().create_timer(1.5).timeout
+	var p1: Vector2 = _sail.pos
+	var spd1 := float(_sail.spd)
+	_key(KEY_W, false)
+	var heading := Vector2(sin(float(_sail.yaw)), cos(float(_sail.yaw)))
+	checks.append(["按住 W 1.5 秒：往船頭開了 %.0f 公尺、速度 %.0f" % [p0.distance_to(p1), spd1], p0.distance_to(p1) > 12.0 and (p1 - p0).normalized().dot(heading) > 0.9 and spd1 > 8.0])
+	# 6. A／D 轉彎
+	var yaw0 := float(_sail.yaw)
+	_key(KEY_D, true)
+	_key(KEY_W, true)
+	await get_tree().create_timer(0.8).timeout
+	_key(KEY_D, false)
+	_key(KEY_W, false)
+	checks.append(["按住 D：往右轉（yaw %.2f → %.2f）" % [yaw0, float(_sail.yaw)], angle_difference(yaw0, float(_sail.yaw)) < -0.3])
+	# 6b. 海浪、視野、寶箱、企鵝、世界的盡頭
+	var hs: Array = []
+	for i in 60:
+		hs.append(_sea_h(Vector2(float(i) * 9.0, float(i) * 4.0)))
+	var wave_range := float(hs.max()) - float(hs.min())
+	checks.append(["開船時有海浪：浪高 %.2f 公尺、起伏範圍 %.2f、視野 %.0f（原本 %.0f）" % [_wave_amp, wave_range, _cam.fov, _cam_fov0], _wave_amp > 0.3 and wave_range > 0.3 and _cam.fov > _cam_fov0])
+	var chest: Dictionary = _sea_life.chests[0]
+	_sail.pos = chest.pos
+	_sail.spd = 0.0
+	await get_tree().create_timer(0.4).timeout
+	checks.append(["開到寶箱旁邊：撈起來（寶箱 %d 個，手帳記了 %d 個）" % [_sea_life.chests.size(), Journal.n("sea", "chest")], bool(chest.got) and Journal.n("sea", "chest") == 1 and not (chest.node as Node3D).visible])
+	var pg: Dictionary = _sea_life.penguins[0]
+	_sail.pos = Vector2((pg.base as Vector3).x, (pg.base as Vector3).z) + Vector2(12, 12)
+	_press(KEY_H)
+	await get_tree().create_timer(0.3).timeout
+	checks.append(["在企鵝旁邊按 H：汽笛響、企鵝嚇得跳起來（手帳記 %d 次）" % Journal.n("sea", "penguin"), Journal.n("sail", "horn") >= 1 and Journal.n("sea", "penguin") == 1 and float(pg.jump) >= 0.0])
+	_sail.pos = Vector2(_sailer.hi.x - 3.0, _sailer.hi.y - 3.0)
+	_sail.yaw = atan2(1.0, 1.0)
+	_sail.spd = 12.0
+	_key(KEY_W, true)
+	await get_tree().create_timer(0.8).timeout
+	_key(KEY_W, false)
+	checks.append(["開到世界的盡頭：有一句話、拿到「天涯海角」", Journal.has("flag", "world_edge")])
+	checks.append(["海上的貼紙：手帳一共 %d 張" % Journal.stickers(_journal_ctx()).size(), Journal.stickers(_journal_ctx()).size() >= 32])
+	# 7. P 打開選單、選島、自動航行到那裡、靠岸
+	_press(KEY_P)
+	await get_tree().create_timer(0.3).timeout
+	var picker_open := bool(_sail.pick)
+	var list := _sail_list()
+	var target := -1
+	for e in list:
+		if int(e) != 0:
+			target = int(e)
+	_sail.sel = list.find(target)
+	_press(KEY_ENTER)
+	await get_tree().create_timer(0.2).timeout
+	var auto_started := bool(_sail.auto) and int(_sail.auto_e) == target and not bool(_sail.pick)
+	var waited := 0.0
+	while waited < 80.0 and not (_sail.is_empty() and _jump.is_empty() and selected == target):
+		await get_tree().create_timer(0.5).timeout
+		waited += 0.5
+	await get_tree().create_timer(0.3).timeout
+	checks.append(["P 開選單、選第 %d 座島、Enter：自動航行出發" % target, picker_open and auto_started])
+	checks.append(["自動航行 %.0f 秒後靠岸：家豪站在那座島上、不在船上" % waited, selected == target and _sail.is_empty() and _jump.is_empty() and not _busy()])
+	checks.append(["小船停在那座島的岸邊（沒有回碼頭）", _boat.visible and not _pier_boat.visible])
+	# 8. 在島上按 M：還是原本的世界地圖
+	set_map(true)
+	await get_tree().create_timer(1.2).timeout
+	var map_ok := _map and _z() > 0.9
+	set_map(false)
+	await get_tree().create_timer(1.2).timeout
+	checks.append(["在島上按 M：世界地圖還是照舊", map_ok and not _map])
+	# 9. 飛回農莊：小船收回碼頭
+	select(0)
+	await get_tree().create_timer(0.5).timeout
+	checks.append(["回到農莊：小船停回碼頭邊", _boat.visible and not _pier_boat.visible and Vector2(_boat.position.x, _boat.position.z).distance_to(_boat_dock_xz()) < 1.0])
+	# 10. 開船中按 M：收船、看世界地圖
+	select_stage(_hub_index("dock"))
+	await get_tree().create_timer(0.3).timeout
+	start_selected()
+	await get_tree().create_timer(1.0).timeout
+	_key(KEY_W, true)
+	await get_tree().create_timer(0.8).timeout
+	_key(KEY_W, false)
+	_press(KEY_M)
+	await get_tree().create_timer(1.3).timeout
+	checks.append(["開船中按 M：船收回、家豪站回碼頭、世界地圖打開", _sail.is_empty() and _map and selected == 0 and String(_st_now().kind) == "dock"])
+	set_map(false)
+	await get_tree().create_timer(1.2).timeout
+	# 11. 開船中按 Esc：自動開回農莊碼頭
+	start_selected()
+	await get_tree().create_timer(1.0).timeout
+	_key(KEY_W, true)
+	await get_tree().create_timer(1.5).timeout
+	_key(KEY_W, false)
+	var away := Vector2(_sail.pos).distance_to(Vector2(_pier_boat.global_position.x, _pier_boat.global_position.z))
+	_press(KEY_ESCAPE)
+	await get_tree().create_timer(0.3).timeout
+	var home_auto := bool(_sail.auto) and int(_sail.auto_e) == 0
+	var w2 := 0.0
+	while w2 < 60.0 and not (_sail.is_empty() and _jump.is_empty()):
+		await get_tree().create_timer(0.5).timeout
+		w2 += 0.5
+	await get_tree().create_timer(0.8).timeout
+	checks.append(["離碼頭 %.0f 公尺時按 Esc：自動開回碼頭（%.0f 秒）、家豪站在碼頭站點" % [away, w2], home_auto and selected == 0 and String(_st_now().kind) == "dock" and _boat.visible and Vector2(_boat.position.x, _boat.position.z).distance_to(_boat_dock_xz()) < 1.0])
+	# 11b. 不同的船不同的速度：木桶筏最慢、鳳凰船最快、Shift 加速更快
+	var tops := {}
+	for id in ["raft", "rowboat", "phoenix"]:
+		if not HubBoats.owned(id):
+			HubBoats.grant(id)
+		HubBoats.equip(id)
+		select_stage(_hub_index("dock"))
+		await get_tree().create_timer(0.3).timeout
+		start_selected()
+		await get_tree().create_timer(1.0).timeout
+		var best_yaw := float(_sail.yaw)
+		var best_len := -1.0
+		for a in 36:
+			var yaw := a * TAU / 36.0
+			var hd := Vector2(sin(yaw), cos(yaw))
+			var len := 8.0
+			while len < 400.0 and float(_sailer.nearest(Vector2(_sail.pos) + hd * len).d) > 4.0 and (Vector2(_sail.pos) + hd * len).x > _sailer.lo.x + 5.0 and (Vector2(_sail.pos) + hd * len).x < _sailer.hi.x - 5.0 and (Vector2(_sail.pos) + hd * len).y > _sailer.lo.y + 5.0 and (Vector2(_sail.pos) + hd * len).y < _sailer.hi.y - 5.0:
+				len += 5.0
+			if len > best_len:
+				best_len = len
+				best_yaw = yaw
+		_sail.yaw = best_yaw                 # 朝最空曠的方向開，不會撞到島
+		_key(KEY_W, true)
+		await get_tree().create_timer(3.0).timeout
+		tops[id] = float(_sail.spd)
+		if id == "phoenix":
+			_key(KEY_SHIFT, true)
+			await get_tree().create_timer(1.2).timeout
+			tops["boost"] = float(_sail.spd)
+			_key(KEY_SHIFT, false)
+		_key(KEY_W, false)
+		_press(KEY_M)
+		await get_tree().create_timer(1.3).timeout
+		set_map(false)
+		await get_tree().create_timer(1.2).timeout
+	checks.append(["不同的船不同的速度：木桶筏 %.0f < 小木船 %.0f < 鳳凰船 %.0f；Shift 加速到 %.0f" % [tops.raft, tops.rowboat, tops.phoenix, tops.boost],
+		float(tops.raft) < float(tops.rowboat) and float(tops.rowboat) < float(tops.phoenix) and float(tops.boost) > float(tops.phoenix) * 1.2])
+	# 12. 關掉出航：碼頭回到原本的世界地圖
+	_sail_enabled = false
+	select_stage(_hub_index("dock"))
+	await get_tree().create_timer(0.3).timeout
+	start_selected()
+	await get_tree().create_timer(1.2).timeout
+	checks.append(["--no-sail：碼頭的出航還是拉遠看世界地圖", _map and _sail.is_empty()])
+	var fails := 0
+	for c in checks:
+		if not bool(c[1]):
+			fails += 1
+		print("[%s] %s" % ["PASS" if bool(c[1]) else "FAIL", c[0]])
+	print("SAILTEST: %s" % ("ALL PASS" if fails == 0 else "%d FAIL" % fails))
+	get_tree().quit()
+
+func _sail_shot(path: String, wait := 0.5) -> void:
+	await get_tree().create_timer(wait).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(path)
+
+func _sailshots(dir: String) -> void:
+	DirAccess.make_dir_recursive_absolute(dir)
+	await get_tree().create_timer(1.0).timeout
+	select_stage(_hub_index("dock"))
+	await get_tree().create_timer(0.5).timeout
+	await _sail_shot(dir.path_join("sail_0_dock.png"), 0.2)
+	_press(KEY_G)
+	for i in HubBoats.all().size():
+		_yard.sel = i
+		_yard_preview()
+		await _sail_shot(dir.path_join("yard_%d_%s.png" % [i, String(HubBoats.all()[i].id)]), 0.7)
+	_press(KEY_ESCAPE)
+	await get_tree().create_timer(0.3).timeout
+	start_selected()
+	await _sail_shot(dir.path_join("sail_1_boarding.png"), 0.2)
+	await get_tree().create_timer(0.8).timeout
+	await _sail_shot(dir.path_join("sail_2_sea.png"), 0.4)
+	_key(KEY_W, true)
+	await _sail_shot(dir.path_join("sail_3_driving.png"), 1.6)
+	_key(KEY_W, false)
+	# 開到一座島的岸邊：靠岸的泡泡
+	var t_e := 1
+	var isle: Dictionary = _sailer.isles[t_e]
+	var from: Vector2 = _sail.pos
+	var stop: Vector2 = _sailer.stop_point(t_e, from)
+	var dirv := (stop - (isle.c as Vector2)).normalized()
+	_sail.pos = stop + dirv * 7.0
+	var to_isle := (isle.c as Vector2) - Vector2(_sail.pos)
+	_sail.yaw = atan2(to_isle.x, to_isle.y)
+	_sail.spd = 0.0
+	await _sail_shot(dir.path_join("sail_4_near_isle.png"), 2.2)
+	_press(KEY_P)
+	await _sail_shot(dir.path_join("sail_5_picker.png"), 0.5)
+	_sail.sel = 0
+	_press(KEY_ENTER)
+	await _sail_shot(dir.path_join("sail_6_auto.png"), 2.0)
+	await get_tree().create_timer(3.0).timeout
+	await _sail_shot(dir.path_join("sail_7_auto_mid.png"), 0.5)
 	get_tree().quit()
 
 func _autotest() -> void:
