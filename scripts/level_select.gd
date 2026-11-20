@@ -49,6 +49,7 @@ const SHOP_SCENE := "res://scenes/shop.tscn"
 const SeaShader := preload("res://shaders/map_sea.gdshader")
 const TEX := "res://assets/textures/"
 const INTRO_SCENE := "res://scenes/intro.tscn"
+const ENDING_SCENE := "res://levels/heaven/ending/ending.tscn"   # 結局動畫（隱藏按鍵 Shift＋E 直接播，展示用）
 
 ## 正式的「島」一共幾座（四個組員各一座）；不夠的用「建造中」補滿
 const ISLAND_SLOTS := 4
@@ -2737,6 +2738,12 @@ func _unhandled_input(ev: InputEvent) -> void:
 				_toggle_sound()
 			KEY_B:
 				open_shop()
+			KEY_E:
+				# 隱藏按鍵（展示用，畫面上不提示）：Shift＋E 不用全破就直接播結局，播完回到這裡
+				if ev.shift_pressed and not _starting and not _busy() and ResourceLoader.exists(ENDING_SCENE):
+					_starting = true
+					_remember()
+					get_tree().change_scene_to_file(ENDING_SCENE)
 			KEY_ESCAPE:
 				if not _map:
 					set_map(true)                # 島上按 Esc：先退到世界地圖
