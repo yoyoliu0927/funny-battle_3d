@@ -3,6 +3,7 @@ extends SceneTree
 ## Godot --headless --path . --script res://levels/forest/tests/mechanics.gd
 const DT := 1.0 / 60.0
 const S1 := "res://levels/forest/stage_1/stage.tscn"
+const S2 := "res://levels/forest/stage_2/stage.tscn"
 const S3 := "res://levels/forest/stage_3/stage.tscn"
 var bt
 var fails := 0
@@ -56,7 +57,7 @@ func park_bird() -> void:
 
 func _go() -> void:
 	print("== 菸蒂會點著樹（煙圈）")
-	await load_stage(S3)
+	await load_stage(S2)
 	bt.reset()
 	bt.start()
 	park_bird()
@@ -97,7 +98,7 @@ func _go() -> void:
 	bt._tick_butts(DT)
 	ok(bt.butts.is_empty() and ev("踩熄") >= 0.0, "家豪走到菸蒂上就踩熄")
 
-	print("== 小紅帽關：倒下的樹幹")
+	print("== 伐木場：倒下的樹幹")
 	await load_stage(S1)
 	bt.reset()
 	bt.start()
@@ -132,6 +133,7 @@ func _go() -> void:
 	ok(bt.sees_bird(ch), "樹倒了就看得到")
 
 	print("== 假獵物讓抽菸的人把菸丟在地上")
+	await load_stage(S2)
 	bt.reset()
 	bt.start()
 	park_bird()
@@ -143,21 +145,63 @@ func _go() -> void:
 	steps(0.5, func(): bt.bird.t = -9999.0)
 	ok(ev("的菸掉在地上") >= 0.0 and bt.butts.size() > before, "去看假獵物時菸掉在地上")
 
-	print("== 外婆的籃子")
+	print("== 水桶")
 	bt.reset()
 	bt.start()
 	park_bird()
-	ok(bt.basket_error(bt.ground(Vector3(9, 0, 9))) != "", "離木屋太遠放不了")
+	var sm2 = who("抽菸1")
+	sm2.yaw = 0.0
+	bt.drop_butt(sm2, "flick")
+	var bpos: Vector3 = bt.butts[0].pos
+	ok(bt.bucket_error(bt.ground(bpos)) == "", "水桶可以放在地上")
+	bt.add_bucket(bt.ground(bpos))
+	ok(bt.butts.is_empty(), "潑水把菸蒂淋熄")
+	ok(bt.bucket_error(bt.ground(bpos + Vector3(0.5, 0, 0))) != "", "同一個地方不能連潑")
+	var wet_tree: int = bt._nearest_tree(bpos, 9.0)
+	ok(float(bt.grove[wet_tree].wet) > 0.0, "附近的樹淋濕了")
+	bt.drop_butt(sm2, "flick")
+	var wb: Vector3 = bt.butts[0].pos
+	var burnt0: int = bt.trees_burnt
+	bt.butts[0].fuse = 0.05
+	steps(0.5, func(): bt.bird.t = -9999.0)
+	ok(bt.trees_burnt == burnt0, "菸蒂掉在淋濕的地方點不著樹")
+	bt.tree_cap = 99          # 接下來要等好幾十秒，別讓別的菸蒂燒到輸掉
+	steps(bt.WET_TIME + 1.0, func(): bt.bird.t = -9999.0)
+	ok(float(bt.grove[wet_tree].wet) == 0.0, "濕過一陣子之後又會乾")
+	bt.reset()
+	bt.start()
+	park_bird()
+	var far_tree: int = bt._nearest_tree(Vector3(-12, 0, 8), 99.0)
+	bt._ignite_tree(far_tree, "測試點火")
+	ok(bt.trees_burnt == 1 and not bt.grove[far_tree].alive, "樹燒起來了")
+	bt.add_bucket(bt.ground(bt.grove[far_tree].pos + Vector3(1.0, 0, 1.0)))
+	ok(bt.trees_burnt == 0 and bt.grove[far_tree].alive and bt.grove[far_tree].fire < 0.0, "潑水把著火的樹救回來，不算燒掉")
+	steps(bt.BURN_TIME + 1.0, func(): bt.bird.t = -9999.0)
+	ok(not bt.grove[far_tree].burnt, "救回來的樹不會再燒成樹樁")
+	bt.reset()
+	ok(float(bt.grove[far_tree].wet) == 0.0 and bt.puddles.is_empty(), "重試後濕地清掉")
+
+	print("== 外婆的籃子")
+	await load_stage(S3)
+	bt.reset()
+	bt.start()
+	park_bird()
+	bt.add_decoy(bt.ground(Vector3(9, 0, 9)))
+	ok(bt.baskets.is_empty(), "離木屋太遠的假獵物引不了狼外婆")
+	bt.reset()
+	bt.start()
+	park_bird()
 	var door: Vector3 = bt.escape_point
-	ok(bt.basket_error(bt.ground(door)) == "", "門口可以放")
-	bt.add_basket(bt.ground(door))
+	ok(bt.decoy_error(bt.ground(door)) == "", "門口可以放假獵物")
+	bt.add_decoy(bt.ground(door))
 	var wolf = who("狼外婆")
 	steps(6.0, func(): bt.bird.t = -9999.0)
 	ok(wolf.state == "sniff", "狼外婆走去聞籃子")
 	var d0: float = bt.dinner
 	steps(1.0, func(): bt.bird.t = -9999.0)
 	ok(is_equal_approx(bt.dinner, d0), "聞的時候小紅帽計時停下來")
-	steps(bt.BASKET_LIFE, func(): bt.bird.t = -9999.0)
+	bt.bird.pos = bt.ground(bt.escape_point + Vector3(5.0, 0, 3.0))      # 家豪走近木屋，假獵物才開始算時間
+	steps(bt.BASKET_LIFE + 1.0, func(): bt.bird.t = -9999.0)
 	ok(wolf.state != "sniff" and bt.dinner > d0, "籃子沒味道了，狼外婆回去、計時繼續")
 
 	print("== 狼外婆守著小紅帽")
@@ -180,7 +224,7 @@ func _go() -> void:
 	bt.reset()
 	bt.start()
 	park_bird()
-	bt.add_basket(bt.ground(bt.escape_point + Vector3(1.4, 0, -0.4)))
+	bt.add_decoy(bt.ground(bt.escape_point + Vector3(1.4, 0, -0.4)))
 	steps(4.0, func(): bt.bird.t = -9999.0)
 	ok(not bt._wolf_guarding(), "狼外婆去聞籃子，沒在看著")
 	bt.bird.pos = bt.ground(bt.escape_point + Vector3(-0.6, 0, -1.4))
@@ -208,12 +252,26 @@ func _go() -> void:
 	bt._number_guides()
 	ok(bt.guides[0].label.text == "1" and bt.guides[1].label.text == "2", "數字照放的順序")
 
-	print("== 小紅帽關整局跑完不出錯")
+	print("== 天色：第三關隨計時變暗")
 	bt.reset()
 	bt.start()
-	steps(90.0)
-	ok(bt.phase == bt.Phase.ENDED, "分出勝負（%s，%s）" % [bt.outcome, bt.fail])
-	print("   樹 砍 %d／燒 %d" % [bt.trees_cut, bt.trees_burnt])
+	park_bird()
+	steps(1.0, func(): bt.bird.t = -9999.0)
+	var k0: float = bt._look_k()
+	steps(30.0, func(): bt.bird.t = -9999.0)
+	ok(bt._look_k() > k0 and bt._look_k() <= 1.0, "天色進度 %.2f → %.2f" % [k0, bt._look_k()])
+	bt.reset()
+	ok(bt._look_k() == 0.0, "重試後天色回到傍晚")
+
+	print("== 三關整局跑完不出錯、各有三顆星可拿")
+	for path in [S1, S2, S3]:
+		await load_stage(path)
+		ok(bt._objectives().size() == 3, "%s 有三個星星目標" % path.get_slice("/", 4))
+		bt.reset()
+		bt.start()
+		steps(100.0)
+		ok(bt.phase == bt.Phase.ENDED, "分出勝負（%s，%s）" % [bt.outcome, bt.fail])
+		print("   樹 砍 %d／燒 %d　用時 %.0f 秒　家豪血 %.0f/%.0f　敵人剩 %d" % [bt.trees_cut, bt.trees_burnt, bt.time, bt.bird.hp, bt.bird.max_hp, bt.enemies_left()])
 
 	print("")
 	print("FOREST MECHANICS: %d/%d ok" % [checks - fails, checks])

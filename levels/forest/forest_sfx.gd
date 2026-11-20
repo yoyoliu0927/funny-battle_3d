@@ -26,7 +26,7 @@ static func make_all() -> Dictionary:
 		return _cache
 	_building = true
 	var all := {
-		"guide": guide(), "decoy": decoy(), "basket": basket(),
+		"guide": guide(), "decoy": decoy(), "basket": basket(), "bucket": bucket(),
 		"chop": chop(), "fall": fall(), "flick": flick(), "ignite": ignite(), "crackle": crackle(),
 		"stomp": stomp(), "bonk": bonk(), "peck": peck(), "ouch": ouch(), "down": down(),
 		"swat": swat(), "sniff": sniff(), "rescue": rescue(), "win": win(), "lose": lose(),
@@ -254,6 +254,14 @@ static func basket() -> AudioStreamWAV:
 		_noise(s, k * 0.05, 0.06, 0.3, 0.8, 20 + k)
 	_drum(s, 0.18, 180.0, 110.0, 0.15, 0.5, 0.3, 25)
 	return _wav(_norm(s, 0.75))
+
+## 水桶：木桶「咚」一聲，接著嘩啦一大片水
+static func bucket() -> AudioStreamWAV:
+	var s := _buf(0.8)
+	_drum(s, 0.0, 240.0, 130.0, 0.12, 0.55, 0.4, 31)
+	_noise(s, 0.1, 0.55, 0.5, 0.9, 32, false, 0.03)
+	_noise(s, 0.25, 0.35, 0.3, 0.97, 33, false, 0.05)
+	return _wav(_norm(s, 0.8))
 
 ## 斧頭砍樹：「咚」一聲悶響＋木屑
 static func chop() -> AudioStreamWAV:

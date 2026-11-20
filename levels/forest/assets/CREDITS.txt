@@ -2,3 +2,8 @@
 外圍那圈森林和草地沿用共用場地（scripts/world/arena_world.gd）自己長出來的。
 assets/icons/ 的道具圖示是用 tools/make_icons.gd 把 items/models.gd 裡的道具模型拍下來的，自己做的。
 配樂和音效都是 forest_sfx.gd 用程式即時合成的（沒有音效檔），自己做的。
+
+2026-11 森林大關美術升級（模型都是 CC0，從專案裡其他大關的素材資料夾複製過來，放在這裡避免跨大關引用）：
+assets/kenney_survival：Kenney「Survival Kit 2.0」(https://kenney.nl/assets/survival-kit)，CC0（帳篷、柴堆、營火、水桶、木桶、木箱、路標、鏟子、原木）。
+assets/kenney_castle：Kenney「Castle Kit 2.0」(https://kenney.nl/assets/castle-kit)，CC0（樹、原木、樹墩、石頭、木柵欄）。
+assets/kenney_platformer：Kenney「Platformer Kit」(https://kenney.nl/assets/platformer-kit)，CC0（繩圍欄、木箱）。

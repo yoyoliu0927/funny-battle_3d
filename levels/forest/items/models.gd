@@ -84,6 +84,17 @@ static func basket(root: Node3D) -> void:
 	box(root, Vector3(0.05, 0.34, 0.05), Vector3(0.2, 0.47, 0), wicker)
 	box(root, Vector3(0.45, 0.05, 0.05), Vector3(0, 0.64, 0), wicker)
 
+## 水桶：Kenney 的木桶模型（放大一點），桶口有一圈水花
+static func bucket(root: Node3D) -> Node3D:
+	var ps := load("res://levels/forest/assets/kenney_survival/bucket.glb") as PackedScene
+	var n := Node3D.new()
+	root.add_child(n)
+	if ps:
+		var m := ps.instantiate() as Node3D
+		m.scale = Vector3.ONE * 3.2
+		n.add_child(m)
+	return n
+
 ## 道具欄圖示；還沒拍（或檔案不見）就回傳 null，道具欄會畫原本的圓圈
 static func icon(id: String) -> Texture2D:
 	var path := "res://levels/forest/assets/icons/%s.png" % id

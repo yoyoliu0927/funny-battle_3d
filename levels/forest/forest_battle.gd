@@ -11,7 +11,7 @@ extends "res://scripts/battle/battle_base.gd"
 
 const CHOP_TIME := 5.0
 const LURE_LIFE := 12.0
-const ATTRACT := 11.0
+const ATTRACT := 7.0           # 假獵物的吸引範圍（舊版 11 公尺，整張圖的人都被拉過去，變成一團）
 const ENGAGE := 2.55          # 家豪走到這麼近就會停下來打
 const STICKY := 4.4           # 已經開打的話，拉開到這麼遠才會回去跟引路點
 const LOCK := ["windup", "recover", "stagger", "down", "getup", "slip", "startled"]
@@ -38,7 +38,10 @@ const SPREAD_AFTER := 4.5     # 一棵樹燒多久才往旁邊延燒（只延燒
 const SPREAD_CHANCE := 0.55   # 延燒的機率（固定 seed，每次重玩都一樣）
 const BURN_TIME := 9.0        # 燒多久變成焦黑的樹樁
 const LOS_R := 0.55           # 視線離樹幹這麼近就被擋住
-const BASKET_LIFE := 10.0
+const BASKET_LIFE := 9.0
+const LURE_START_R := 7.0     # 木屋門口的假獵物：家豪走到離門這麼近才開始算時間（準備階段先放也不會過期）
+const BUCKET_R := 3.8         # 水桶潑到多遠
+const WET_TIME := 26.0        # 淋濕的樹這麼久（開打後的秒數）點不著
 const CUT_GAP := 5.0          # 兩段特寫之間至少隔幾秒（遊戲時間）
 const SLOWMO := 0.35
 const SLOWMO_MS := 450
@@ -47,6 +50,8 @@ var want_trees := false
 var tree_cap := 20
 var want_smoke := false
 var want_hood := false
+var butt_every := BUTT_EVERY
+var chop_time := CHOP_TIME
 var hood_cap := 80.0
 
 var grove: Array = []
@@ -54,6 +59,7 @@ var trees_cut := 0
 var trees_burnt := 0
 var butts: Array = []         # {pos, node, tip, fuse}
 var baskets: Array = []       # {pos, node, life}
+var puddles: Array = []       # 水桶潑出來的濕地 {pos, node, life}
 var _log_spots: Array = []    # 倒下的樹幹加進 world.obstacles 的圓，重試時拿掉
 var _fire_rng := RandomNumberGenerator.new()
 var warn_fire := false
@@ -77,6 +83,9 @@ var fail := ""
 var warn_trees := false
 var warn_hood := false
 var ignited := false
+var last_hurt_by := ""        # 最後一個打到家豪的人（結算畫面講死因）
+var swats := 0
+var sneaks := 0               # 這一局偷襲成功幾次
 var _range: MeshInstance3D
 ## 選關地圖讀這張表（場景路徑 → {目標 id: true}）。只有過關才寫進去，這次開遊戲期間累積。
 static var best_stars := {}
@@ -101,6 +110,17 @@ func _want_hood() -> bool:
 func _hood_cap() -> float:
 	return 80.0
 
+## 抽菸的人多久彈一根菸蒂、伐木工砍一棵樹要多久（關卡可以覆寫）
+func _butt_every() -> float:
+	return BUTT_EVERY
+
+func _chop_time() -> float:
+	return CHOP_TIME
+
+## 天色進度 0~1（0＝場地設定的 look，1＝look2）。第三關跟著小紅帽的計時走。
+func _look_k() -> float:
+	return 0.0
+
 # ---------------------------------------------------------------- 建立
 
 func _level_setup() -> void:
@@ -108,6 +128,8 @@ func _level_setup() -> void:
 	tree_cap = _tree_cap()
 	want_smoke = _want_smoke()
 	want_hood = _want_hood()
+	butt_every = _butt_every()
+	chop_time = _chop_time()
 	hood_cap = _hood_cap()
 	var listed = world.get("trees")
 	grove = listed if listed != null else []
@@ -123,10 +145,9 @@ func _level_setup() -> void:
 	_cut_cam.name = "CloseUpCam"
 	_cut_cam.fov = 50.0
 	world.add_child(_cut_cam)
-	_free_cursor()
 	var hint := get_node_or_null("../HUD/Hint") as Label
 	if hint:
-		hint.text = "移動滑鼠把圈圈對到地面｜左鍵 放下｜WASD 移動鏡頭｜空白 上升｜Shift 下降｜數字鍵／滾輪 選道具｜Enter 開始｜R 重試｜M 地圖｜T 再看教學"
+		hint.text = "滑鼠轉視角、準心對地面｜左鍵 放下｜WASD 移動｜空白 上升｜Shift 下降｜數字鍵／滾輪 選道具｜Enter 開始｜R 重試｜M 地圖｜T 再看教學"
 		_plain_dark(hint)
 	_build_goals()
 	_cover_hotbar_stickers.call_deferred()   # 道具欄是 _level_setup 之後才建的
@@ -242,6 +263,8 @@ func _hit_enemy(f: Fighter, dmg: float, from: Vector3) -> void:
 	sfx("peck", f.pos, -3.0)
 
 func hit_bird(dmg: float, heavy: bool, from: Vector3, by: Fighter = null) -> void:
+	if by != null:
+		last_hurt_by = by.kind
 	super(dmg, heavy, from, by)
 	sfx("ouch", bird.pos)
 
@@ -383,7 +406,8 @@ func _tint(c: Color) -> Material:
 	return world._toon(c)
 
 func _level_reset() -> void:
-	_free_cursor()
+	if world.has_method("set_look"):
+		world.call("set_look", 0.0)
 	_place_goal_line()
 	_cut_off()
 	Engine.time_scale = 1.0
@@ -394,12 +418,18 @@ func _level_reset() -> void:
 	decoys.clear()
 	butts.clear()        # 模型都在 fx_root 底下，已經被一起刪掉了
 	baskets.clear()
+	puddles.clear()
 	for s in _log_spots:
 		world.obstacles.erase(s)
 	_log_spots.clear()
 	_fire_rng.seed = int(world.get("world_seed") if world.get("world_seed") != null else 0) + 777
 	trees_cut = 0
 	trees_burnt = 0
+	_stuck_t = 0.0
+	_stuck_pos = Vector3.ZERO
+	sneaks = 0
+	swats = 0
+	last_hurt_by = ""
 	dinner = 0.0
 	hood_saved = false
 	hood_run = 0.0
@@ -419,6 +449,7 @@ func _level_reset() -> void:
 				(pair[0] as MeshInstance3D).material_override = pair[1]
 		t.leaf_mats = []
 		t.alive = true
+		t.wet = 0.0
 		t.fall = 0.0
 		t.fire = -1.0
 		t.burnt = false
@@ -446,13 +477,8 @@ func _level_start() -> void:
 		log_event("狼外婆正要吃掉小紅帽")
 
 # ---------------------------------------------------------------- 瞄準
-## 共用的準心把游標鎖在畫面正中，滑鼠只能轉鏡頭。這裡改成游標可以移動，圈圈跟著游標。
-
-func _free_cursor() -> void:
-	if player and player.has_method("_set_looking"):
-		player.call("_set_looking", false)
-	if crosshair:
-		crosshair.visible = false
+## 操作跟南方島嶼一樣：游標鎖在畫面正中（中央圓圈是準心），滑鼠轉視角，左鍵放在準心指的地面。
+## 舊版曾經把游標放出來、鏡頭轉不動，跟其他大關不一樣，已拿掉。
 
 func _build_range_ring() -> void:
 	if _range != null:
@@ -474,24 +500,7 @@ func _build_range_ring() -> void:
 	_range.visible = false
 	world.add_child(_range)
 
-func _update_aim() -> void:
-	if camera == null:
-		return
-	var origin := camera.global_position
-	var dir := -camera.global_basis.z
-	if Input.mouse_mode == Input.MOUSE_MODE_VISIBLE:
-		var m := get_viewport().get_mouse_position()
-		origin = camera.project_ray_origin(m)
-		dir = camera.project_ray_normal(m)
-	aim_point = world.ray_ground(origin, dir, 80.0)
-
 func _unhandled_input(event: InputEvent) -> void:
-	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-		if phase != Phase.ENDED and not defeat_shown:
-			_update_aim()
-			try_cast()
-		get_viewport().set_input_as_handled()
-		return
 	if event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).physical_keycode == KEY_T:
 		replay_tutorial()
 		get_viewport().set_input_as_handled()
@@ -530,8 +539,10 @@ func decoy_error(p: Vector3) -> String:
 	for d in decoys:
 		if d.life > 0.0 and flat_dist(d.pos, p) < 1.4:
 			return "離另一隻太近"
-	if world.has_method("in_house") and world.in_house(p.x, p.z):
-		return "不能放進木屋"
+	if want_hood and _wolf_lure_spot(p):
+		for b in baskets:
+			if b.life > 0.0:
+				return "狼外婆已經在聞了"
 	return ""
 
 func add_guide(p: Vector3) -> void:
@@ -560,8 +571,16 @@ func add_decoy(p: Vector3) -> void:
 	Models.decoy(root)
 	decoys.append({"pos": ground(p), "node": root, "life": LURE_LIFE})
 	log_event("放了一隻假獵物")
+	# 放在木屋裡或門口：狼外婆也會走過去聞（她不理外面的假獵物）
+	if want_hood and not hood_saved and _wolf_lure_spot(p):
+		baskets.append({"pos": ground(p), "node": root, "life": BASKET_LIFE, "on": false})
+		log_event("狼外婆被假獵物引開")
 
-## 外婆的籃子：只能放在木屋裡或門口，狼外婆會走過去聞
+## 木屋裡或門口（假獵物放在這裡才引得動狼外婆）
+func _wolf_lure_spot(p: Vector3) -> bool:
+	return world.has_method("in_house") and (world.in_house(p.x, p.z) or flat_dist(p, escape_point) <= 3.2)
+
+## （舊的外婆的籃子，已經併進假獵物；留著給 baskets 清單用）
 func basket_error(p: Vector3) -> String:
 	if not want_hood or not world.has_method("in_house"):
 		return "這一關沒有狼外婆"
@@ -591,6 +610,108 @@ func _basket_active() -> int:
 		if baskets[i].life > 0.0:
 			return i
 	return -1
+
+# ---------------------------------------------------------------- 水桶
+
+func bucket_error(p: Vector3) -> String:
+	if world.in_water(p.x, p.z) or not world.walkable(p.x, p.z):
+		return "這裡放不了"
+	if world.has_method("in_house") and world.in_house(p.x, p.z):
+		return "不能潑進木屋"
+	for q in puddles:
+		if q.life > 0.0 and flat_dist(q.pos, p) < 1.8:
+			return "這裡已經是濕的了"
+	return ""
+
+## 潑水：圈子裡的菸蒂熄掉、著火的樹救下來；沒著火的樹淋濕之後 WET_TIME 秒內點不著
+func add_bucket(p: Vector3) -> void:
+	var g := ground(p)
+	var root := Node3D.new()
+	root.position = g
+	fx_root.add_child(root)
+	var bk := Models.bucket(root)
+	bk.position.y = 0.0
+	# 濕地：藍色的圓，慢慢淡掉
+	var disc := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = BUCKET_R
+	cm.bottom_radius = BUCKET_R
+	cm.height = 0.02
+	cm.radial_segments = 40
+	disc.mesh = cm
+	var dm := StandardMaterial3D.new()
+	dm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	dm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	dm.albedo_color = Color(0.35, 0.65, 0.95, 0.32)
+	disc.material_override = dm
+	disc.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	disc.position.y = 0.06
+	disc.name = "Wet"
+	root.add_child(disc)
+	puddles.append({"pos": g, "node": root, "life": WET_TIME, "t": 0.0})
+	for i in 7:
+		var a := TAU * float(i) / 7.0
+		_puff(g + Vector3(cos(a) * 1.4, 0.4 + 0.2 * float(i % 3), sin(a) * 1.4), Color(0.55, 0.78, 1.0))
+	log_event("潑了一桶水")
+	_burst(g + Vector3(0, 0.5, 0), "water", 26)
+	var saved := 0
+	var wetted := 0
+	for i in range(butts.size() - 1, -1, -1):
+		var bt: Dictionary = butts[i]
+		if flat_dist(bt.pos, g) < BUCKET_R:
+			(bt.node as Node3D).queue_free()
+			butts.remove_at(i)
+			_pop("淋熄！", bt.pos + Vector3(0, 1.1, 0), Color(0.7, 0.95, 1.0))
+			saved += 1
+	for t in grove:
+		if flat_dist(t.pos, g) >= BUCKET_R:
+			continue
+		if t.fire >= 0.0 and not t.burnt:
+			_douse_tree(t)
+			saved += 1
+		elif t.alive:
+			t.wet = WET_TIME
+			wetted += 1
+	if saved > 0:
+		toast("火熄了！", 1.0)
+	elif wetted > 0:
+		_pop("淋濕了", g + Vector3(0, 1.6, 0), Color(0.7, 0.9, 1.0))
+
+## 著火的樹被澆熄：站回來、樹冠換回原本的顏色，不算燒掉
+func _douse_tree(t: Dictionary) -> void:
+	if t.flame != null and is_instance_valid(t.flame):
+		(t.flame as Node3D).queue_free()
+	t.flame = null
+	t.fire = -1.0
+	t.spread = false
+	t.alive = true
+	t.wet = WET_TIME
+	trees_burnt = maxi(trees_burnt - 1, 0)
+	for pair in t.get("leaf_mats", []):
+		if is_instance_valid(pair[0]):
+			(pair[0] as MeshInstance3D).material_override = pair[1]
+	t.leaf_mats = []
+	var crown := (t.node as Node3D).get_node_or_null("Crown") as Node3D
+	if crown:
+		crown.scale = Vector3.ONE
+	_pop("得救了！", t.pos + Vector3(0, _tree_height(t) + 1.6, 0), Color(0.7, 0.95, 1.0))
+	log_event("一棵著火的樹被澆熄")
+	_puff(t.pos + Vector3(0, _tree_height(t), 0), Color(0.85, 0.9, 0.95))
+
+func _tick_wet(dt: float) -> void:
+	for t in grove:
+		var w := float(t.get("wet", 0.0))
+		if w > 0.0:
+			t.wet = maxf(w - dt, 0.0)
+	for q in puddles:
+		if q.life > 0.0:
+			q.life -= dt
+			var disc := (q.node as Node3D).get_node_or_null("Wet") as MeshInstance3D
+			if disc:
+				var m := disc.material_override as StandardMaterial3D
+				m.albedo_color.a = 0.32 * clampf(q.life / 6.0, 0.0, 1.0)
+			if q.life <= 0.0:
+				(q.node as Node3D).visible = false
 
 # ---------------------------------------------------------------- 菸蒂和火
 
@@ -639,6 +760,7 @@ func _tick_butts(dt: float) -> void:
 			log_event("家豪踩熄菸蒂")
 			_pop("踩熄！", bt.pos + Vector3(0, 1.2, 0), Color(0.7, 0.95, 1.0))
 			sfx("stomp", bt.pos)
+			_burst(bt.pos + Vector3(0, 0.1, 0), "dust", 8)
 			_puff(bt.pos, Color(0.6, 0.6, 0.62))
 			_cut("stomp", bird.pos + Vector3(0, 0.6, 0), 1.0, 3.0, 1.1)
 			continue
@@ -650,6 +772,11 @@ func _tick_butts(dt: float) -> void:
 		var j := _nearest_tree(bt.pos, SPARK_R)
 		if j < 0:
 			log_event("菸蒂自己熄了")
+			continue
+		if float(grove[j].get("wet", 0.0)) > 0.0:
+			log_event("菸蒂掉在濕地上熄了")
+			_pop("滋——", bt.pos + Vector3(0, 1.0, 0), Color(0.7, 0.9, 1.0))
+			_puff(bt.pos, Color(0.7, 0.8, 0.9))
 			continue
 		_ignite_tree(j, "菸蒂點著了樹")
 
@@ -677,11 +804,11 @@ func _ignite_tree(i: int, why: String) -> void:
 	root.position = t.pos
 	fx_root.add_child(root)
 	var h := _tree_height(t)
-	var outer := _cone(1.15, 2.6, Color(1.0, 0.38, 0.06), 1.6)
+	var outer := _cone(0.6, 1.3, Color(1.0, 0.38, 0.06), 1.6)
 	outer.position.y = h + 1.0
 	outer.name = "Outer"
 	root.add_child(outer)
-	var inner := _cone(0.62, 1.8, Color(1.0, 0.82, 0.25), 2.4)
+	var inner := _cone(0.32, 0.9, Color(1.0, 0.82, 0.25), 2.4)
 	inner.position.y = h + 1.35
 	inner.name = "Inner"
 	root.add_child(inner)
@@ -700,10 +827,84 @@ func _ignite_tree(i: int, why: String) -> void:
 	var light := OmniLight3D.new()
 	light.name = "Glow"
 	light.light_color = Color(1.0, 0.55, 0.2)
-	light.light_energy = 2.2
+	light.light_energy = 1.6
 	light.omni_range = 5.5
 	light.position.y = h + 0.8
 	root.add_child(light)
+	var emb := CPUParticles3D.new()
+	emb.name = "Embers"
+	emb.amount = 22
+	emb.lifetime = 1.6
+	emb.direction = Vector3.UP
+	emb.spread = 25.0
+	emb.initial_velocity_min = 1.2
+	emb.initial_velocity_max = 2.4
+	emb.gravity = Vector3(0, 0.6, 0)
+	emb.scale_amount_min = 0.12
+	emb.scale_amount_max = 0.22
+	var em := SphereMesh.new()
+	em.radius = 0.5
+	em.height = 1.0
+	em.radial_segments = 6
+	em.rings = 3
+	emb.mesh = em
+	var emat := StandardMaterial3D.new()
+	emat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	emat.albedo_color = Color(1.0, 0.6, 0.2)
+	emat.emission_enabled = true
+	emat.emission = Color(1.0, 0.5, 0.1)
+	emb.material_override = emat
+	emb.position.y = h + 1.2
+	emb.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(emb)
+	var fl := CPUParticles3D.new()
+	fl.name = "Flames"
+	fl.amount = 40
+	fl.lifetime = 0.9
+	fl.direction = Vector3.UP
+	fl.spread = 40.0
+	fl.initial_velocity_min = 1.6
+	fl.initial_velocity_max = 2.8
+	fl.gravity = Vector3.ZERO
+	fl.emission_shape = CPUParticles3D.EMISSION_SHAPE_SPHERE
+	fl.emission_sphere_radius = 0.7
+	fl.scale_amount_min = 0.5
+	fl.scale_amount_max = 1.0
+	var fc := Gradient.new()
+	fc.colors = PackedColorArray([Color(1.0, 0.95, 0.4, 0.95), Color(1.0, 0.45, 0.08, 0.8), Color(0.4, 0.1, 0.05, 0.0)])
+	fc.offsets = PackedFloat32Array([0.0, 0.5, 1.0])
+	fl.color_ramp = fc
+	fl.mesh = em
+	var fmat := StandardMaterial3D.new()
+	fmat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	fmat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	fmat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	fmat.vertex_color_use_as_albedo = true
+	fmat.albedo_color = Color(1, 0.85, 0.7, 0.8)
+	fl.material_override = fmat
+	fl.position.y = h + 0.5
+	fl.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(fl)
+	var smoke := CPUParticles3D.new()
+	smoke.name = "Smoke"
+	smoke.amount = 10
+	smoke.lifetime = 2.4
+	smoke.direction = Vector3.UP
+	smoke.spread = 12.0
+	smoke.initial_velocity_min = 1.0
+	smoke.initial_velocity_max = 1.6
+	smoke.gravity = Vector3(0.3, 0.2, 0)
+	smoke.scale_amount_min = 0.5
+	smoke.scale_amount_max = 0.9
+	smoke.mesh = em
+	var smat := StandardMaterial3D.new()
+	smat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	smat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	smat.albedo_color = Color(0.25, 0.24, 0.24, 0.5)
+	smoke.material_override = smat
+	smoke.position.y = h + 2.0
+	smoke.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(smoke)
 	t.flame = root
 	sfx("ignite", t.pos + Vector3(0, 2.0, 0))
 	_attach_crackle(root)
@@ -711,11 +912,10 @@ func _ignite_tree(i: int, why: String) -> void:
 	var crown := (t.node as Node3D).get_node_or_null("Crown") as Node3D
 	if crown:
 		var keep: Array = []
-		var scorch := _tint(Color(0.42, 0.24, 0.1))
-		for c in crown.get_children():
-			if c is MeshInstance3D:
-				keep.append([c, (c as MeshInstance3D).material_override])
-				(c as MeshInstance3D).material_override = scorch
+		var scorch := _tint(Color(0.24, 0.16, 0.12))
+		for c in crown.find_children("*", "MeshInstance3D", true, false):
+			keep.append([c, (c as MeshInstance3D).material_override])
+			(c as MeshInstance3D).material_override = scorch
 		t.leaf_mats = keep
 	_pop("著火了！", t.pos + Vector3(0, h + 2.6, 0), Color(1.0, 0.6, 0.25))
 	_cut("spark", t.pos + Vector3(0, h + 0.5, 0), 1.7, 7.4, 0.2)
@@ -733,7 +933,8 @@ func _cone(radius: float, height: float, c: Color, glow: float) -> MeshInstance3
 	var mi := MeshInstance3D.new()
 	mi.mesh = cone
 	var m := StandardMaterial3D.new()
-	m.albedo_color = c
+	m.albedo_color = Color(c, 0.3)
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	m.emission_enabled = true
 	m.emission = c
 	m.emission_energy_multiplier = glow
@@ -744,6 +945,8 @@ func _cone(radius: float, height: float, c: Color, glow: float) -> MeshInstance3
 
 func _tree_height(t: Dictionary) -> float:
 	var n := t.node as Node3D
+	if n.has_meta("h"):
+		return float(n.get_meta("h"))
 	if n.get_child_count() > 0:
 		var trunk := n.get_child(0) as MeshInstance3D
 		if trunk and trunk.mesh is BoxMesh:
@@ -771,7 +974,7 @@ func _spread_target(i: int) -> int:
 	var best := -1
 	var bd := SPREAD_R
 	for j in grove.size():
-		if j == i or not grove[j].alive:
+		if j == i or not grove[j].alive or float(grove[j].get("wet", 0.0)) > 0.0:
 			continue
 		var d := flat_dist(from, grove[j].pos)
 		if d >= bd or _log_between(from, grove[j].pos):
@@ -835,6 +1038,45 @@ func _puff(p: Vector3, c: Color) -> void:
 	mi.position = p + Vector3(0, 0.25, 0)
 	spawn_timed(mi, 0.7, "dust")
 
+## 一次性的粒子噴發（木屑、水珠、星星、塵土、落葉）。kind: wood / water / star / dust / leaf
+func _burst(p: Vector3, kind: String, n := 14) -> void:
+	var cfg: Array = {
+		"wood": [Color(0.78, 0.55, 0.3), 3.4, 0.3, 1.0, 1.0],
+		"water": [Color(0.6, 0.85, 1.0), 4.6, 0.28, 1.1, 1.6],
+		"star": [Color(1.0, 0.92, 0.3), 3.6, 0.38, 1.4, 0.2],
+		"dust": [Color(0.7, 0.62, 0.48), 2.2, 0.3, 1.0, 0.2],
+		"leaf": [Color(0.55, 0.78, 0.28), 2.8, 0.3, 1.5, 0.8],
+	}[kind]
+	var pt := CPUParticles3D.new()
+	pt.emitting = true
+	pt.one_shot = true
+	pt.explosiveness = 0.95
+	pt.amount = n * 2
+	pt.lifetime = float(cfg[3])
+	pt.direction = Vector3.UP
+	pt.spread = 70.0
+	pt.initial_velocity_min = float(cfg[1]) * 0.5
+	pt.initial_velocity_max = float(cfg[1])
+	pt.gravity = Vector3(0, -7.0 * float(cfg[4]) - 1.0, 0)
+	pt.scale_amount_min = float(cfg[2]) * 0.7
+	pt.scale_amount_max = float(cfg[2]) * 1.4
+	var sm := SphereMesh.new()
+	sm.radius = 0.5
+	sm.height = 1.0
+	sm.radial_segments = 6
+	sm.rings = 3
+	pt.mesh = sm
+	var m := StandardMaterial3D.new()
+	m.albedo_color = cfg[0]
+	if kind == "star" or kind == "water":
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.emission_enabled = true
+		m.emission = cfg[0]
+	pt.material_override = m
+	pt.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	pt.position = p
+	spawn_timed(pt, float(cfg[3]) + 0.3, "burst")
+
 ## 飄起來的字
 func _pop(text: String, p: Vector3, c: Color) -> void:
 	var l := Label3D.new()
@@ -869,6 +1111,9 @@ func _level_step(dt: float) -> void:
 	_sound_step()
 	_tick_cut(dt)
 	_mark_saved()
+	if want_hood and not hood_saved and enemies_left() == 0 and _wolf_guarding() and not _seen.has("wait_tip") and baskets.is_empty():
+		_seen["wait_tip"] = true
+		toast("外面的人都倒了！把假獵物放在木屋門口，引開狼外婆", 2.6)
 	if want_hood and not hood_saved and not _wolf_sniffing():
 		dinner += dt
 	for d in decoys:
@@ -878,11 +1123,18 @@ func _level_step(dt: float) -> void:
 				(d.node as Node3D).visible = false
 	for b in baskets:
 		if b.life > 0.0:
-			b.life -= dt
+			if not b.get("on", true) and flat_dist(bird.pos, escape_point) < LURE_START_R:
+				b["on"] = true
+				toast("狼外婆去聞假獵物了！趕快進屋（%d 秒）" % int(BASKET_LIFE), 1.8)
+			if b.get("on", true) and bird.state != "fly" and flat_dist(bird.pos, escape_point) < LURE_START_R + 3.0:
+				b.life -= dt
 			if b.life <= 0.0:
 				(b.node as Node3D).visible = false
+	if world.has_method("set_look"):
+		world.call("set_look", _look_k())
 	_tick_butts(dt)
 	_tick_fire(dt)
+	_tick_wet(dt)
 	_advance_falls(dt)
 	_move_hood(dt)
 	_warnings()
@@ -908,6 +1160,7 @@ func _mark_saved() -> void:
 	hood_saved = true
 	log_event("小紅帽得救了")
 	sfx("rescue")
+	_burst(hood_home + Vector3(0, 1.2, 0), "star", 24)
 	toast("小紅帽得救了！", 1.4)
 	# 特寫：從門外往屋裡拍，小紅帽走出來
 	var mid := hood_home.lerp(escape_point, 0.6)
@@ -946,6 +1199,8 @@ func _lay_log(t: Dictionary) -> void:
 		world.obstacles.append(spot)
 		_log_spots.append(spot)
 	_puff(t.pos + dir * (h * 0.85), Color(0.55, 0.45, 0.3))
+	_burst(t.pos + dir * (h * 0.8) + Vector3(0, 0.3, 0), "leaf", 18)
+	_burst(t.pos + dir * (h * 0.5) + Vector3(0, 0.2, 0), "dust", 10)
 	_puff(t.pos + dir * (h * 0.45), Color(0.55, 0.45, 0.3))
 
 func _move_hood(dt: float) -> void:
@@ -1051,7 +1306,7 @@ func _tick_wolf(f: Fighter, dt: float) -> void:
 		if flat_dist(f.pos, spot) > 0.4:
 			if f.state != "basket":
 				f.set_state("basket")
-				log_event("狼外婆聞到籃子的味道")
+				log_event("狼外婆被假獵物引開")
 			_walk(f, spot, f.speed, dt)
 			anim(f, "Walk", 0.8)
 			f.pos = ground(world.clamp_house(f.pos))
@@ -1118,6 +1373,8 @@ func _guard_rush(f: Fighter, dt: float) -> void:
 func _swat_out(f: Fighter) -> void:
 	sfx("swat", f.pos)
 	var b := bird
+	swats += 1
+	last_hurt_by = "wolf"
 	b.hp = maxf(b.hp - SWAT_DAMAGE, 0.0)
 	hit_spots.append(b.pos)
 	log_event("狼外婆把家豪拍出門外（剩 %d）" % ceili(b.hp))
@@ -1129,7 +1386,7 @@ func _swat_out(f: Fighter) -> void:
 	start_fly(ground(out), FLY_TIME, FLY_PEAK, "land")
 	if not _seen.has("swat_tip"):
 		_seen["swat_tip"] = true
-		toast("狼外婆守著小紅帽！先用外婆的籃子把她引開", 2.2)
+		toast("狼外婆守著小紅帽！先把假獵物放在門口引開她", 2.2)
 	_cut("swat", (f.pos + escape_point) * 0.5 + Vector3(0, 1.2, 0), 1.4, 5.8, 1.6, true, Vector3(0, 0, 1))
 
 func _tick_worker(f: Fighter, dt: float) -> void:
@@ -1162,8 +1419,13 @@ func _tick_worker(f: Fighter, dt: float) -> void:
 	else:
 		_tick_smoke(f, dt)
 
+## 家豪貼到身邊（0.95 公尺內）才一定會發現；再遠一點要「看得到」（在視線扇形裡、中間沒有樹）才會發現。
+## 所以從背後、或從樹後面摸過去，家豪走到打得到的距離（1.05）時還不會被發現，這一下就是偷襲。
 func _bird_close(f: Fighter) -> bool:
-	return bird.alive() and bird.state != "fly" and flat_dist(f.pos, bird.pos) < 2.35
+	if not bird.alive() or bird.state == "fly":
+		return false
+	var d := flat_dist(f.pos, bird.pos)
+	return d < 0.95 or (d < 2.35 and sees_bird(f))
 
 func _fight(f: Fighter, _dt: float) -> void:
 	f.aggro = true
@@ -1208,7 +1470,8 @@ func _tick_chop(f: Fighter, _dt: float) -> void:
 	f.t += _dt
 	if int(f.t / 0.9) != swing:
 		sfx("chop", pos, -2.0)
-	if f.t >= CHOP_TIME:
+		_burst(pos + Vector3(0, 0.9, 0), "wood", 6)
+	if f.t >= chop_time:
 		_fell(idx, f.pos)
 		f.data["tree"] = -1
 		f.set_state("idle")
@@ -1230,7 +1493,7 @@ func _tick_smoke(f: Fighter, _dt: float) -> void:
 	f.t += _dt
 	if want_smoke:
 		f.data["puff"] = float(f.data.get("puff", 0.0)) + _dt
-		if f.data.puff >= BUTT_EVERY:
+		if f.data.puff >= butt_every:
 			f.data["puff"] = 0.0
 			drop_butt(f, "flick")
 
@@ -1297,10 +1560,47 @@ func _nearest_decoy(p: Vector3) -> int:
 
 # ---------------------------------------------------------------- 家豪
 
+var _stuck_t := 0.0
+var _stuck_pos := Vector3.ZERO
+
+## 家豪走路被倒下的樹幹、樹、石頭卡住超過 1 秒：拍翅小跳過去（朝她要去的方向 2.5 公尺）
+func _unstick(dt: float) -> void:
+	var b := bird
+	if not (b.state in ["charge", "return"]):
+		_stuck_t = 0.0
+		return
+	if flat_dist(b.pos, _stuck_pos) < 0.12:
+		_stuck_t += dt
+	else:
+		_stuck_t = 0.0
+		_stuck_pos = b.pos
+	if _stuck_t < 1.0:
+		return
+	_stuck_t = 0.0
+	var goal := escape_point
+	var g = _next_guide()
+	if g != null:
+		goal = g.pos
+	elif b.target != null:
+		goal = (b.target as Fighter).pos
+	elif hood != null:
+		goal = hood.position
+	var dir := goal - b.pos
+	dir.y = 0.0
+	if dir.length() < 0.5:
+		return
+	dir = dir.normalized()
+	var dest := b.pos + dir * minf(2.8, flat_dist(goal, b.pos))
+	if hits_obstacle(Vector2(dest.x, dest.z)):
+		dest = b.pos + dir.rotated(Vector3.UP, 0.7) * 2.8
+	start_fly(ground(world.clamp_play(dest)), HOP_TIME + 0.3, 1.5, "land")
+	log_event("家豪被擋住，拍翅飛過去")
+
 func _tick_bird(dt: float) -> void:
 	var b := bird
 	if not b.alive():
 		return
+	_unstick(dt)
 	b.t += dt
 	if b.state != "fly":
 		_apply_knockback(b, dt)
@@ -1406,8 +1706,9 @@ func _bird_toward(dt: float) -> void:
 	if flat_dist(b.pos, far.pos) <= b.reach:
 		b.set_state("windup")
 
+## 外面的人都倒了才會自己去救；狼外婆還守著的話在門外等（不然一直被拍出來），等玩家把她引開
 func _hood_last() -> bool:
-	return want_hood and not hood_saved and hood != null and enemies_left() == 0
+	return want_hood and not hood_saved and hood != null and enemies_left() == 0 and not _wolf_guarding()
 
 func nearest_enemy(from: Vector3) -> Fighter:
 	var best: Fighter = null
@@ -1483,6 +1784,8 @@ func sees_bird(f: Fighter) -> bool:
 ## 偷襲：拍家豪和被嚇到的人
 func _sneak(f: Fighter) -> void:
 	super(f)
+	sneaks += 1
+	_burst(f.pos + Vector3(0, 1.4, 0), "star", 12)
 	sfx("bonk", f.pos)
 	var mid := (bird.pos + f.pos) * 0.5 + Vector3(0, 1.0, 0)
 	var side := (f.pos - bird.pos).cross(Vector3.UP)
@@ -1588,6 +1891,9 @@ func toast(text: String, dur: float) -> void:
 		_held_toast = [text, dur]
 		return
 	super(text, dur)
+	if _toast_label:
+		_toast_label.reset_size()      # 前一則是長句時，字卡不要一直撐著那麼高
+		_toast_label.call_deferred("reset_size")
 
 func _cutting() -> bool:
 	return _cut_cam != null and _cut_cam.current
@@ -1618,7 +1924,6 @@ func _update_bars(dt: float) -> void:
 			f.bar.visible = false
 
 func _level_visuals() -> void:
-	_free_cursor()
 	_show_range()
 	_number_guides()
 	_animate_pops()
@@ -1629,6 +1934,29 @@ func _level_visuals() -> void:
 		var face: Node = row.face
 		if face.get_parent():
 			face.get_parent().visible = false
+	for f in enemies:
+		if f.kind != "wolf":
+			continue
+		var lb := f.node.get_node_or_null("WolfState") as Label3D
+		if lb == null:
+			lb = Label3D.new()
+			lb.name = "WolfState"
+			lb.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+			lb.no_depth_test = true
+			lb.fixed_size = true
+			lb.font_size = 56
+			lb.pixel_size = 0.0006
+			lb.outline_size = 14
+			lb.position = Vector3(0, 4.6, 0)
+			f.node.add_child(lb)
+		if not f.alive():
+			lb.visible = false
+		elif f.state in ["basket", "sniff"]:
+			lb.text = "嗅嗅…（現在進屋！）"
+			lb.modulate = Color(0.7, 1.0, 0.7)
+		else:
+			lb.text = "守著小紅帽"
+			lb.modulate = Color(1.0, 0.6, 0.5)
 	var now := float(Time.get_ticks_msec()) * 0.001
 	for i in grove.size():
 		var t: Dictionary = grove[i]
@@ -1689,7 +2017,9 @@ func _update_phase_label() -> void:
 
 # ---------------------------------------------------------------- 左邊的三顆星
 
-## 過關看小紅帽；星星看這三件事。伐木的人要兩個都打倒才算一顆。
+## 每一小關三顆星（選關地圖按顆數算）。小關的 battle.gd 覆寫 _objectives()，格式：
+##   {"id": 自己取的名字, "text": 畫面上的說明, "end": true 的話只在「過關那一刻」判定（例如「燒掉不超過 2 棵」）}
+## 判定在 _goal_met(id)：這裡已經有 hood / smoker / chop / all / lost_le_N / burnt_le_N / hp_ge_N / sneak / sneak2 / time_le_N。
 func _objectives() -> Array:
 	if not want_hood:
 		return []
@@ -1698,6 +2028,32 @@ func _objectives() -> Array:
 		{"id": "smoker", "text": "打倒抽菸的人"},
 		{"id": "chop", "text": "打倒伐木的人"},
 	]
+
+func _goal_met(id: String) -> bool:
+	match id:
+		"hood":
+			return want_hood and hood_saved
+		"smoker":
+			return _kind_all_down("smoker")
+		"chop":
+			return _kind_all_down("chopper")
+		"all":
+			return enemies_left() == 0
+		"sneak":
+			return sneaks >= 1
+		"sneak2":
+			return sneaks >= 2
+		"hp_ge_10":
+			return bird.alive() and bird.hp >= bird.max_hp
+	if id.begins_with("hp_ge_"):
+		return bird.alive() and bird.hp >= float(id.substr(6))
+	if id.begins_with("lost_le_"):
+		return trees_lost() <= int(id.substr(8))
+	if id.begins_with("burnt_le_"):
+		return trees_burnt <= int(id.substr(9))
+	if id.begins_with("time_le_"):
+		return time <= float(id.substr(8))
+	return false
 
 func _stage_key() -> String:
 	var root := get_parent()
@@ -1720,12 +2076,15 @@ func _kind_all_down(kind: String) -> bool:
 	return any
 
 func _sync_goals() -> void:
-	if want_hood and hood_saved:
-		_mark_goal("hood")
-	if _kind_all_down("smoker"):
-		_mark_goal("smoker")
-	if _kind_all_down("chopper"):
-		_mark_goal("chop")
+	for c in _objectives():
+		if not c.get("end", false) and _goal_met(String(c.id)):
+			_mark_goal(String(c.id))
+
+## 過關那一刻：把「只在結尾判定」的目標也算進去
+func _sync_end_goals() -> void:
+	for c in _objectives():
+		if c.get("end", false) and _goal_met(String(c.id)):
+			_mark_goal(String(c.id))
 
 func _mark_goal(id: String) -> void:
 	if _done.has(id):
@@ -1817,6 +2176,8 @@ func _end(result: String) -> void:
 	if result == "lose" and not _seen.has("blaze"):
 		_cut_off()
 	if result == "win":
+		_sync_goals()
+		_sync_end_goals()
 		var best := _best()
 		for id in _done:
 			best[id] = true
@@ -1831,21 +2192,31 @@ func _end(result: String) -> void:
 func _meter_line() -> String:
 	var bits := PackedStringArray()
 	if want_trees:
-		bits.append("樹 %d/%d" % [trees_lost(), tree_cap])
+		var star := ""
+		for c in _objectives():
+			if String(c.id).begins_with("lost_le_") or String(c.id).begins_with("burnt_le_"):
+				if (String(c.id).begins_with("lost_le_") and trees_lost() > int(String(c.id).get_slice("_", 2))) or (String(c.id).begins_with("burnt_le_") and trees_burnt > int(String(c.id).get_slice("_", 2))):
+					star = "　★已失去"
+					continue
+				star = ("　★一棵都不能燒" if String(c.id).get_slice("_", 2) == "0" else "　★要 ≤%s 棵" % String(c.id).get_slice("_", 2))
+		bits.append("樹 %d/%d 會輸%s" % [trees_lost() if not String(star).contains("burnt") else trees_lost(), tree_cap, star])
 	var fire := _burning()
 	if fire > 0:
 		bits.append("起火 %d" % fire)
 	if not butts.is_empty():
-		bits.append("菸蒂 %d" % butts.size())
+		bits.append("菸蒂 %d 個（會起火）" % butts.size())
+	for b in baskets:
+		if b.life > 0.0 and b.get("on", true) and not hood_saved:
+			bits.append("狼外婆被引開 %d 秒" % ceili(b.life))
 	if want_hood:
 		if hood_saved:
 			bits.append("小紅帽安全")
 		else:
-			bits.append("小紅帽 %.0f" % maxf(hood_cap - dinner, 0.0))
+			bits.append("小紅帽還撐得住 %.0f 秒" % maxf(hood_cap - dinner, 0.0))
 	return "　".join(bits)
 
 func _prepare_hint() -> String:
-	return "假獵物引開人、引路點照放的順序走　Enter 開始"
+	return "假獵物引開人、引路點照放的順序走　Enter 開始　T 再看教學"
 
 func _win_line() -> String:
 	var lead := "人倒下了，樹還在。"
@@ -1884,11 +2255,22 @@ func _defeat_tip() -> String:
 	var tip := "用引路點讓家豪一次只打到一個人，不要讓她被包圍。"
 	match fail:
 		"hood":
-			tip = "狼外婆守著小紅帽，直接進門會被拍出來。先放外婆的籃子引開她，再用引路點帶家豪進屋。"
+			tip = "狼外婆守著小紅帽，直接進門會被拍出來。先把假獵物放在木屋門口引開她，再用引路點帶家豪進屋。"
+		"bird":
+			match last_hurt_by:
+				"wolf":
+					tip = "家豪被狼外婆拍了 %d 次。先放假獵物在木屋門口把她引開，再讓家豪進屋。" % swats
+				"chopper":
+					tip = "家豪被伐木工圍著打。用假獵物讓他們背對家豪，從背後偷襲；一次只對付一個。"
+				"smoker":
+					tip = "家豪被抽菸的人打倒了。別讓她一次碰到兩個人，先用假獵物引開一個。"
+				_:
+					tip = "家豪撐不住了。用假獵物引開人，一次只讓她打一個。"
 		"fire":
 			tip = "菸蒂幾秒後會點著附近的樹，火還會延燒。讓家豪走過去踩熄；倒下的樹幹能擋火。"
 		"trees":
 			tip = "假獵物能把伐木的人引離樹，但抽菸的人跑去看時會把菸丟在地上。從樹後面摸過去可以偷襲。"
+	tip += "\n按 R 重試，按 T 再看教學。"
 	var stars := _star_block(false)
 	if stars == "":
 		return tip
