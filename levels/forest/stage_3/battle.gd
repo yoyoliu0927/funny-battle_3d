@@ -1,20 +1,21 @@
 extends "res://levels/forest/forest_battle.gd"
-## 煙圈：三個人抽菸，超過 30 秒林子就燒起來。
+## 煙圈：三個人抽菸，菸蒂會點著樹、火會延燒。燒掉超過 6 棵就輸。
 
 const DecoyItem := preload("res://levels/forest/items/decoy_item.gd")
-const FeedItem := preload("res://levels/forest/items/feed_item.gd")
 const GuideItem := preload("res://levels/forest/items/guide_item.gd")
+
+func _want_trees() -> bool:
+	return true
+
+func _tree_cap() -> int:
+	return 6
 
 func _want_smoke() -> bool:
 	return true
 
-func _smoke_cap() -> float:
-	return 30.0
-
 func _make_items() -> Array:
 	return [
 		DecoyItem.new().uses_shared(2),
-		FeedItem.new().uses_shared(2),
 		GuideItem.new().uses_shared(4),
 	]
 
@@ -29,4 +30,4 @@ func _enemy_specs() -> Array:
 	]
 
 func _prepare_hint() -> String:
-	return "30 秒內讓他們都停下菸　Enter 開始"
+	return "菸蒂會點著樹，讓家豪去踩熄。燒掉超過 6 棵就輸　Enter 開始"
