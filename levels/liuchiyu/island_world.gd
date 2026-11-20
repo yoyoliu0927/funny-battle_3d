@@ -541,7 +541,9 @@ const SIGN_NAMES := ["Chapter 1", "Chapter 2", "Chapter 3"]
 const SIGN_H := 22.0               # 字浮在那一小關的空地中間、離地多高
 const SIGN_BIG := 2.8              # 玩家現在所在的那一關：字有多高（公尺）
 const SIGN_SMALL := 1.8            # 別的關：字比較小
-var _signs: Array = []             # [{root, glow, here, y}]
+var _signs: Array = []             # [{root, glow, here, y, front, back}]
+const SIGN_DAY := Color(0.47, 0.31, 0.19)          # 白天的字：咖啡色（不要太深，太深在畫面上很重）
+const SIGN_DAY_FAR := Color(0.58, 0.44, 0.32)      # 白天、別的小關的字：再淡一點
 
 ## 字：不受光、不被霧蓋掉的純色（遠遠也看得清楚）
 const SIGN_TEXT_SHADER := "shader_type spatial;
@@ -565,6 +567,20 @@ void fragment() {
 	ALPHA = clamp(v, 0.0, 1.0);
 }
 "
+## 白天用的光暈：白天的天空很亮，「疊加」上去的光幾乎看不出來，所以白天改用一團金色的霧蓋上去（一般的半透明混色）
+const SIGN_GLOW_DAY_SHADER := "shader_type spatial;
+render_mode unshaded, depth_draw_never, cull_disabled, shadows_disabled, fog_disabled;
+uniform vec4 tint : source_color = vec4(1.0);
+void fragment() {
+	vec2 p = (UV - 0.5) * 2.0;
+	float v = exp(-dot(p, p) * 2.6) * smoothstep(1.0, 0.5, length(p)) * tint.a;
+	if (v < 0.004) {
+		discard;
+	}
+	ALBEDO = tint.rgb;
+	ALPHA = clamp(v, 0.0, 1.0);
+}
+"
 
 ## 三個小關的空地正上方各浮著一行發光的白字（Chapter 1 / 2 / 3，斜體的襯線字）。
 ## 玩家現在在的那一關：字大、純白、金色的字影、後面一團金色的光暈一明一暗、整行慢慢上下飄；
@@ -575,6 +591,8 @@ func _build_signs() -> void:
 	tsh.code = SIGN_TEXT_SHADER
 	var gsh := Shader.new()
 	gsh.code = SIGN_GLOW_SHADER
+	var dsh := Shader.new()
+	dsh.code = SIGN_GLOW_DAY_SHADER
 	# 用電腦裡現成的襯線字型（Mac、Windows 各列幾個，找不到就用系統預設的襯線字）
 	var font := SystemFont.new()
 	font.font_names = PackedStringArray(["Palatino", "Palatino Linotype", "Book Antiqua", "Georgia", "Baskerville", "Times New Roman", "serif"])
@@ -595,23 +613,34 @@ func _build_signs() -> void:
 		tm.font_size = 64
 		tm.pixel_size = size / 64.0
 		tm.depth = 0.1
-		# 前面白字、後面往右下錯開一點的字影（襯出字的邊，背景是亮的天空也看得清楚）
-		var layers := [
-			[Color(1, 1, 1) if here else Color(0.9, 0.93, 0.97), Vector3.ZERO],
-			[Color(0.78, 0.46, 0.1) if here else Color(0.5, 0.56, 0.66), Vector3(size * 0.028, -size * 0.028, -0.2)],
-		]
-		for ly in layers:
+		# 前面的字、後面往右下錯開一點的字影（襯出字的邊）。顏色在 _tick_signs() 照白天／晚上換：
+		# 白天天空是亮的，白字根本看不到，所以用深咖啡色；晚上才是白字
+		var mats: Array = []
+		for off in [Vector3.ZERO, Vector3(size * 0.028, -size * 0.028, -0.2)]:
 			var mi := MeshInstance3D.new()
 			mi.mesh = tm
 			var mat := ShaderMaterial.new()
 			mat.shader = tsh
-			mat.set_shader_parameter("tint", ly[0])
 			mi.material_override = mat
-			mi.position = ly[1]
+			mi.position = off
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			root.add_child(mi)
+			mats.append(mat)
 		var gm: ShaderMaterial = null
+		var dm: ShaderMaterial = null
 		if here:
+			# 白天的光暈（放在晚上那一團的後面一點點）
+			var dglow := MeshInstance3D.new()
+			var dq := QuadMesh.new()
+			dq.size = Vector2(size * 9.5, size * 4.2)
+			dglow.mesh = dq
+			dm = ShaderMaterial.new()
+			dm.shader = dsh
+			dm.set_shader_parameter("tint", Color(1.0, 0.78, 0.3, 0.0))
+			dglow.material_override = dm
+			dglow.position = Vector3(0.0, 0.0, -0.7)
+			dglow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+			root.add_child(dglow)
 			var glow := MeshInstance3D.new()
 			var qm := QuadMesh.new()
 			qm.size = Vector2(size * 8.5, size * 3.4)
@@ -623,7 +652,7 @@ func _build_signs() -> void:
 			glow.position = Vector3(0.0, 0.0, -0.5)
 			glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			root.add_child(glow)
-		_signs.append({"root": root, "glow": gm, "here": here, "y": y})
+		_signs.append({"root": root, "glow": gm, "here": here, "y": y, "front": mats[0], "back": mats[1], "glow_day": dm})
 
 ## 字永遠正面朝著鏡頭；現在這一關的字：光暈一明一暗、整行慢慢上下飄
 func _tick_signs() -> void:
@@ -633,9 +662,24 @@ func _tick_signs() -> void:
 		if not is_instance_valid(sg.root):
 			continue
 		var root: Node3D = sg.root
+		# 白天：深咖啡色的字、後面一層淡金色的字影；晚上：白字、金色（別關是灰藍色）的字影
+		var front: Color
+		var back: Color
+		if night:
+			front = Color(1, 1, 1) if sg.here else Color(0.9, 0.93, 0.97)
+			back = Color(0.78, 0.46, 0.1) if sg.here else Color(0.5, 0.56, 0.66)
+		else:
+			front = SIGN_DAY if sg.here else SIGN_DAY_FAR
+			back = Color(1.0, 0.9, 0.62) if sg.here else Color(0.93, 0.86, 0.7)
+		(sg.front as ShaderMaterial).set_shader_parameter("tint", front)
+		(sg.back as ShaderMaterial).set_shader_parameter("tint", back)
 		if sg.here:
 			root.position.y = float(sg.y) + sin(t * 0.9) * 0.35
-			(sg.glow as ShaderMaterial).set_shader_parameter("tint", Color(1.0, 0.8, 0.4, 0.65 + 0.25 * sin(t * 2.2)))
+			# 現在這一關的字後面那團光暈，白天晚上都會一明一暗。
+			# 晚上用疊加的光；白天的天空本來就很亮，疊加看不出來，改用一團金色的霧（見 SIGN_GLOW_DAY_SHADER）
+			var pulse := 0.65 + 0.25 * sin(t * 2.2)
+			(sg.glow as ShaderMaterial).set_shader_parameter("tint", Color(1.0, 0.8, 0.4, pulse if night else 0.0))
+			(sg.glow_day as ShaderMaterial).set_shader_parameter("tint", Color(1.0, 0.78, 0.3, 0.0 if night else pulse * 0.95))
 		if cam:
 			var d: Vector3 = cam.global_position - root.global_position
 			d.y = 0.0

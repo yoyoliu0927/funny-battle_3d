@@ -534,61 +534,90 @@ func _daze_tint(f: Fighter, on: bool) -> void:
 		_daze_mat.albedo_color = Color(1.0, 0.16, 0.10, 0.3)
 		_daze_mat.next_pass = _outline_mat()        # 暈的時候紅框也還在
 	_daze_mat.albedo_color.a = 0.22 + 0.12 * sin(float(Time.get_ticks_msec()) * 0.008)
-	if f.node == null or _daze_tinted.get(f, false) == on:
-		return
+	if f.node == null or f.is_bird or _daze_tinted.get(f, false) == on:
+		return        # 家豪不蓋這層紅（他身上是綠框）
 	_daze_tinted[f] = on
 	var todo: Array = [f.node]
 	while not todo.is_empty():
 		var n: Node = todo.pop_back()
 		if n is GeometryInstance3D:
 			# 暈的時候蓋一層紅；不暈了要把紅框放回去（紅框也是用同一個 overlay 的位置）
-			(n as GeometryInstance3D).material_overlay = _daze_mat if on else (_outline_mat() if n is MeshInstance3D and _outlined.get(f, false) else null)
+			(n as GeometryInstance3D).material_overlay = _daze_mat if on else (_outline_for(f) if n is MeshInstance3D and _outlined.get(f, false) else null)
 		for c in n.get_children():
 			todo.append(c)
 
 # ---------------------------------------------------------------- 敵人的紅框（被擋住也看得到）
 
-const OUTLINE_COLOR := Color(1.0, 0.16, 0.10)
-const OUTLINE_WIDTH := 0.07      # 紅框多粗（公尺）
+const OUTLINE_COLOR := Color(1.0, 0.16, 0.10)       # 敵人：紅
+const OUTLINE_HERO := Color(0.25, 0.95, 0.35)        # 家豪：綠
+const OUTLINE_WIDTH := 0.07      # 敵人的框多粗（公尺）
+const OUTLINE_HERO_WIDTH := 0.022   # 家豪的框細一點（他的模型比較圓，同樣的粗細看起來會很厚）
+const OUTLINE_DASH := 11.0       # 家豪的框是斷斷續續的虛線：數字越大，一段一段越短
 
-var _outline_a: StandardMaterial3D
-var _outlined := {}              # 敵人 → 現在有沒有紅框
+var _dash_tex: ImageTexture
 
-## 敵人身上的紅框：沿著整個人的輪廓描一圈紅線，隔著樹、石頭、山坡也看得到（只畫輪廓，不會蓋住他本人）。
-## 做法是引擎內建的 stencil（模板）：
+var _outline_mats := {}          # 顏色 → 材質（同一種顏色的人共用一份）
+var _outlined := {}              # 角色 → 現在有沒有框
+
+## 角色身上的框：沿著整個人的輪廓描一圈線，隔著樹、石頭、山坡也看得到（只畫輪廓，不會蓋住他本人）。
+## 敵人是紅色，家豪是綠色。做法是引擎內建的 stencil（模板）：
 ##   第一層：看不見，只在「這個人佔到的每一個像素」上做記號（被擋住的部分也記）
-##   第二層：把模型往外長一圈、塗成紅色、不管前面有沒有東西擋都畫，但做過記號的地方不畫 → 只剩外面那一圈
-## 兩層都是很簡單的材質，全部敵人共用同一份，幾乎不花效能。
-func _outline_mat() -> StandardMaterial3D:
-	if _outline_a != null:
-		return _outline_a
+##   第二層：把模型往外長一圈、塗上顏色、不管前面有沒有東西擋都畫，但做過記號的地方不畫 → 只剩外面那一圈
+## 兩層都是很簡單的材質，同一種顏色共用同一份，幾乎不花效能。
+func _outline_mat(col: Color = OUTLINE_COLOR, width := OUTLINE_WIDTH, dashed := false) -> StandardMaterial3D:
+	if _outline_mats.has(col):
+		return _outline_mats[col]
 	var ring := StandardMaterial3D.new()
 	ring.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	ring.albedo_color = OUTLINE_COLOR
+	ring.albedo_color = col
 	ring.grow = true
-	ring.grow_amount = OUTLINE_WIDTH
+	ring.grow_amount = width
+	if dashed:
+		# 虛線：一張斜條紋的小貼圖（一半透明）順著身體貼上去，透明的地方不畫，框就斷成一段一段。
+		# 條紋是貼在模型上的，角色走動、轉身的時候虛線跟著他，不會在畫面上亂跳
+		if _dash_tex == null:
+			var img := Image.create(16, 16, false, Image.FORMAT_RGBA8)
+			for y in 16:
+				for x in 16:
+					img.set_pixel(x, y, Color(1, 1, 1, 1.0 if (x + y) % 16 < 9 else 0.0))
+			_dash_tex = ImageTexture.create_from_image(img)
+		ring.albedo_texture = _dash_tex
+		ring.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+		ring.uv1_triplanar = true
+		ring.uv1_scale = Vector3.ONE * OUTLINE_DASH
+		ring.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA_SCISSOR
+		ring.alpha_scissor_threshold = 0.5
 	ring.no_depth_test = true
 	ring.render_priority = 2
 	ring.stencil_mode = BaseMaterial3D.STENCIL_MODE_CUSTOM
 	ring.stencil_flags = BaseMaterial3D.STENCIL_FLAG_READ
 	ring.stencil_compare = BaseMaterial3D.STENCIL_COMPARE_NOT_EQUAL
 	ring.stencil_reference = 1
-	_outline_a = StandardMaterial3D.new()
-	_outline_a.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_outline_a.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_outline_a.albedo_color = Color(1, 1, 1, 0.0)        # 完全透明：只做記號
-	_outline_a.no_depth_test = true
-	_outline_a.render_priority = 1
-	_outline_a.stencil_mode = BaseMaterial3D.STENCIL_MODE_CUSTOM
-	_outline_a.stencil_flags = BaseMaterial3D.STENCIL_FLAG_WRITE
-	_outline_a.stencil_compare = BaseMaterial3D.STENCIL_COMPARE_ALWAYS
-	_outline_a.stencil_reference = 1
-	_outline_a.next_pass = ring
-	return _outline_a
+	var mark := StandardMaterial3D.new()
+	mark.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mark.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	mark.albedo_color = Color(1, 1, 1, 0.0)        # 完全透明：只做記號
+	mark.no_depth_test = true
+	mark.render_priority = 1
+	mark.stencil_mode = BaseMaterial3D.STENCIL_MODE_CUSTOM
+	mark.stencil_flags = BaseMaterial3D.STENCIL_FLAG_WRITE
+	mark.stencil_compare = BaseMaterial3D.STENCIL_COMPARE_ALWAYS
+	mark.stencil_reference = 1
+	mark.next_pass = ring
+	_outline_mats[col] = mark
+	return mark
 
-## 每一畫面看一次：還活著、已經上場的敵人有紅框；倒下的、還沒上場的（飛機上的騎士）沒有
+func _outline_for(f: Fighter) -> StandardMaterial3D:
+	if f.is_bird:
+		return _outline_mat(OUTLINE_HERO, OUTLINE_HERO_WIDTH, true)
+	return _outline_mat(OUTLINE_COLOR)
+
+## 每一畫面看一次：還活著、已經上場的敵人有紅框，家豪有綠框；倒下的、還沒上場的（飛機上的騎士）沒有
 func _tick_outline() -> void:
-	for f in enemies:
+	var all: Array = enemies.duplicate()
+	if bird:
+		all.append(bird)
+	for f in all:
 		if f.node == null or not is_instance_valid(f.node):
 			continue
 		var want: bool = f.alive() and not f.data.get("hidden", false)
@@ -596,17 +625,21 @@ func _tick_outline() -> void:
 			continue
 		_outlined[f] = want
 		if _daze_tinted.get(f, false):
-			continue        # 正在暈：overlay 現在是那層紅，紅框接在它後面，等不暈的時候再換回來
+			continue        # 正在暈：overlay 現在是那層紅，框接在它後面，等不暈的時候再換回來
 		var todo: Array = [f.node]
 		while not todo.is_empty():
 			var n: Node = todo.pop_back()
 			if n is MeshInstance3D:
-				(n as MeshInstance3D).material_overlay = _outline_mat() if want else null
+				(n as MeshInstance3D).material_overlay = _outline_for(f) if want else null
 			for c in n.get_children():
 				todo.append(c)
 
 func _level_visuals() -> void:
 	super()
+	# 被電到僵住的時候，身體很快地左右抖（只是畫面上抖，實際位置沒動）
+	if _stun_t > 0.0 and bird and bird.node and is_instance_valid(bird.node):
+		var tt := float(Time.get_ticks_msec()) * 0.001
+		(bird.node as Node3D).position += Vector3(sin(tt * 70.0), 0.0, cos(tt * 83.0)) * 0.05
 	_tick_outline()
 	_tick_daze_fx(1.0 / 60.0)
 	_tick_glow()
@@ -751,8 +784,42 @@ func wind_dir_to(p: Vector3) -> Vector3:
 		d.y = 0.0
 	return d.normalized()
 
+# ---------------------------------------------------------------- 家豪被電到：僵在原地抖一下
+
+const ZAP_STUN := 1.0            # 僵住多久（秒）
+var _stun_t := 0.0               # 還要僵多久
+var _stun_pos := Vector3.ZERO    # 僵在哪裡
+
+## 讓家豪僵在原地一下（被電到的時候用）：這段時間他不會走、也不會被打飛，身體左右抖。
+## 沒有這一下的話，他被電完馬上繼續往前走，看起來像沒事一樣。
+func stun_bird(t: float = ZAP_STUN) -> void:
+	if not bird.alive():
+		return
+	_stun_t = maxf(_stun_t, t)
+	_stun_pos = ground(bird.pos)
+	_stun_hold()
+
+## 每 1/60 秒：僵住的時候把他釘在原地
+func _tick_stun(dt: float) -> void:
+	if _stun_t <= 0.0:
+		return
+	_stun_t -= dt
+	if not bird.alive():
+		_stun_t = 0.0
+		return
+	_stun_hold()
+
+## 把家豪釘在原地：共用程式被打到會讓他拍翅飛開（或往後跳），這裡把那個動作取消掉，改成站在原地發愣
+func _stun_hold() -> void:
+	if bird.state in ["fly", "hop", "land"]:
+		bird.set_state("linger")
+	bird.pos = _stun_pos
+	bird.kb_vel = Vector3.ZERO
+	bird.air = 0.0
+
 func _level_step(dt: float) -> void:
 	super(dt)
+	_tick_stun(dt)
 	_tick_sand(dt)
 	_hold_tick(dt)
 	_star_touch()
@@ -1096,6 +1163,10 @@ func _level_setup() -> void:
 		f.kick_damage *= MELEE_SCALE
 		f.heavy_damage *= MELEE_SCALE
 	_build_sand()
+	# 上一小關交代要介紹的新道具（只介紹這一次）
+	_gift_id = String(Engine.get_meta("liuchiyu_new_item", ""))
+	if _gift_id != "":
+		Engine.remove_meta("liuchiyu_new_item")
 	# 敵人腳下的紅色扇形（偵測範圍）不畫了；他們還是看得到家豪，只是畫面上不顯示
 	for f in enemies:
 		if f.cone != null:
@@ -1119,7 +1190,7 @@ func _item_hint(i: int) -> String:
 		return h
 	return ITEM_HINTS.get(items[i].id, "")
 
-## 每一畫面看一次：選的道具換了，就在技能欄上面顯示那個道具的一行說明，過幾秒淡掉
+## 每一畫面看一次：選的道具換了，就在畫面最下面中間顯示那個道具的一行說明，過幾秒淡掉
 func _tick_item_hint(dt: float) -> void:
 	if _hotbar == null:
 		return
@@ -1143,13 +1214,13 @@ func _tick_item_hint(dt: float) -> void:
 		_hotbar.name_t = HINT_TIME        # 道具名稱也一起浮出來（用數字鍵換的時候共用程式不會顯示）
 	if _hint_t > 0.0:
 		_hint_t -= dt
-	_hint_label.visible = _hint_t > 0.0 and tutorial_step < 0
+	# 位置跟「現在還無法使用」那種提示一樣：畫面最下面中間的一行（那種提示出現的時候這一行先讓位）
+	_hint_label.visible = _hint_t > 0.0 and tutorial_step < 0 and _note_t <= 0.0 and not defeat_shown and not _gift_playing() and _gift_id == ""
 	if _hint_label.visible:
-		var hb := _hotbar.get_global_rect()
-		_hint_label.size = Vector2(700.0, 28.0)
-		# 道具欄在左下角：說明靠左對齊道具欄（置中會跑出畫面左邊）
-		_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
-		_hint_label.position = Vector2(hb.position.x + 4.0, hb.position.y - 78.0)
+		var vs := get_viewport().get_visible_rect().size
+		_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_hint_label.size = Vector2(vs.x, 30.0)
+		_hint_label.position = Vector2(0.0, vs.y - NOTE_BOTTOM - 30.0)
 		_hint_label.modulate.a = clampf(_hint_t / 0.5, 0.0, 1.0)
 
 ## 準心沒有指到地面的時候（例如看著天空或海），就當成指著正前方 10 公尺的地面
@@ -1229,11 +1300,42 @@ func _start_intro() -> void:
 		return
 	_intro_t = 0.0
 	player.set_physics_process(false)
+	if hands:
+		hands.hide_now()        # 預覽的時候完全不要看到神的手（原本會留在畫面上淡出）
+	# 右下角：Space 跳過（跟要塞那一關進場鏡頭的提示同一種樣子）
+	_skip_layer = CanvasLayer.new()
+	_skip_layer.layer = 40
+	_skip_layer.set_meta("intro_keep", true)        # 預覽時別的介面都收起來，這個要留著
+	add_child(_skip_layer)
+	var pill := PanelContainer.new()
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(1.0, 0.973, 0.906, 0.94)
+	sb.border_color = Color(UIStyle.INK, 0.35)
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(14)
+	sb.content_margin_left = 14.0
+	sb.content_margin_right = 14.0
+	sb.content_margin_top = 6.0
+	sb.content_margin_bottom = 6.0
+	pill.add_theme_stylebox_override("panel", sb)
+	pill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	pill.add_child(UIStyle.key_hint("Space", "跳過"))
+	pill.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	pill.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	pill.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	pill.offset_right = -24.0
+	pill.offset_bottom = -22.0
+	_skip_layer.add_child(pill)
+
+var _skip_layer: CanvasLayer
 
 func _end_intro() -> void:
 	if _intro_t < 0.0:
 		return
 	_intro_t = -1.0
+	if _skip_layer and is_instance_valid(_skip_layer):
+		_skip_layer.queue_free()
+	_skip_layer = null
 	for n in _intro_hud:
 		if is_instance_valid(n):
 			n.visible = _intro_hud[n]
@@ -1248,7 +1350,7 @@ func _end_intro() -> void:
 func _intro_hide_hud() -> void:
 	var list: Array = [get_node_or_null("../HUD")]
 	for c in get_children():
-		if c is CanvasLayer:
+		if c is CanvasLayer and not c.has_meta("intro_keep"):
 			list.append(c)
 	for n in list:
 		if n != null and not _intro_hud.has(n) and n != _defeat_layer:
@@ -1306,9 +1408,27 @@ func _go_next() -> void:
 		world.remember_camera()      # 下一關從鏡頭現在的位置接著飛，不會跳回起點
 	Engine.set_meta("stage_id", "liuchiyu/%d" % n)
 	Engine.set_meta("next_scene", "res://levels/liuchiyu/stage_%d/stage.tscn" % n)
+	# 第一小關只有風，第二小關多了雷：交代下一小關一進去就介紹這個新道具
+	if _stage_no() == 1 and n == 2:
+		Engine.set_meta("liuchiyu_new_item", "thunder")
 	get_tree().change_scene_to_file.call_deferred("res://levels/liuchiyu/stage_%d/stage.tscn" % n)
 
 ## 過關、而且可以走了之後：鏡頭飛進下一小關的空地就直接接下去
+# ---------------------------------------------------------------- 按 H 的操作說明：補上「右鍵 = 夜晚」
+
+## 共用的教學彈窗只會列出技能欄裡的道具；「夜晚」不在技能欄裡（是另外一格、按住右鍵用的），
+## 所以這裡自己補：操作方式那一頁多一列右鍵，最後再多一頁專門講夜晚。
+func _tutorial_pages() -> Array:
+	var pages: Array = super()
+	if not pages.is_empty() and pages[0].has("controls"):
+		var ctl: Array = pages[0].controls
+		# 放在「H 再看一次教學」那一列前面
+		ctl.insert(maxi(ctl.size() - 1, 0), ["右鍵", "按住變成晚上：能互動的東西會發光"])
+	pages.append({"title": "夜晚", "clip": "night", "icon": NightIcon.new().icon,
+		"body": "按住滑鼠右鍵，白天會暫時變成晚上，放開就變回白天。\n\n晚上的時候，場地上還能用神蹟互動的東西都會圍上一圈極光——沙地、滾石、風車、枯樹、水灘、火山……\n\n不知道下一步該做什麼的時候，按著右鍵看一圈就知道了。不用選道具、沒有次數限制，隨時都能按。",
+		"keys": [["右鍵", "按住"]]})
+	return pages
+
 # ---------------------------------------------------------------- 提示字（「要開打後才能用」「神不能直接干預凡人」…）
 
 const NOTE_FONT := 20            # 提示字多大（跟技能欄上面那行道具說明一樣）
@@ -1339,6 +1459,9 @@ func toast(text: String, dur: float) -> void:
 		_note_label.offset_top = -NOTE_BOTTOM - 30.0
 		_note_label.offset_bottom = -NOTE_BOTTOM
 		layer.add_child(_note_label)
+	# 共用程式寫的是「雷 要開打後才能用」：這個大關統一說「現在還無法使用」
+	if text.ends_with("要開打後才能用"):
+		text = "現在還無法使用"
 	_note_label.text = text
 	_note_t = dur if text != "" else 0.0
 	# 共用的那顆膠囊收起來（不叫 super，它就不會再被打開；一開始可能是開著的，所以這裡關一次）
@@ -1353,6 +1476,276 @@ func _tick_note(dt: float) -> void:
 		_note_t -= dt
 	_note_label.visible = _note_t > 0.0 and not defeat_shown
 	_note_label.modulate.a = clampf(_note_t / 0.4, 0.0, 1.0)
+
+# ---------------------------------------------------------------- 雷劈在水上：水面爬滿白色的小電光
+
+const ZAP_COUNT := 26            # 一次有幾道小電光
+const ZAP_TIME := 0.55           # 電光閃多久
+const ZAP_NEAR := 3.2            # 一半的電光集中在落雷點附近這麼大一圈，其他的散在整片水面上
+
+var _zaps: Array = []            # [{node, t, arcs: [MeshInstance3D], rng_k}]
+var _zap_mat: StandardMaterial3D
+
+## 雷劈在第 zone 小關的水池（湖、水灘）上：p 是落雷點。水面上冒出一道一道白色的小電光，一閃一閃地亂跳，
+## 過一下子消失。只是畫面效果，讓玩家看得出「電傳到水裡了」（有沒有電到人是各小關自己算的）。
+func pool_sparks(zone: int, p: Vector3) -> void:
+	if not world.has_method("zone_pools") or DisplayServer.get_name() == "headless":
+		return
+	var pools: Array = world.zone_pools(zone)
+	var raw: Array = world.ZONE_POOLS[zone - 1]
+	var best := -1
+	for i in pools.size():
+		if flat_dist(p, pools[i].center) <= float(pools[i].r) * 1.3 + 0.8 and (best < 0 or flat_dist(p, pools[i].center) < flat_dist(p, pools[best].center)):
+			best = i
+	if best < 0:
+		return
+	var c: Vector3 = pools[best].center
+	var r: float = float(pools[best].r) * 1.25
+	var y: float = float(world.pool_water_y(zone - 1, raw[best])) + 0.07
+	if _zap_mat == null:
+		_zap_mat = StandardMaterial3D.new()
+		_zap_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_zap_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_zap_mat.albedo_color = Color(3.2, 3.4, 4.0)        # 很亮的藍白色，會發光
+	var rng := RandomNumberGenerator.new()
+	rng.seed = int(absf(p.x) * 97.0 + absf(p.z) * 53.0) + 11
+	var holder := Node3D.new()
+	fx_root.add_child(holder)
+	var arcs: Array = []
+	var tries := 0
+	while arcs.size() < ZAP_COUNT and tries < ZAP_COUNT * 12:
+		tries += 1
+		# 前一半集中在落雷點附近，後一半散在整片水上
+		var at: Vector3
+		if arcs.size() < ZAP_COUNT / 2:
+			var a0 := rng.randf() * TAU
+			at = p + Vector3(cos(a0), 0.0, sin(a0)) * ZAP_NEAR * sqrt(rng.randf())
+		else:
+			var a1 := rng.randf() * TAU
+			at = c + Vector3(cos(a1), 0.0, sin(a1)) * r * sqrt(rng.randf())
+		if not world.in_pool(zone, at.x, at.z):
+			continue        # 只畫在水面上（岸上、湖中間的小島不畫）
+		# 一道小電光：貼著水面、折來折去的細線，尾巴翹起來一點點
+		var st := SurfaceTool.new()
+		st.begin(Mesh.PRIMITIVE_TRIANGLES)
+		var dir := rng.randf() * TAU
+		var prev := Vector3.ZERO
+		var segs := rng.randi_range(3, 5)
+		var w := 0.045
+		for k in segs:
+			dir += rng.randf_range(-1.1, 1.1)
+			var up := 0.0 if k < segs - 1 else rng.randf_range(0.12, 0.45)
+			var nxt := prev + Vector3(cos(dir), 0.0, sin(dir)) * rng.randf_range(0.25, 0.6) + Vector3(0.0, up, 0.0)
+			# 兩片交叉的細長條：平躺的一片（從上面看得到）＋立著的一片（從旁邊看得到）
+			var side := Vector3(-sin(dir), 0.0, cos(dir)) * w
+			for off in [side, Vector3(0.0, w, 0.0)]:
+				var q := [prev - off, prev + off, nxt + off, nxt - off]
+				for t in [0, 1, 2, 0, 2, 3]:
+					st.add_vertex(q[t])
+			prev = nxt
+		var mi := MeshInstance3D.new()
+		mi.mesh = st.commit()
+		mi.material_override = _zap_mat
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.position = Vector3(at.x, y, at.z)
+		holder.add_child(mi)
+		arcs.append(mi)
+	# 落雷點一小團光，照亮水面一下
+	var light := OmniLight3D.new()
+	light.light_color = Color(0.75, 0.88, 1.0)
+	light.light_energy = 5.0
+	light.omni_range = 9.0
+	light.position = Vector3(p.x, y + 1.2, p.z)
+	holder.add_child(light)
+	_zaps.append({"node": holder, "t": 0.0, "arcs": arcs, "light": light, "k": rng.randi() % 997})
+
+## 每一畫面：電光一閃一閃（每一道各自亂數決定這一下亮不亮），越後面亮著的越少，時間到就收掉
+func _tick_zaps(dt: float) -> void:
+	for i in range(_zaps.size() - 1, -1, -1):
+		var z: Dictionary = _zaps[i]
+		if not is_instance_valid(z.node):
+			_zaps.remove_at(i)        # 重試的時候 fx_root 已經把它清掉了
+			continue
+		z.t += dt
+		var left: float = 1.0 - float(z.t) / ZAP_TIME
+		if left <= 0.0:
+			(z.node as Node).queue_free()
+			_zaps.remove_at(i)
+			continue
+		var tick := int(float(z.t) * 16.0)        # 一秒換 16 次
+		for k in z.arcs.size():
+			var h := fposmod(sin(float(tick * 31 + k * 17 + int(z.k))) * 43758.5453, 1.0)
+			(z.arcs[k] as MeshInstance3D).visible = h < 0.25 + 0.55 * left
+		(z.light as OmniLight3D).light_energy = 5.0 * left * (0.6 + 0.4 * fposmod(sin(float(tick * 7)) * 91.7, 1.0))
+
+# ---------------------------------------------------------------- 拿到新道具的小過場（第一小關 → 第二小關：多了「雷」）
+
+const GIFT_IN := 0.3             # 背景變暗、道具卡片在畫面正中央彈出來
+const GIFT_SPIN := 1.0           # 卡片在中間轉一圈
+const GIFT_HOLD := 0.35          # 轉完停一下
+const GIFT_FLY := 0.65           # 滑到左下角技能欄裡它自己的那一格
+const GIFT_BIG := 3.0            # 在中間的時候是技能欄卡片的幾倍大
+const GIFT_DIM := 0.62           # 背景暗到多暗
+
+var _gift_id := ""               # 這一小關一進來要介紹的新道具（上一小關離開時交代的）
+var _gift := {}                  # 過場用到的節點和時間
+
+## 一張跟技能欄一樣的道具卡片（米色紙卡、咖啡色圓貼紙、右上角次數徽章）。回傳 [卡片, 它的外框樣式]
+func _gift_card(layer: Node, i: int, bright: bool) -> Array:
+	var cnt: int = charges[i] if i < charges.size() else 0
+	var live: bool = bright or cnt != 0
+	var card := Panel.new()
+	card.size = Vector2(74.0, 74.0)
+	card.pivot_offset = card.size * 0.5
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(1.0, 0.973, 0.906) if live else Color(0.86, 0.84, 0.8)
+	sb.set_corner_radius_all(14)
+	sb.shadow_color = Color(0, 0, 0, 0.28)
+	sb.shadow_size = 5
+	sb.shadow_offset = Vector2(2, 4)
+	card.add_theme_stylebox_override("panel", sb)
+	layer.add_child(card)
+	var sticker := Panel.new()
+	var cb := StyleBoxFlat.new()
+	cb.bg_color = Color(0.36, 0.27, 0.2, 0.92 if live else 0.5)
+	cb.set_corner_radius_all(29)
+	sticker.add_theme_stylebox_override("panel", cb)
+	sticker.size = Vector2(58.0, 58.0)
+	sticker.position = Vector2(8.0, 10.0)
+	sticker.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(sticker)
+	var icon := TextureRect.new()
+	icon.texture = items[i].icon_tex if items[i].icon_tex != null else items[i].icon
+	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	icon.size = Vector2(52.0, 52.0)
+	icon.position = Vector2(11.0, 13.0)
+	icon.modulate = Color(1, 1, 1) if live else Color(0.45, 0.45, 0.45)
+	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(icon)
+	if not bright:
+		# 右上角的次數徽章（介紹中的那張大卡片不畫，歸位之後技能欄自己會畫）
+		var badge := Panel.new()
+		var bb := StyleBoxFlat.new()
+		bb.bg_color = UIStyle.accent() if cnt != 0 else Color(0.55, 0.55, 0.55)
+		bb.border_color = UIStyle.INK
+		bb.set_border_width_all(3)
+		bb.set_corner_radius_all(17)
+		badge.add_theme_stylebox_override("panel", bb)
+		badge.size = Vector2(34.0, 34.0)
+		badge.position = Vector2(card.size.x - 5.0 - 17.0, 5.0 - 17.0)
+		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		card.add_child(badge)
+		var num := Label.new()
+		num.text = "∞" if cnt < 0 else str(cnt)
+		num.add_theme_font_size_override("font_size", 20)
+		num.add_theme_color_override("font_color", Color(1, 1, 1))
+		num.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		num.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		num.size = badge.size
+		num.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		badge.add_child(num)
+	return [card, sb]
+
+## 卡片的外框：選中的是紅框、粗一點（跟技能欄一樣）
+func _gift_frame(sb: StyleBoxFlat, sel: bool) -> void:
+	sb.border_color = UIStyle.accent() if sel else UIStyle.INK
+	sb.set_border_width_all(4 if sel else 3)
+	sb.border_width_bottom = 6 if sel else 5
+
+## 技能欄第 k 格卡片的位置（選中的那一格往上浮 7）
+func _slot_pos(k: int, sel: bool) -> Vector2:
+	return _hotbar.global_position + Vector2(2.0 + float(k) * 84.0 + 5.0, 2.0 + 5.0 - (7.0 if sel else 0.0))
+
+## 開始介紹新道具。過場的時候真的技能欄先藏起來，改用幾張一模一樣的假卡片演：
+##   一開始技能欄上還沒有這個新道具（只有原本那幾個）
+##   背景變暗 → 新道具的卡片在正中央彈出來轉一圈
+##   卡片滑向技能欄的時候，原本的道具往右挪一格讓位，新道具落進空出來的那一格
+## 演完再把真的技能欄放出來。
+func _start_gift(i: int) -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 30
+	add_child(layer)
+	var dim := ColorRect.new()
+	dim.color = Color(0.03, 0.03, 0.05, 0.0)
+	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
+	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(dim)
+	# 原本就有的道具：[卡片, 外框, 現在第幾格, 之前第幾格]
+	var olds: Array = []
+	for k in items.size():
+		if k == i:
+			continue
+		var made := _gift_card(layer, k, false)
+		olds.append([made[0], made[1], k, k if k < i else k - 1])
+	var big := _gift_card(layer, i, true)
+	_gift_frame(big[1], true)
+	var title := Label.new()
+	title.text = "新的神蹟：%s" % items[i].name
+	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_color_override("font_color", Color(1, 1, 1))
+	title.add_theme_color_override("font_outline_color", Color(0.08, 0.08, 0.08))
+	title.add_theme_constant_override("outline_size", 8)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(title)
+	_hotbar.modulate.a = 0.0
+	_gift = {"t": 0.0, "i": i, "layer": layer, "dim": dim, "card": big[0], "title": title, "olds": olds}
+
+func _gift_playing() -> bool:
+	return not _gift.is_empty()
+
+func _tick_gift(dt: float) -> void:
+	if _gift.is_empty():
+		# 等技能欄建好了才開始（要知道卡片最後飛去哪）
+		if _gift_id == "" or _hotbar == null or _intro_t >= 0.0:
+			return
+		var idx := -1
+		for k in items.size():
+			if items[k].id == _gift_id:
+				idx = k
+		_gift_id = ""
+		if idx >= 0:
+			_start_gift(idx)
+		return
+	_gift.t += dt
+	var t: float = _gift.t
+	var card: Panel = _gift.card
+	var dim: ColorRect = _gift.dim
+	var title: Label = _gift.title
+	var vs := get_viewport().get_visible_rect().size
+	var mid := vs * 0.5 - card.size * 0.5 - Vector2(0.0, 24.0)
+	var i: int = _gift.i
+	var t_fly := GIFT_IN + GIFT_SPIN + GIFT_HOLD
+	var k_in := clampf(t / GIFT_IN, 0.0, 1.0)
+	var k_fly := clampf((t - t_fly) / GIFT_FLY, 0.0, 1.0)
+	k_fly = k_fly * k_fly * (3.0 - 2.0 * k_fly)        # 慢慢起步、慢慢停
+	# 彈出來：先衝過頭一點再縮回來
+	var pop := 1.0 + 0.18 * sin(k_in * PI)
+	card.scale = Vector2.ONE * lerpf(GIFT_BIG * k_in * pop, 1.0, k_fly)
+	var k_spin := clampf((t - GIFT_IN) / GIFT_SPIN, 0.0, 1.0)
+	k_spin = k_spin * k_spin * (3.0 - 2.0 * k_spin)
+	card.rotation = TAU * k_spin
+	card.position = mid.lerp(_slot_pos(i, i == selected), k_fly)
+	# 原本的道具：新卡片滑過來的前半段就往右挪好位置（新卡片到的時候那一格已經空出來了）
+	var k_move := clampf((t - t_fly) / (GIFT_FLY * 0.6), 0.0, 1.0)
+	k_move = k_move * k_move * (3.0 - 2.0 * k_move)
+	for o in _gift.olds:
+		var was_sel: bool = int(o[3]) == 0            # 還沒有新道具的時候，選的是第一格
+		var now_sel: bool = int(o[2]) == selected
+		(o[0] as Panel).position = _slot_pos(int(o[3]), was_sel).lerp(_slot_pos(int(o[2]), now_sel), k_move)
+		_gift_frame(o[1], was_sel if k_move < 0.5 else now_sel)
+	dim.color.a = GIFT_DIM * k_in * (1.0 - k_fly)
+	title.size = Vector2(vs.x, 44.0)
+	title.position = Vector2(0.0, mid.y + card.size.y * 0.5 + 74.0 * GIFT_BIG * 0.5 + 18.0)
+	title.modulate.a = clampf((t - GIFT_IN) / 0.25, 0.0, 1.0) * (1.0 - clampf((t - t_fly) / 0.2, 0.0, 1.0))
+	if t >= t_fly + GIFT_FLY + 0.05:
+		(_gift.layer as Node).queue_free()
+		_gift = {}
+		_hotbar.modulate.a = 1.0        # 真的技能欄放出來，位置和假卡片一模一樣
+		_hint_sel = -1                  # 卡片歸位之後，底下那行道具說明再浮出來一次
 
 ## 地上那個表示道具範圍的白色大圓圈：這個大關先不顯示（準心和「可以互動的東西變白」就夠了）。
 ## 想再打開就改成 true。
@@ -1371,6 +1764,8 @@ func _process(dt: float) -> void:
 	_tick_intro(dt)
 	if phase == Phase.PREPARE:
 		_hold_tick(dt)        # 按 Enter 之前也能用「準備階段也能按」的按住型道具（變成晚上）
+	_tick_gift(dt)
+	_tick_zaps(dt)
 	_tick_item_hint(dt)
 	_tick_note(dt)
 	_tick_star_view(dt)
@@ -1407,6 +1802,7 @@ func _level_step_ended(dt: float) -> void:
 
 func _level_reset() -> void:
 	super()
+	_stun_t = 0.0
 	_held_item = null
 	for s in _sand:
 		s.cd = 0.0

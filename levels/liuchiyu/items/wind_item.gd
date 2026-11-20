@@ -31,7 +31,7 @@ func _init() -> void:
 	color = Color(0.75, 0.92, 1.0)
 	radius = GUST_RADIUS
 	cooldown = 0.0
-	hint = "按住左鍵：朝準心一直吹風（吹沙地、吹機關）"
+	hint = "按住左鍵：朝準心一直吹風"
 	# 像素風圖示：三道捲起來的風
 	icon = PixelIcon.make([
 		".............",

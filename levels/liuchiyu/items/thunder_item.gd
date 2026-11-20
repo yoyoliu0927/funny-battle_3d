@@ -39,7 +39,7 @@ func _init() -> void:
 		"...KK........",
 	], {"Y": Color(1.0, 0.90, 0.25), "O": Color(1.0, 0.62, 0.12), "K": Color(0.20, 0.16, 0.10)})
 	radius = SHOCK_RADIUS
-	cooldown = 3.0
+	cooldown = 0.0        # 沒有冷卻時間：想劈就劈（原本每次要等 3 秒）
 
 func placement_error(_bt, _p: Vector3) -> String:
 	return ""

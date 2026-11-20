@@ -523,6 +523,7 @@ func on_thunder(p: Vector3) -> void:
 func _shock_lake(p: Vector3) -> void:
 	if not world.in_pool(3, p.x, p.z, 0.8, true):
 		return
+	pool_sparks(3, p)        # 水面爬滿白色的小電光：看得出雷劈在水上跟劈在地上不一樣
 	var n := 0
 	for f in enemies:
 		if not f.alive() or f.data.get("hidden", false) or f.air > 0.5 or not world.in_pool(3, f.pos.x, f.pos.z):

@@ -228,6 +228,7 @@ func _step_gadgets(dt: float) -> void:
 			_rock_hit.append(bird)
 			log_event("滾石撞到家豪")
 			hit_bird(minf(ROCK_BIRD_DAMAGE, maxf(bird.hp - 1.0, 0.0)), true, cur - _rock_dir)        # 最多撞到剩 1 滴血
+			say_as(bird, "咕啊——！")
 		if _rock_s >= total:
 			_rock_rolling = false
 			if _rock_hit.is_empty():
