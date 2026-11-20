@@ -482,6 +482,8 @@ func poke_near() -> bool:
 		var d := Vector2(p.x - me.x, p.z - me.z).length()
 		if k == "egg":
 			d *= 0.5
+		if k == "dj" and d > 6.5:
+			continue                           # 混音台要走近才會被 E 叫到，不然在別處按 E 會被瞬間移過去
 		if d < best_d:
 			best_d = d
 			best = th
@@ -497,6 +499,9 @@ func _poke(th: Dictionary) -> void:
 	th.cd = 0.22
 	var node := th.node as Node3D
 	var pos := node.global_position
+	if kind == "dj":
+		map._dj.begin()                      # 混音台：開演（不算戳戳樂）
+		return
 	if kind == "egg":
 		_collect_egg(th)
 		return

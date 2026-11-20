@@ -170,3 +170,21 @@ static func tag(c: Control, center: Vector2, label: String, size: float, bg: Col
 	c.draw_style_box(box(bg, edge, size * 0.45, 3.0, false), Rect2(Vector2(-w * 0.5, -size * 0.7), Vector2(w, size * 1.4)))
 	text_c(c, Vector2.ZERO, label, size, Color.WHITE)
 	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+## 一張黑膠唱片（轉動時紋路會轉）：center 圓心、r 半徑、label 中間貼紙的顏色、spin 轉到幾弧度
+static func vinyl(c: Control, center: Vector2, r: float, label: Color, spin := 0.0) -> void:
+	c.draw_circle(center + Vector2(0, r * 0.1), r, Color(0, 0, 0, 0.22))
+	c.draw_circle(center, r, Color("1c1824"))
+	for k in [0.86, 0.72, 0.58]:
+		c.draw_arc(center, r * k, 0.0, TAU, 40, Color(1, 1, 1, 0.12), maxf(r * 0.03, 1.0), true)
+	c.draw_arc(center, r * 0.8, spin, spin + 0.9, 12, Color(1, 1, 1, 0.35), maxf(r * 0.05, 1.5), true)
+	c.draw_circle(center, r * 0.36, label)
+	c.draw_circle(center, r * 0.07, Color("1c1824"))
+
+## 站點徽章用的耳機＋音符（白色單色）
+static func dj_icon(c: Control, center: Vector2, r: float, col: Color) -> void:
+	c.draw_arc(center + Vector2(0, r * 0.1), r * 0.62, PI, TAU, 20, col, maxf(r * 0.2, 2.0), true)
+	c.draw_rect(Rect2(center + Vector2(-r * 0.86, r * 0.1), Vector2(r * 0.3, r * 0.6)), col)
+	c.draw_rect(Rect2(center + Vector2(r * 0.56, r * 0.1), Vector2(r * 0.3, r * 0.6)), col)
+	c.draw_circle(center + Vector2(-r * 0.12, r * 0.55), r * 0.16, col)
+	c.draw_line(center + Vector2(0.04 * r, r * 0.55), center + Vector2(0.04 * r, -r * 0.1), col, maxf(r * 0.1, 1.5))
