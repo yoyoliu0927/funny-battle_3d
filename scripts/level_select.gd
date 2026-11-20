@@ -62,6 +62,8 @@ const HubSail := preload("res://scripts/hub/hub_sail.gd")         # 出航：開
 const HubBoats := preload("res://scripts/hub/hub_boats.gd")       # 幾種船、速度、買船
 const HubSeaLife := preload("res://scripts/hub/hub_sea_life.gd")   # 海上的彩蛋（寶箱、企鵝、跳魚、世界的盡頭）
 const HubSfx := preload("res://scripts/hub/hub_sfx.gd")
+const HubTime := preload("res://scripts/hub/hub_time.gd")         # 一天的天色（跟著電腦的時間、固定、快轉）
+const HubNight := preload("res://scripts/hub/hub_night.gd")       # 夜晚的螢火蟲和路燈
 const SEA_WAVE := 0.55            # 開船時海浪多高（公尺）
 const ROWBOAT := "res://levels/ice/assets/blender/rowboat.glb"
 const BOAT_LEN := 4.2             # 開船用的小船多長（公尺）
@@ -160,6 +162,7 @@ const DEFAULT_MOOD := {
 	"sky.cloud_color": Color(0.99, 0.99, 0.96), "sky.cloud_shade": Color(0.76, 0.86, 0.90),
 	"sea.deep": Color(0.08, 0.44, 0.68), "sea.near_c": Color(0.20, 0.64, 0.80), "sea.stroke_c": Color(0.74, 0.94, 0.98),
 	"sea.foam_c": Color(1, 1, 1), "sea.horizon_c": Color(0.78, 0.91, 0.94),
+	"sky.night": 0.0, "sky.sun_vis": 0.0, "sky.moon_vis": 0.0,        # 星星、太陽、月亮（農莊天色才會開，別的地方要關回來）
 }
 const MOOD_TIME := 0.7        # 換天色要幾秒
 const HOP_LEN := 2.6          # 家豪走路時一跳多遠（公尺）
@@ -286,6 +289,21 @@ var _sea_life: Node3D        # 海上的彩蛋（hub_sea_life.gd）
 var _yard := {}              # 船塢開著：{"sel": 選到第幾艘}
 var _yard_rows: Array = []
 var _meters_acc := 0.0
+var _tod_on := false         # 天色跟著時間走（農莊、世界地圖、沒有自己天色的島）
+var _tod_mode := "auto"      # "auto" 跟電腦時間、"fixed" 固定、"cycle" 快轉（一天兩分鐘）
+var _tod_hour := 12.0        # 現在幾點（小時，含小數）
+var _tod_fixed := 12.0       # 固定時間
+var _tod_base := 12.0        # 快轉從幾點開始
+var _tod_t0 := 0.0           # 快轉從什麼時候開始（_t）
+var _tod_timer := 0.0
+var _night: Node3D           # 螢火蟲和路燈（hub_night.gd）
+var _tod_open := false       # 時間面板開著
+var _tod_sel := 0            # 面板上選到哪一列（0～2 三種模式）
+var _tod_rows: Array = []
+var _tod_presets: Array = []
+var _tod_slider := Rect2()
+var _tod_drag := false
+var _time_rect := Rect2()    # 右上角時間按鈕在畫面上的位置
 var _hub_build := false      # 正在蓋主島：_spawn_fit 要登記障礙
 var _hub_blocks: Array = []  # 主島的障礙 [節點, 半徑, 世界座標偏移]
 var _hero_tilt: Node3D       # 家豪（中間那層：世界地圖上往後仰，從上面看得到臉）
@@ -304,7 +322,7 @@ var _floats: Array = []      # 海上漂的東西（北方的浮冰、南方的�
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
-		if a == "--autotest" or a.begins_with("--mapshots=") or a.begins_with("--hubshots=") or a.begins_with("--titleshots=") or a == "--freetest" or a.begins_with("--freeshots=") or a == "--sailtest" or a.begins_with("--sailshots="):
+		if a == "--autotest" or a.begins_with("--mapshots=") or a.begins_with("--hubshots=") or a.begins_with("--titleshots=") or a == "--freetest" or a.begins_with("--freeshots=") or a == "--sailtest" or a.begins_with("--sailshots=") or a.begins_with("--todshots=") or a == "--todtest":
 			Journal.persist = false          # 測試不寫玩家的手帳存檔
 	_load_chapters()
 	_sync_stars()
@@ -371,6 +389,8 @@ func _ready() -> void:
 	var free_shots := ""
 	var sail_test := false
 	var sail_shots := ""
+	var tod_shots := ""
+	var tod_test := false
 	for a in args:
 		if a.begins_with("--mapshots="):
 			shots = a.substr(11)
@@ -390,6 +410,12 @@ func _ready() -> void:
 		if a.begins_with("--sailshots="):
 			sail_shots = a.substr(12)
 			testing = true
+		if a.begins_with("--todshots="):
+			tod_shots = a.substr(11)
+			testing = true
+		if a == "--todtest":
+			tod_test = true
+			testing = true
 		if a.begins_with("--freeshots="):
 			free_shots = a.substr(12)
 			testing = true
@@ -402,6 +428,21 @@ func _ready() -> void:
 		_sea_life.map = self
 		add_child(_sea_life)
 		_sea_life.build()
+	# 天色跟著時間：預設開；自動測試和截圖維持原本的大晴天，加 --tod 或 --hour=21.5 才開
+	var forced := HubTime.forced_hour()
+	_tod_on = not testing or "--tod" in args or forced >= 0.0 or tod_shots != "" or tod_test
+	if _tod_on:
+		var ts := HubTime.load_settings()
+		_tod_mode = String(ts.mode)
+		_tod_fixed = float(ts.hour)
+		if forced >= 0.0:
+			_tod_mode = "fixed"
+			_tod_fixed = forced
+		_tod_hour = _tod_current_hour()
+		_night = HubNight.new()
+		_night.map = self
+		add_child(_night)
+		_night.build()
 	selected = -1
 	select(0)
 	if Engine.has_meta("map_last"):
@@ -409,7 +450,7 @@ func _ready() -> void:
 	elif not testing:
 		_zoom = 1.0                      # 剛開遊戲：先看一眼整張世界地圖，再拉近到主島
 	_place_hero(true)
-	if TitleScreen.wanted() and hub_shots == "" and not hub_test and not free_test and free_shots == "" and not sail_test and sail_shots == "":
+	if TitleScreen.wanted() and hub_shots == "" and not hub_test and not free_test and free_shots == "" and not sail_test and sail_shots == "" and tod_shots == "" and not tod_test:
 		# 剛開遊戲：先放標題畫面。按下開始之後鏡頭直接滑到主島（第一次玩會先接開場劇情）
 		_zoom = 0.0
 		_layer.visible = false
@@ -432,6 +473,10 @@ func _ready() -> void:
 		_sailtest.call_deferred()
 	if sail_shots != "":
 		_sailshots.call_deferred(sail_shots)
+	if tod_shots != "":
+		_todshots.call_deferred(tod_shots)
+	if tod_test:
+		_todtest.call_deferred()
 	if _title == null and not testing:
 		_growth_check.call_deferred()
 		_journal_check.call_deferred()
@@ -1943,7 +1988,7 @@ func _free_input() -> Vector2:
 
 ## 有東西蓋住畫面（釣魚、手帳、操作說明）：不能走
 func _free_locked() -> bool:
-	return _fishing.active or _dj.active or _journal.is_open() or (_guide != null and _guide.is_open()) or _starting or not _yard.is_empty()
+	return _fishing.active or _dj.active or _journal.is_open() or (_guide != null and _guide.is_open()) or _starting or not _yard.is_empty() or _tod_open
 
 ## 按數字鍵：衝到第 k 個站點（沿直線跳過去，不管中間有沒有東西）
 func _free_dash_to(k: int) -> void:
@@ -2217,9 +2262,12 @@ static func _snd_bgm() -> AudioStreamWAV:
 ## 第 e 座島第 k 個站點的天色：DEFAULT_MOOD 加上大關自己的 mood(k)。世界地圖一律用預設的大晴天
 func _mood_of(e: int, k: int) -> Dictionary:
 	var m := DEFAULT_MOOD.duplicate()
+	var hook: Object = worlds[e].hook if e < worlds.size() else null
+	# 農莊、世界地圖、沒有自己天色的島：照現在的時間；有自己 mood() 的大關維持自己的氣氛
+	if _tod_on and (_map or _is_hub(e) or not (hook and hook.has_method("mood"))):
+		m.merge(HubTime.mood(_tod_hour), true)
 	if _map:
 		return m
-	var hook: Object = worlds[e].hook if e < worlds.size() else null
 	if hook and hook.has_method("mood"):
 		m.merge(hook.mood(int(_st(e, k).get("k", k))), true)
 	return m
@@ -2698,6 +2746,7 @@ func _paint_overlay(c: Control) -> void:
 		_paint_sail_picker(c, u)
 		_paint_sail_hud(c, u)
 	_paint_yard(c, u)
+	_paint_tod(c, u)
 
 ## 「下一步在這裡」的記號：一顆跳動的紅色驚嘆號（島上：下一關的徽章；世界地圖：還有關卡可以玩的島牌）
 func _next_mark(c: Control, at: Vector2, s: float) -> void:
@@ -3508,6 +3557,27 @@ func _paint_buttons(c: Control, u: float) -> void:
 	ctr += Vector2(-118.0 * u, 0)
 	_map_rect = Rect2(ctr - Vector2(48, 44) * u, Vector2(96, 88) * u)
 	_round_button(c, u, ctr, "M", "世界地圖", Color("ffe98a") if _map else PAPER, Color("d9b84a") if _map else PAPER_EDGE)
+	# ---- 時間：白天是太陽、晚上是月亮；下面掛現在幾點
+	if _tod_on:
+		var tc := ctr + Vector2(-118.0 * u, 0)
+		_time_rect = Rect2(tc - Vector2(48, 44) * u, Vector2(96, 88) * u)
+		var tbg := Color("ffe98a") if _tod_open else PAPER
+		_round_button(c, u, tc, "T", "時間", tbg, Color("d9b84a") if _tod_open else PAPER_EDGE)
+		if _tod_hour >= 5.5 and _tod_hour < 19.0:
+			c.draw_circle(tc, 9.5 * u, Color("f0a81c"))
+			for ri in 8:
+				var ra := ri * TAU / 8.0
+				c.draw_line(tc + Vector2(cos(ra), sin(ra)) * 14.0 * u, tc + Vector2(cos(ra), sin(ra)) * 20.0 * u, Color("f0a81c"), 3.2 * u, true)
+		else:
+			c.draw_circle(tc + Vector2(-2, 0) * u, 14.0 * u, Color("5d6fb8"))
+			c.draw_circle(tc + Vector2(4, -4) * u, 12.0 * u, tbg)
+		var tl := HubTime.label(_tod_hour)
+		var tw2 := _font().get_string_size(tl, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u)).x
+		var tchip := Rect2(tc + Vector2(-tw2 * 0.5 - 14 * u, 12 * u) + Vector2(-2, 0) * u, Vector2(tw2 + 28 * u, 26 * u))
+		c.draw_style_box(_box(Color("e3e8ff") if (_tod_hour < 5.5 or _tod_hour >= 19.0) else Color("fff1bf"), Color("a9b4e0") if (_tod_hour < 5.5 or _tod_hour >= 19.0) else Color("d9b84a"), 13 * u, 2.0, false), tchip)
+		_text(c, tchip.position + Vector2(14 * u, 19 * u), tl, 17 * u, INK)
+	else:
+		_time_rect = Rect2()
 	var m := PackedVector2Array([Vector2(-18, -10), Vector2(-6, -14), Vector2(6, -9), Vector2(18, -13),
 		Vector2(18, 10), Vector2(6, 14), Vector2(-6, 9), Vector2(-18, 13), Vector2(-18, -10)])
 	for i in m.size():
@@ -3582,7 +3652,7 @@ func _unlocked_ch(ch: Dictionary, n: int) -> bool:
 	return Progress.unlocked(ch.id, n)
 
 func _busy() -> bool:
-	return not _walk.is_empty() or not _jump.is_empty() or not _free_dash.is_empty() or not _sail.is_empty() or not _yard.is_empty() or (_fishing != null and _fishing.active) or (_dj != null and _dj.active) or (_journal != null and _journal.is_open())
+	return not _walk.is_empty() or not _jump.is_empty() or not _free_dash.is_empty() or not _sail.is_empty() or not _yard.is_empty() or _tod_open or (_fishing != null and _fishing.active) or (_dj != null and _dj.active) or (_journal != null and _journal.is_open())
 
 ## 一登島先站在哪一格：主島是家；主題島是「第一個還沒過、可以玩的小關」
 func _first_open_stage_of(e: int) -> int:
@@ -3863,6 +3933,8 @@ func _unhandled_input(ev: InputEvent) -> void:
 		if ev is InputEventKey and ev.pressed and not ev.echo and ev.keycode == KEY_V:
 			_toggle_sound()          # 釣魚和手帳開著：其他按鍵它們自己處理，只有 V（聲音）放行
 		return
+	if _tod_open and _tod_input(ev):
+		return                       # 時間面板開著：按鍵和滑鼠都在 _tod_input 處理
 	if not _sail.is_empty() and _sail_input(ev):
 		return                       # 開船中：按鍵都在 _sail_input 處理
 	if not _yard.is_empty() and _yard_input(ev):
@@ -3874,6 +3946,8 @@ func _unhandled_input(ev: InputEvent) -> void:
 			open_shop()
 		elif _map_rect.has_point(ev.position):
 			set_map(not _map)
+		elif _time_rect.has_point(ev.position):
+			_tod_toggle()
 		elif _map and _go_rect.has_point(ev.position):
 			start_selected()
 		elif _map:
@@ -3926,6 +4000,8 @@ func _unhandled_input(ev: InputEvent) -> void:
 				open_shop()
 			KEY_G:
 				_yard_open()                 # 在碼頭：船塢（看船、買船、換船）
+			KEY_T:
+				_tod_toggle()                # 時間面板
 			KEY_E:
 				# 隱藏按鍵（展示用，畫面上不提示）：Shift＋E 不用全破就直接播結局，播完回到這裡
 				if ev.shift_pressed:
@@ -3972,6 +4048,7 @@ func _process(dt: float) -> void:
 	_t += dt
 	_tick_hero(dt)
 	_sail_housekeeping(dt)
+	_tod_tick(dt)
 	_zoom = move_toward(_zoom, 1.0 if _map else 0.0, dt / ZOOM_TIME)
 	var z := _z()
 	# 島上的鏡頭慢慢跟上家豪；世界地圖的鏡頭固定在所有島的正上方（稍微偏向家豪所在的島）。兩個之間照 z 混合
@@ -4094,7 +4171,7 @@ func _process(dt: float) -> void:
 			_toast.text = ""
 			_toast.visible = false
 	var mp := get_viewport().get_mouse_position()
-	var hot := _snd_rect.has_point(mp) or _shop_rect.has_point(mp) or _map_rect.has_point(mp)
+	var hot := _snd_rect.has_point(mp) or _shop_rect.has_point(mp) or _map_rect.has_point(mp) or _time_rect.has_point(mp)
 	if not hot and _map:
 		hot = _isle_at(mp) >= 0
 	elif not hot:
@@ -4766,7 +4843,7 @@ func _tick_sail(dt: float) -> void:
 	var thr := 0.0
 	var steer := 0.0
 	var manual := false
-	var pick := bool(b.pick)
+	var pick := bool(b.pick) or _tod_open
 	if not pick:
 		var fwd := float(Input.is_key_pressed(KEY_W) or Input.is_key_pressed(KEY_UP))
 		var back := float(Input.is_key_pressed(KEY_S) or Input.is_key_pressed(KEY_DOWN))
@@ -4961,6 +5038,8 @@ func _sail_input(ev: InputEvent) -> bool:
 			_toggle_sound()
 		elif _map_rect.has_point(ev.position):
 			_sail_to_map()
+		elif _time_rect.has_point(ev.position):
+			_tod_toggle()
 		elif bool(_sail.pick):
 			for i in _sail_rows.size():
 				if (_sail_rows[i] as Rect2).has_point(ev.position):
@@ -4980,6 +5059,8 @@ func _sail_input(ev: InputEvent) -> bool:
 			KEY_H:
 				if String(_sail.state) == "sail":
 					_sail_horn()
+			KEY_T:
+				_tod_toggle()
 			KEY_P:
 				if pick:
 					_sail.pick = false
@@ -5244,6 +5325,187 @@ func _paint_sail_picker(c: Control, u: float) -> void:
 		if stat != "":
 			var sw := _font().get_string_size(stat, HORIZONTAL_ALIGNMENT_LEFT, -1, int(20 * u)).x
 			_text(c, r.position + Vector2(r.size.x - sw - 16 * u, r.size.y * 0.5 + 7 * u), stat, 20 * u, Color("6f6a60"))
+
+# ================================================================== 一天的天色（hub_time.gd）：跟著電腦的時間、固定、快轉；T 打開時間面板
+
+var _tod_night := 0.0        # 現在夜有多深（螢火蟲和路燈用，算好存著）
+
+## 現在的時間（小時）：跟電腦、固定、快轉
+func _tod_current_hour() -> float:
+	match _tod_mode:
+		"fixed":
+			return _tod_fixed
+		"cycle":
+			return fposmod(_tod_base + (_t - _tod_t0) * 24.0 / HubTime.CYCLE_SECONDS, 24.0)
+	return HubTime.system_hour()
+
+## 這座島（entries 的索引）的天色用時間算嗎？（農莊、世界地圖、沒有自己 mood() 的島）
+func _tod_uses(e: int) -> bool:
+	if not _tod_on or e < 0 or e >= worlds.size():
+		return false
+	var hook: Object = worlds[e].hook
+	return _map or _is_hub(e) or not (hook and hook.has_method("mood"))
+
+func _tod_tick(dt: float) -> void:
+	if not _tod_on:
+		return
+	_tod_hour = _tod_current_hour()
+	_tod_timer -= dt
+	if _tod_timer <= 0.0:
+		_tod_timer = 0.12 if _tod_mode == "cycle" else 0.5
+		_tod_night = HubTime.night_k(_tod_hour)
+		if _title == null and _mood_k >= 1.0 and _tod_uses(selected):
+			_mood_to = _mood_of(selected, stage_sel)
+			_apply_mood(_mood_to)
+	if _night != null:
+		_night.tick(dt, _tod_night)
+
+func _tod_save() -> void:
+	if HubTime.forced_hour() < 0.0 and Journal.persist:         # 測試和截圖不寫玩家的設定
+		HubTime.save_settings(_tod_mode, _tod_fixed)
+
+## 換模式；換到「固定」就停在現在這個時間、換到「快轉」就從現在這個時間開始轉
+func _tod_set_mode(m: String) -> void:
+	if m == _tod_mode:
+		return
+	if m == "fixed":
+		_tod_fixed = _tod_hour
+	elif m == "cycle":
+		_tod_base = _tod_hour
+		_tod_t0 = _t
+	_tod_mode = m
+	_tod_sel = HubTime.MODES.find(m)
+	_tod_hour = _tod_current_hour()
+	_tod_save()
+	_set_mood(selected, stage_sel)
+	_play("click")
+
+## 自己選一個時間（會自動切到「固定」）
+func _tod_set_hour(h: float) -> void:
+	_tod_mode = "fixed"
+	_tod_sel = 1
+	_tod_fixed = clampf(h, 0.0, 24.0)
+	_tod_hour = _tod_fixed
+	_tod_save()
+	_set_mood(selected, stage_sel)
+
+func _tod_toggle() -> void:
+	if not _tod_on or _starting or _title != null:
+		return
+	if not _tod_open and (_busy() or _map):
+		return
+	_tod_open = not _tod_open
+	_tod_drag = false
+	_tod_sel = HubTime.MODES.find(_tod_mode)
+	_play("click")
+
+func _tod_input(ev: InputEvent) -> bool:
+	if ev is InputEventMouseButton and ev.button_index == MOUSE_BUTTON_LEFT:
+		if not ev.pressed:
+			_tod_drag = false
+			return true
+		if _time_rect.has_point(ev.position):
+			_tod_toggle()
+			return true
+		for i in _tod_rows.size():
+			if (_tod_rows[i] as Rect2).has_point(ev.position):
+				_tod_set_mode(String(HubTime.MODES[i]))
+				return true
+		for i in _tod_presets.size():
+			if (_tod_presets[i] as Rect2).has_point(ev.position):
+				_tod_set_hour(float(HubTime.PRESETS[i][1]))
+				_play("click")
+				return true
+		if _tod_slider.grow(14.0 * _u()).has_point(ev.position):
+			_tod_drag = true
+			_tod_set_hour((ev.position.x - _tod_slider.position.x) / maxf(_tod_slider.size.x, 1.0) * 24.0)
+			return true
+		return true
+	if ev is InputEventMouseMotion and _tod_drag:
+		_tod_set_hour((ev.position.x - _tod_slider.position.x) / maxf(_tod_slider.size.x, 1.0) * 24.0)
+		return true
+	if ev is InputEventKey and ev.pressed:
+		if ev.echo and not (ev.keycode in [KEY_LEFT, KEY_RIGHT, KEY_A, KEY_D]):
+			return true
+		match ev.keycode:
+			KEY_ESCAPE, KEY_T, KEY_ENTER, KEY_KP_ENTER:
+				_tod_toggle()
+			KEY_UP, KEY_W:
+				_tod_set_mode(String(HubTime.MODES[wrapi(HubTime.MODES.find(_tod_mode) - 1, 0, 3)]))
+			KEY_DOWN, KEY_S:
+				_tod_set_mode(String(HubTime.MODES[wrapi(HubTime.MODES.find(_tod_mode) + 1, 0, 3)]))
+			KEY_LEFT, KEY_A:
+				_tod_set_hour(fposmod(_tod_hour - (3.0 if ev.shift_pressed else 0.5), 24.0))
+			KEY_RIGHT, KEY_D:
+				_tod_set_hour(fposmod(_tod_hour + (3.0 if ev.shift_pressed else 0.5), 24.0))
+			KEY_1, KEY_2, KEY_3, KEY_4:
+				_tod_set_hour(float(HubTime.PRESETS[ev.keycode - KEY_1][1]))
+				_play("click")
+			KEY_V:
+				_toggle_sound()
+		return true
+	return ev is InputEventMouseButton
+
+## 右上角的時間面板：三種時間來源（點一下切換）、24 小時的滑桿（拖一下就切到「固定」）、四個快速選的時間
+func _paint_tod(c: Control, u: float) -> void:
+	_tod_rows = []
+	_tod_presets = []
+	_tod_slider = Rect2()
+	if not _tod_open:
+		return
+	var vs := c.size
+	var pw := 560.0 * u
+	var panel := Rect2(Vector2(vs.x - 44.0 * u - pw, 150.0 * u), Vector2(pw, 470.0 * u))
+	c.draw_style_box(_box(PAPER, PAPER_EDGE, 26 * u, 3.0), panel)
+	_text(c, panel.position + Vector2(28 * u, 52 * u), "時間", 34 * u, INK)
+	var head := "%s　%s" % [HubTime.phase_name(_tod_hour), HubTime.label(_tod_hour)]
+	var hw := _font().get_string_size(head, HORIZONTAL_ALIGNMENT_LEFT, -1, int(30 * u)).x
+	_text(c, panel.position + Vector2(pw - hw - 28 * u, 50 * u), head, 30 * u, Color("5d6fb8") if (_tod_hour < 6.0 or _tod_hour >= 18.0) else Color("d08a10"))
+	# 三種來源
+	for i in 3:
+		var m := String(HubTime.MODES[i])
+		var r := Rect2(panel.position + Vector2(16 * u, 76 * u + i * 56 * u), Vector2(pw - 32 * u, 50 * u))
+		_tod_rows.append(r)
+		var on := m == _tod_mode
+		c.draw_style_box(_box(Color("fff1bf") if on else Color(1, 1, 1, 0.0), Color("d9b84a") if on else Color(0, 0, 0, 0.0), 20 * u, 2.5, false), r)
+		var rc := r.position + Vector2(26 * u, r.size.y * 0.5)
+		c.draw_circle(rc, 11 * u, PAPER_EDGE if not on else Color("b98a4a"))
+		c.draw_circle(rc, 8 * u, PAPER)
+		if on:
+			c.draw_circle(rc, 5 * u, Color("d08a10"))
+		var label := String(HubTime.MODE_NAMES[m])
+		if m == "auto":
+			label += "（現在 %s）" % HubTime.label(HubTime.system_hour())
+		_text(c, r.position + Vector2(52 * u, r.size.y * 0.5 + 9 * u), label, _fit(label, 26.0 * u, r.size.x - 70 * u, 14.0), INK)
+	# 24 小時的滑桿：夜（深藍）、日出日落（橘）、白天（淡黃）
+	var sy := panel.position.y + 76.0 * u + 3 * 56.0 * u + 46.0 * u
+	_tod_slider = Rect2(Vector2(panel.position.x + 44.0 * u, sy), Vector2(pw - 88.0 * u, 16.0 * u))
+	var segs := [[0.0, 5.0, Color("27336e")], [5.0, 7.0, Color("f0a35a")], [7.0, 17.0, Color("f6dc7c")], [17.0, 19.0, Color("f0a35a")], [19.0, 24.0, Color("27336e")]]
+	for sg in segs:
+		var sx0 := _tod_slider.position.x + _tod_slider.size.x * float(sg[0]) / 24.0
+		var sx1 := _tod_slider.position.x + _tod_slider.size.x * float(sg[1]) / 24.0
+		c.draw_rect(Rect2(Vector2(sx0, sy), Vector2(sx1 - sx0, _tod_slider.size.y)), sg[2])
+	c.draw_rect(_tod_slider, PAPER_EDGE, false, 2.5 * u)
+	for tk in [0, 6, 12, 18, 24]:
+		var tx: float = _tod_slider.position.x + _tod_slider.size.x * float(tk) / 24.0
+		_text(c, Vector2(tx - 10 * u, sy + 40 * u), "%d" % tk, 18 * u, Color("8a7a6a"))
+	var kx := _tod_slider.position.x + _tod_slider.size.x * clampf(_tod_hour, 0.0, 24.0) / 24.0
+	c.draw_circle(Vector2(kx, sy + _tod_slider.size.y * 0.5) + Vector2(1, 3) * u, 14 * u, Color(0, 0, 0, 0.25))
+	c.draw_circle(Vector2(kx, sy + _tod_slider.size.y * 0.5), 14 * u, Color("b98a4a"))
+	c.draw_circle(Vector2(kx, sy + _tod_slider.size.y * 0.5), 10 * u, PAPER)
+	# 快速選
+	var by := sy + 66.0 * u
+	var bw := (pw - 88.0 * u - 3 * 12.0 * u) / 4.0
+	for i in HubTime.PRESETS.size():
+		var br := Rect2(Vector2(panel.position.x + 44.0 * u + i * (bw + 12.0 * u), by), Vector2(bw, 46.0 * u))
+		_tod_presets.append(br)
+		var ph := float(HubTime.PRESETS[i][1])
+		var night := ph < 6.0 or ph >= 18.5
+		c.draw_style_box(_box(Color("dfe4ff") if night else Color("fff1bf"), Color("a9b4e0") if night else Color("d9b84a"), 18 * u, 2.5, false), br)
+		var pl := String(HubTime.PRESETS[i][0])
+		var plw := _font().get_string_size(pl, HORIZONTAL_ALIGNMENT_LEFT, -1, int(24 * u)).x
+		_text(c, br.position + Vector2((bw - plw) * 0.5, 31 * u), pl, 24 * u, INK)
+	_text(c, panel.position + Vector2(28 * u, panel.size.y - 22 * u), "← → 調整（Shift 一次 3 小時）　↑ ↓ 換模式　1～4 快速選　Esc 關上", _fit("← → 調整（Shift 一次 3 小時）　↑ ↓ 換模式　1～4 快速選　Esc 關上", 18.0 * u, pw - 56 * u, 12.0), Color("8a7a6a"))
 
 # ================================================================== 開發用：主島自由走（--freetest 快速驗收、--freeshots=資料夾 截圖）
 
@@ -5735,6 +5997,126 @@ func _sailtest() -> void:
 			fails += 1
 		print("[%s] %s" % ["PASS" if bool(c[1]) else "FAIL", c[0]])
 	print("SAILTEST: %s" % ("ALL PASS" if fails == 0 else "%d FAIL" % fails))
+	get_tree().quit()
+
+func _todtest() -> void:
+	await get_tree().create_timer(1.0).timeout
+	var checks: Array = []
+	# 1. 天色資料：每個鍵都有、中午跟原本的大晴天一樣、一天之內顏色不會突然跳
+	var keys_ok := true
+	for k in DEFAULT_MOOD:
+		if not HubTime.mood(12.0).has(k) and not String(k).begins_with("sky.sun_vis"):
+			keys_ok = false
+	var noon := HubTime.mood(12.0)
+	var same_noon: bool = (noon["sky.top_color"] as Color).is_equal_approx(DEFAULT_MOOD["sky.top_color"]) and (noon["sea.deep"] as Color).is_equal_approx(DEFAULT_MOOD["sea.deep"]) and is_equal_approx(float(noon.energy), float(DEFAULT_MOOD.energy))
+	checks.append(["天色每個鍵都有、中午的天空和海跟原本的大晴天一樣", keys_ok and same_noon])
+	var worst := 0.0
+	var prev := HubTime.mood(0.0)
+	var h := 0.05
+	while h <= 24.0:
+		var cur := HubTime.mood(h)
+		var ct: Color = cur["sky.top_color"]
+		var pt: Color = prev["sky.top_color"]
+		var cs: Color = cur["sun"]
+		var ps: Color = prev["sun"]
+		worst = maxf(worst, Vector3(ct.r - pt.r, ct.g - pt.g, ct.b - pt.b).length())
+		worst = maxf(worst, Vector3(cs.r - ps.r, cs.g - ps.g, cs.b - ps.b).length())
+		worst = maxf(worst, absf(float(cur.energy) - float(prev.energy)))
+		prev = cur
+		h += 0.05
+	checks.append(["一天之內（每 3 分鐘看一次）天色連續、沒有突然跳掉（最大一步 %.3f）；0 點和 24 點接得起來" % worst, worst < 0.06 and (HubTime.mood(0.0)["sky.top_color"] as Color).is_equal_approx(HubTime.mood(24.0)["sky.top_color"])])
+	checks.append(["夜晚：深夜 night = %.2f、中午 %.2f；中午有太陽沒有月亮、半夜有月亮沒有太陽" % [HubTime.night_k(0.0), HubTime.night_k(12.0)],
+		HubTime.night_k(0.0) > 0.9 and HubTime.night_k(12.0) < 0.01 and float(HubTime.mood(12.0)["sky.sun_vis"]) > 0.9 and float(HubTime.mood(0.0)["sky.sun_vis"]) < 0.1 and float(HubTime.mood(0.0)["sky.moon_vis"]) > 0.9])
+	var rot_ok := true
+	for hh in [0.0, 4.0, 6.0, 9.0, 12.0, 15.0, 18.0, 21.0]:
+		var r: Vector3 = HubTime.mood(hh).rot
+		rot_ok = rot_ok and r.x < -0.1               # 光一直從上面照下來（不會從地底下照）
+	checks.append(["太陽和月亮的光一直從上面照下來", rot_ok])
+	# 2. 三種時間來源
+	_tod_mode = "auto"
+	await get_tree().create_timer(0.3).timeout
+	checks.append(["跟著電腦時間：現在 %s（電腦 %s）" % [HubTime.label(_tod_hour), HubTime.label(HubTime.system_hour())], absf(_tod_hour - HubTime.system_hour()) < 0.05 or absf(absf(_tod_hour - HubTime.system_hour()) - 24.0) < 0.05])
+	_tod_set_hour(18.0)
+	await get_tree().create_timer(1.0).timeout
+	checks.append(["固定時間：選 18:00 之後模式變「固定」、時間停在 %s" % HubTime.label(_tod_hour), _tod_mode == "fixed" and absf(_tod_hour - 18.0) < 0.01])
+	_tod_set_mode("cycle")
+	var h0 := _tod_hour
+	await get_tree().create_timer(2.0).timeout
+	var adv := fposmod(_tod_hour - h0, 24.0)
+	checks.append(["快轉：2 秒走了 %.2f 小時（一天 %d 秒 → 約 0.4 小時）" % [adv, int(HubTime.CYCLE_SECONDS)], adv > 0.3 and adv < 0.6])
+	# 3. 面板：T 打開、方向鍵調整、數字鍵快速選、Esc 關上
+	_tod_set_mode("fixed")
+	_tod_fixed = 12.0
+	_tod_hour = 12.0
+	_press(KEY_T)
+	await get_tree().create_timer(0.2).timeout
+	var opened := _tod_open
+	_press(KEY_RIGHT)
+	await get_tree().create_timer(0.1).timeout
+	var adjusted := absf(_tod_hour - 12.5) < 0.01
+	_press(KEY_4)
+	await get_tree().create_timer(0.1).timeout
+	var preset := absf(_tod_hour - 23.5) < 0.01
+	_press(KEY_UP)
+	await get_tree().create_timer(0.1).timeout
+	var up_mode := _tod_mode == "auto"
+	_press(KEY_ESCAPE)
+	await get_tree().create_timer(0.2).timeout
+	checks.append(["時間面板：T 打開、→ 加 30 分、4 選深夜、↑ 換回跟著現在的時間、Esc 關上", opened and adjusted and preset and up_mode and not _tod_open])
+	# 4. 夜裡螢火蟲和路燈亮起來、白天收起來
+	_tod_set_hour(23.0)
+	await get_tree().create_timer(3.5).timeout
+	var fire_on: bool = _night._k > 0.9 and (_night._clouds[0] as CPUParticles3D).emitting and (_night._lamps[0].light as OmniLight3D).light_energy > 0.5
+	_tod_set_hour(12.0)
+	await get_tree().create_timer(3.5).timeout
+	var fire_off: bool = _night._k < 0.05 and not (_night._clouds[0] as CPUParticles3D).emitting and not (_night._lamps[0].light as OmniLight3D).visible
+	checks.append(["深夜：螢火蟲和路燈亮起來（%d 團螢火蟲、%d 盞燈）；正午：收起來" % [_night._clouds.size(), _night._lamps.size()], fire_on and fire_off])
+	# 5. 有自己天色的島不受影響；農莊和世界地圖受影響
+	var own := -1
+	var plain := -1
+	for e in range(1, entries.size()):
+		var hk: Object = worlds[e].hook
+		if hk and hk.has_method("mood") and own < 0:
+			own = e
+		elif not (hk and hk.has_method("mood")) and plain < 0 and String(_st(e, 0).kind) != "locked":
+			plain = e
+	_tod_set_hour(0.0)
+	var m_hub := _mood_of(0, 0)
+	var m_own := _mood_of(own, 0) if own >= 0 else {}
+	checks.append(["半夜：農莊是夜晚（night %.2f）；有自己 mood() 的島（第 %d 座）維持自己的天色、沒有星星" % [float(m_hub["sky.night"]), own], float(m_hub["sky.night"]) > 0.9 and (own < 0 or float(m_own["sky.night"]) < 0.01)])
+	var m_plain := _mood_of(plain, 0) if plain >= 0 else {}
+	checks.append(["沒有自己天色的島（第 %d 座）跟著時間" % plain, plain < 0 or float(m_plain["sky.night"]) > 0.9])
+	var fails := 0
+	for c in checks:
+		if not bool(c[1]):
+			fails += 1
+		print("[%s] %s" % ["PASS" if bool(c[1]) else "FAIL", c[0]])
+	print("TODTEST: %s" % ("ALL PASS" if fails == 0 else "%d FAIL" % fails))
+	get_tree().quit()
+
+func _todshots(dir: String) -> void:
+	DirAccess.make_dir_recursive_absolute(dir)
+	await get_tree().create_timer(1.0).timeout
+	select_stage(2)
+	for h in [6.5, 9.0, 12.0, 16.0, 18.0, 19.5, 21.0, 23.5, 3.0]:
+		_tod_mode = "fixed"
+		_tod_fixed = h
+		_tod_hour = h
+		_tod_night = HubTime.night_k(h)
+		_set_mood(selected, stage_sel, true)
+		await _sail_shot(dir.path_join("tod_%04.1f.png" % h), 1.6)
+	_tod_set_hour(21.0)
+	_tod_toggle()
+	await _sail_shot(dir.path_join("tod_panel.png"), 1.2)
+	_tod_toggle()
+	# 夜裡開船
+	select_stage(_hub_index("dock"))
+	await get_tree().create_timer(0.3).timeout
+	start_selected()
+	await get_tree().create_timer(1.0).timeout
+	_key(KEY_W, true)
+	await _sail_shot(dir.path_join("tod_sail_night.png"), 1.8)
+	_key(KEY_W, false)
 	get_tree().quit()
 
 func _sail_shot(path: String, wait := 0.5) -> void:
