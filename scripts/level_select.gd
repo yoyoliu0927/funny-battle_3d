@@ -90,6 +90,22 @@ const CARD_COLORS := {
 	"ice": Color("7cc6ec"), "example_farm": Color("e8b04a"), "_template": Color("a99bd6"), "forest": Color("f2d24a"),
 }
 const CARD_CYCLE := [Color("7cc6ec"), Color("8fcf6f"), Color("f0a35a"), Color("c495e0")]
+
+## 世界分兩區：主島在中間，北邊是「北方諸國」（神獸與冰雪的國度），南邊是「南方島嶼」（人類佔領的島）。
+## 這裡沒列到的大關算南方；大關也可以在自己的 chapter.gd 寫 const REGION := "north" 或 "south" 指定。
+const NORTH_IDS := ["ice", "heaven"]
+const FINAL_IDS := ["heaven"]       # 最終章：其他大關都破完（帶回所有羽毛）才能上去；排在北方最高的地方
+const REGION_INFO := {
+	"north": {"name": "北方諸國", "sub": "神獸與冰雪的國度", "col": Color("e6f6ff"), "cap": Color("4a9fe0")},
+	"south": {"name": "南方島嶼", "sub": "被人類佔領的島", "col": Color("fff1d6"), "cap": Color("e8483a")},
+}
+## 世界地圖上島四周淺水的顏色：南方像沙灘、北方像結冰的淺灘
+const SHALLOW_TINT := {"north": Color(0.78, 0.90, 0.97), "south": Color(0.98, 0.88, 0.58)}
+## 每破一個大關，家豪帶回一根羽毛（湊齊就是「五采而文」的鳳凰）。顏色照劇本（levels/ice/docs/劇情故事.md）：
+## 冰雪島是青色、最後丹穴山是金色，中間三根是紅、黃和另一個顏色。沒列到的照島的主色
+const FEATHER_COLORS := {
+	"ice": Color("4fc3d9"), "liuchiyu": Color("e2483a"), "forest": Color("f2d03a"), "fort": Color("9a72d8"), "heaven": Color("f0a81c"),
+}
 const INK := Color("3b2a20")
 const PAPER := Color("fff8e7")
 const PAPER_EDGE := Color("d9c9a8")
@@ -201,6 +217,9 @@ var _snd_pop := 0.0          # 喇叭按鈕剛被按：彈一下還剩幾秒
 var _hop_i := 0              # 走路時已經跳了幾下（每落地一次響一聲）
 var _flags: Array = []       # 會飄的旗子 {node, phase}
 var _clouds: Array = []      # 蓋住未開放小島的雲 {node, base, phase}
+var _plumes: Node3D          # 家豪屁股上的羽毛（破一個大關多一根；世界地圖上才看得到）
+var _shallow_mats := {}      # 區 -> 淺水材質（世界地圖上：南方沙色、北方冰藍）
+var _floats: Array = []      # 海上漂的東西（北方的浮冰、南方的沙洲）{node, base, phase}
 
 # ================================================================== 啟動
 
@@ -217,9 +236,18 @@ func _ready() -> void:
 	for e in entries.size():
 		worlds.append(_build_world(e))
 	_fit_map_camera()
+	_sea_mat.set_shader_parameter("region_z", float(worlds[0].center.z))
+	var isles: Array = []
+	for w in worlds.slice(0, 8):
+		var c: Vector3 = w.center
+		isles.append(Vector4(c.x, c.z, float(w.rx), float(w.rz)))
+	_sea_mat.set_shader_parameter("isles", isles)
+	_sea_mat.set_shader_parameter("isle_count", isles.size())
 	_build_routes()
 	_build_ring()
 	_build_shallows()
+	_build_sea_props()
+	_build_halo()
 	_build_hero()
 	_build_ui()
 	_build_audio()
@@ -246,9 +274,9 @@ func _ready() -> void:
 func _load_chapters() -> void:
 	LEVELS = Registry.chapters()
 	var islands: Array = LEVELS.filter(func(c): return not _is_example(c))
-	# 範例關（examples/）和底線開頭的大關（_template 範本）：只有開發版看得到，排在主題島後面各當一座多出來的島
-	# （命令列加 --no-dev 就藏起來）。主島上不放關卡
-	var drafts: Array = LEVELS.filter(func(c): return _is_example(c))
+	# 範例關（examples/）：只有開發版看得到，排在主題島後面各當一座多出來的島（命令列加 --no-dev 就藏起來）。
+	# 底線開頭的大關（_template 範本）不上地圖：它只是開新大關時複製用的。主島上不放關卡
+	var drafts: Array = LEVELS.filter(func(c): return _is_example(c) and not String(c.id).begins_with("_"))
 	if not OS.is_debug_build() or "--no-dev" in OS.get_cmdline_user_args():
 		drafts.clear()
 	entries.clear()
@@ -299,10 +327,48 @@ func _st_open(e: int, k: int) -> bool:
 	var s := _st(e, k)
 	match String(s.kind):
 		"stage":
-			return _unlocked_ch(s.ch, int(s.k) + 1)
+			return _unlocked_ch(s.ch, int(s.k) + 1) and _gate_need(s.ch) == 0
 		"locked":
 			return false
 	return true
+
+## 這座島在哪一區："hub"（主島）、"north"、"south"、"dev"（開發版才有的範例島）
+func _region(e: int) -> String:
+	if _is_hub(e):
+		return "hub"
+	var ch: Dictionary = entries[e].ch
+	if ch.is_empty():
+		return "south"
+	if _is_example(ch):
+		return "dev"
+	var r := String(_chapter_consts(ch).get("REGION", ""))
+	if r == "north" or r == "south":
+		return r
+	return "north" if String(ch.id) in NORTH_IDS else "south"
+
+## 羽毛：每個正式大關一根，全部小關都過了就拿到。[{id, col, have}]，照地圖上的順序
+func _feathers() -> Array:
+	var out: Array = []
+	for ent in entries:
+		var ch: Dictionary = ent.ch
+		if _playable(ch) and not _is_example(ch):
+			out.append({"id": String(ch.id), "col": _feather_col(ch), "have": Progress.chapter_cleared(ch)})
+	return out
+
+func _feather_col(ch: Dictionary) -> Color:
+	return FEATHER_COLORS.get(String(ch.id), CARD_COLORS.get(String(ch.id), GOLD))
+
+## 最終章還差幾根羽毛才能上去（不是最終章、或已經玩過了，都是 0：舊存檔不會被鎖回去）
+func _gate_need(ch: Dictionary) -> int:
+	if ch.is_empty() or not String(ch.id) in FINAL_IDS:
+		return 0
+	if ch.stages.any(func(st): return Progress.is_cleared(st.id)):
+		return 0
+	var need := 0
+	for f in _feathers():
+		if String(f.id) != String(ch.id) and not bool(f.have):
+			need += 1
+	return need
 
 func _st_cleared(e: int, k: int) -> bool:
 	var s := _st(e, k)
@@ -496,48 +562,77 @@ func _strip_node(parent: Node3D, pts: PackedVector3Array, width: float, lift: fl
 	parent.add_child(mi)
 	return mi
 
-## 每座島放在世界地圖的哪裡：主島在正中間，主題島圍在四周（站點最多、最寬的放北邊，再來西、東、南，然後四個角）
+## 每座島放在世界地圖的哪裡：主島在正中間，北方諸國一排在上面（最終章再往北抬高，像一路往上爬），
+## 南方島嶼一排在下面（最寬的在兩端、最小的在中間，像一道圍著主島的弧）。開發版的範例島排在最南邊。
 func _layout() -> void:
-	var size := func(e: int) -> Vector2:
+	var sizes := {}
+	for e in entries.size():
 		var n: int = (_stations[e] as Array).size()
 		if String(_st(e, 0).kind) == "locked":
-			return Vector2(ISLE_R + 2.0, ISLE_R + 2.0)
-		return Vector2((n - 1) * STEP * 0.5 + 9.5, 13.5 if e == 0 else 11.0)
+			sizes[e] = Vector2(ISLE_R + 2.0, ISLE_R + 2.0)
+		else:
+			sizes[e] = Vector2((n - 1) * STEP * 0.5 + 9.5, 13.5 if e == 0 else 11.0) * _isle_scale(e)
 	_ring_pos.resize(entries.size())
 	_ring_pos[0] = Vector2.ZERO
-	var hub: Vector2 = size.call(0)
-	var order: Array = range(1, entries.size())
-	order.sort_custom(func(a, b):
-		var na: int = (_stations[a] as Array).size()
-		var nb: int = (_stations[b] as Array).size()
-		return na > nb if na != nb else a < b)
-	var far_n := 0.0
-	var far_s := 0.0
-	for i in order.size():
-		var e: int = order[i]
-		var s: Vector2 = size.call(e)
-		var p := Vector2.ZERO
-		# 北、西、東、南（方向鍵一按就到），再來是四個角
-		match i % 8:
-			0:
-				p = Vector2(0, -(hub.y + s.y + MAP_GAP + 14.0))
-				far_n = p.y
-			1:
-				p = Vector2(-(hub.x + s.x + MAP_GAP), -5.0)
-			2:
-				p = Vector2(hub.x + s.x + MAP_GAP, -5.0)
-			3:
-				p = Vector2(0, hub.y + s.y + MAP_GAP - 2.0)
-				far_s = p.y
-			4:
-				p = Vector2(-(hub.x + s.x + MAP_GAP + 26.0), far_n + 4.0)
-			5:
-				p = Vector2(hub.x + s.x + MAP_GAP + 26.0, far_n + 4.0)
-			6:
-				p = Vector2(-(hub.x + s.x + MAP_GAP + 20.0), far_s - 2.0)
+	var hub: Vector2 = sizes[0]
+	var north: Array = []
+	var south: Array = []
+	var dev: Array = []
+	for e in range(1, entries.size()):
+		match _region(e):
+			"north":
+				north.append(e)
+			"dev":
+				dev.append(e)
 			_:
-				p = Vector2(hub.x + s.x + MAP_GAP + 20.0, far_s - 2.0)
-		_ring_pos[e] = p * (1.0 + 0.9 * float(i / 8))
+				south.append(e)
+	# 北方：照大關順序由左往右，最終章最後、抬高
+	var rise := {}
+	for e in north:
+		if String(entries[e].ch.get("id", "")) in FINAL_IDS:
+			rise[e] = 16.0
+	_place_row(north, sizes, -1.0, hub.y + MAP_GAP, rise, 0.0)      # 最終章抬高了，跟左邊的島不會撞
+	for e in north:
+		_ring_pos[e] += Vector2(-8.0, 0.0)
+	# 南方：寬的放兩端，小的放中間
+	var by_w := south.duplicate()
+	by_w.sort_custom(func(a, b): return (sizes[a] as Vector2).x > (sizes[b] as Vector2).x if not is_equal_approx((sizes[a] as Vector2).x, (sizes[b] as Vector2).x) else a < b)
+	var left: Array = []
+	var right: Array = []
+	for i in by_w.size():
+		if i % 2 == 0:
+			left.append(by_w[i])
+		else:
+			right.push_front(by_w[i])
+	_place_row(left + right, sizes, 1.0, hub.y + MAP_GAP, {}, 26.0)
+	# 開發版的範例島：南方再往南一排
+	var far := hub.y + MAP_GAP
+	for e in south:
+		far = maxf(far, float(_ring_pos[e].y) + (sizes[e] as Vector2).y + MAP_GAP)
+	_place_row(dev, sizes, 1.0, far, {}, 18.0)
+	for e in dev:
+		_ring_pos[e] += Vector2(-34.0, 0.0)          # 往左挪：航線才不會穿過南方中間那座島
+
+## 最終章放大 1.2 倍，其他 1 倍
+func _isle_scale(e: int) -> float:
+	return 1.2 if not _is_hub(e) and String(entries[e].ch.get("id", "")) in FINAL_IDS else 1.0
+
+## 一排島：照寬度排開、左右置中；中間的往外凸一點。sign：-1 往北、1 往南；base：離主島中心多遠開始
+func _place_row(list: Array, sizes: Dictionary, sign: float, base: float, rise: Dictionary, gap: float) -> void:
+	if list.is_empty():
+		return
+	var total := gap * (list.size() - 1)
+	for e in list:
+		total += (sizes[e] as Vector2).x * 2.0
+	var x := -total * 0.5
+	for i in list.size():
+		var e: int = list[i]
+		var s: Vector2 = sizes[e]
+		x += s.x
+		var t := 1.0 if list.size() == 1 else absf(float(i) / (list.size() - 1) * 2.0 - 1.0)   # 0 = 中間、1 = 兩端
+		var d := base + s.y + (1.0 - t) * 8.0 + float(rise.get(e, 0.0))
+		_ring_pos[e] = Vector2(x, d * sign)
+		x += s.x + gap
 
 ## 世界地圖的鏡頭：往下看 MAP_PITCH，退到所有的島都進得了畫面
 func _fit_map_camera() -> void:
@@ -574,6 +669,7 @@ func _build_world(e: int) -> Dictionary:
 	var le := 0 if hub else int(ent.slot) + 2          # 島自己座標裡的「第幾排」（決定路怎麼彎、預設島長什麼樣）
 	var at: Vector2 = _ring_pos[e]
 	var off := Vector3(at.x, 0, at.y)
+	var sc := _isle_scale(e)                          # 最終章整座放大一點（全圖的視覺高潮）
 	var w := {"root": root, "n": n, "pads": [], "isles": [], "isle_roots": [], "segs": [], "pad_nodes": [], "hook": hook,
 		"center": Vector3(at.x, TOP_Y, at.y), "rx": ISLE_R + 2.0, "rz": ISLE_R + 2.0, "marks": []}
 	var ctx := {}
@@ -582,9 +678,9 @@ func _build_world(e: int) -> Dictionary:
 		if hub:
 			ctx.rz = maxf(float(ctx.rz), 13.5)
 		var c: Vector2 = ctx.center
-		off = Vector3(at.x - c.x, 0, at.y - c.y)
-		w.rx = float(ctx.rx)
-		w.rz = float(ctx.rz)
+		off = Vector3(at.x - c.x * sc, 0, at.y - c.y * sc)
+		w.rx = float(ctx.rx) * sc
+		w.rz = float(ctx.rz) * sc
 		if hub:
 			_build_farm(root, ctx)
 		elif hook and hook.has_method("build_island"):
@@ -592,6 +688,7 @@ func _build_world(e: int) -> Dictionary:
 		else:
 			_default_island(root, le, ctx)
 	root.position = off
+	root.scale = Vector3.ONE * sc
 	w["origin"] = off
 	# 把一個點貼到島面上（島自己的座標）
 	var on_ground := func(p: Vector3) -> Vector3:
@@ -608,8 +705,8 @@ func _build_world(e: int) -> Dictionary:
 		else:
 			lpads.append(Vector3(0, 0, ISLE_R + 1.7))
 			lspots.append(Vector3.ZERO)
-		w.pads.append((lpads[k] as Vector3) + off)
-		w.isles.append((lspots[k] as Vector3) + off)
+		w.pads.append((lpads[k] as Vector3) * sc + off)
+		w.isles.append((lspots[k] as Vector3) * sc + off)
 	# 路：一條平滑的曲線穿過所有站點，一段一段鋪在島面上（走過的那一段是金色）
 	var edge_mat := _flat_mat(PATH_EDGE, true)
 	for k in n - 1:
@@ -622,7 +719,7 @@ func _build_world(e: int) -> Dictionary:
 		for i in 25:
 			var p: Vector3 = on_ground.call(p1.cubic_interpolate(p2, p0, p3, i / 24.0))
 			pts.append(p)
-			wpts.append(p + off)
+			wpts.append(p * sc + off)
 		w.segs.append(wpts)
 		var done := String(_st(e, k).kind) != "stage" or _st_cleared(e, k)
 		w.marks.append(_strip_node(root, pts, 1.5, PATH_LIFT, edge_mat))
@@ -848,22 +945,183 @@ func _build_shallows() -> void:
 	arr[Mesh.ARRAY_INDEX] = idx
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
-	_shallow_mat = StandardMaterial3D.new()
-	_shallow_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	_shallow_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_shallow_mat.vertex_color_use_as_albedo = true
-	_shallow_mat.albedo_color = Color(0.56, 0.95, 0.88)
-	_shallow_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
-	_shallow_mat.render_priority = 1
-	for w in worlds:
+	var make := func() -> StandardMaterial3D:
+		var m := StandardMaterial3D.new()
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		m.vertex_color_use_as_albedo = true
+		m.albedo_color = Color(0.56, 0.95, 0.88)
+		m.cull_mode = BaseMaterial3D.CULL_DISABLED
+		m.render_priority = 1
+		return m
+	_shallow_mat = make.call()
+	for r in SHALLOW_TINT:
+		_shallow_mats[r] = make.call()
+	for e in worlds.size():
+		var w: Dictionary = worlds[e]
 		var c: Vector3 = w.center
 		var mi := MeshInstance3D.new()
 		mi.mesh = mesh
-		mi.material_override = _shallow_mat
+		mi.material_override = _shallow_mats.get(_region(e), _shallow_mat)
 		mi.position = Vector3(c.x, 0.05, c.z)
 		mi.scale = Vector3(float(w.rx) + 12.0, 1.0, float(w.rz) + 12.0)
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		add_child(mi)
+
+## 海上的小東西，讓兩區一眼看得出差別：北方漂著浮冰和冰山，南方散著幾塊長了樹叢的沙洲。
+## 位置用固定種子的亂數挑（每次開都一樣），避開島、航線和彼此。最終章還鎖著的話，整座島被一圈雲蓋住。
+func _build_sea_props() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 20261120
+	var lo := Vector2(INF, INF)
+	var hi := Vector2(-INF, -INF)
+	for w in worlds:
+		var c: Vector3 = w.center
+		lo = Vector2(minf(lo.x, c.x - float(w.rx)), minf(lo.y, c.z - float(w.rz)))
+		hi = Vector2(maxf(hi.x, c.x + float(w.rx)), maxf(hi.y, c.z + float(w.rz)))
+	var rz := float(worlds[0].center.z)
+	var taken: Array = []
+	var free := func(p: Vector2, room: float) -> bool:
+		for w in worlds:
+			var c: Vector3 = w.center
+			var d := Vector2((p.x - c.x) / (float(w.rx) + room), (p.y - c.z) / (float(w.rz) + room))
+			if d.length() < 1.0:
+				return false
+		for rt in _routes:
+			for q in (rt.pts as PackedVector2Array):
+				if q.distance_to(p) < room * 0.7:
+					return false
+		for q in taken:
+			if (q as Vector2).distance_to(p) < room * 1.6:
+				return false
+		return true
+	var pick := func(north: bool, room: float) -> Vector2:
+		for i in 80:
+			# 南方的沙洲不放到最外圈（左下角是羅盤、右下角是按鍵提示）
+			var p := Vector2(rng.randf_range(lo.x - 34.0, hi.x + 34.0), rng.randf_range(lo.y - 24.0, rz - 26.0)) if north else Vector2(rng.randf_range(lo.x + 6.0, hi.x - 6.0), rng.randf_range(rz + 26.0, hi.y + 6.0))
+			if free.call(p, room):
+				taken.append(p)
+				return p
+		return Vector2(INF, INF)
+	var ice_dir := "res://levels/ice/assets/blender/"
+	for i in 12:
+		var p: Vector2 = pick.call(true, 9.0)
+		if p.x == INF:
+			continue
+		var berg := i % 4 == 0
+		var path := ice_dir + ("ice_chunk_%s.glb" % ["a", "b", "c", "d", "e"][i % 5] if berg else "ice_floe_%s.glb" % ["a", "b", "c"][i % 3])
+		var node := _spawn_fit(self, path, Vector3(p.x, -0.25 if berg else -0.15, p.y), rng.randf_range(4.5, 6.5) if berg else rng.randf_range(5.5, 9.0), rng.randf() * TAU)
+		if node == null:
+			node = _blob(self, Vector3(p.x, 0.0, p.y), Vector3(4.0, 0.5, 3.0), Color(0.95, 0.98, 1.0))
+		_floats.append({"node": node, "base": node.position, "phase": i * 1.7})
+	var sand := _flat_mat(Color("e9c37c"))
+	for i in 3:
+		var p: Vector2 = pick.call(false, 10.0)
+		if p.x == INF:
+			continue
+		var bar := Node3D.new()
+		bar.position = Vector3(p.x, 0.0, p.y)
+		bar.rotation.y = rng.randf() * TAU
+		add_child(bar)
+		var sx := rng.randf_range(2.6, 4.2)
+		_blob(bar, Vector3(0, -0.35, 0), Vector3(sx, 0.75, sx * rng.randf_range(0.55, 0.8)), Color("e9c37c"), sand)
+		_blob(bar, Vector3(sx * 0.2, 0.1, 0.2), Vector3(sx * 0.45, 0.35, sx * 0.35), Color("7cbf4e"))       # 一小片草
+		_spawn_fit(bar, "res://assets/nature/BirchTree.glb", Vector3(-sx * 0.25, 0.25, -0.2), 3.2)
+		_spawn_fit(bar, "res://assets/nature/BushBerries.glb", Vector3(sx * 0.35, 0.25, 0.3), 1.5)
+		_floats.append({"node": bar, "base": bar.position, "phase": i * 2.3})
+	# 最終章還鎖著：島的四周和頂上一圈雲（拿齊羽毛才散開）
+	for e in range(1, worlds.size()):
+		if _gate_need(entries[e].ch) == 0:
+			continue
+		var w: Dictionary = worlds[e]
+		var c: Vector3 = w.center
+		var cm := _cloud_mat()
+		for i in 16:
+			var a := i * TAU / 16.0
+			var top := i >= 11
+			var rr := 0.35 if top else 1.0
+			var pos := Vector3(c.x + cos(a * 1.0 + (0.6 if top else 0.0)) * (float(w.rx) + 1.0) * rr, TOP_Y + (7.5 if top else 2.4 + 1.2 * sin(i * 1.9)), c.z + sin(a + (0.6 if top else 0.0)) * (float(w.rz) + 1.0) * rr)
+			var sc := (5.2 if top else 4.0) + 1.2 * sin(i * 2.3)
+			var b := _blob(self, pos, Vector3(sc * 1.3, sc * 0.75, sc), Color(1, 1, 1), cm)
+			_clouds.append({"node": b, "base": b.position, "phase": i * 0.9 + e})
+
+## 最終章腳下一圈慢慢呼吸的金色光暈（_process 裡調亮暗）
+var _halo_mat: StandardMaterial3D
+var _halo_e := -1
+var _region_zone := Rect2()    # 畫面左邊兩區名字佔的地方（島牌要讓開）
+
+func _build_halo() -> void:
+	for e in range(1, worlds.size()):
+		if not String(entries[e].ch.get("id", "")) in FINAL_IDS:
+			continue
+		var w: Dictionary = worlds[e]
+		var c: Vector3 = w.center
+		# 加亮混合、從岸邊往外漸淡：看起來是光，不是一塊底盤
+		_halo_mat = StandardMaterial3D.new()
+		_halo_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		_halo_mat.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+		_halo_mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+		_halo_mat.vertex_color_use_as_albedo = true
+		_halo_mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+		_halo_mat.render_priority = 1
+		_halo_mat.albedo_color = Color(0, 0, 0, 0)
+		var mi := MeshInstance3D.new()
+		mi.mesh = _glow_mesh([[0.80, 0.0], [0.97, 1.0], [1.10, 0.55], [1.30, 0.18], [1.55, 0.0]])
+		mi.material_override = _halo_mat
+		mi.position = Vector3(c.x, 0.14, c.z)
+		mi.scale = Vector3(float(w.rx) + 2.0, 1.0, float(w.rz) + 2.0)
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		add_child(mi)
+		_halo_e = e
+
+## 一圈從內往外漸變的帶子（rings：[[半徑, 亮度], ...]，亮度放在頂點顏色的 alpha）
+func _glow_mesh(rings: Array) -> ArrayMesh:
+	var verts := PackedVector3Array()
+	var cols := PackedColorArray()
+	var idx := PackedInt32Array()
+	for i in 97:
+		var a := i * TAU / 96.0
+		for rg in rings:
+			verts.append(Vector3(cos(a), 0, sin(a)) * float(rg[0]))
+			cols.append(Color(1, 1, 1, float(rg[1])))
+		if i > 0:
+			for j in rings.size() - 1:
+				var v := i * rings.size() + j
+				var pv := v - rings.size()
+				idx.append_array([pv, pv + 1, v, pv + 1, v + 1, v])
+	var arr := []
+	arr.resize(Mesh.ARRAY_MAX)
+	arr[Mesh.ARRAY_VERTEX] = verts
+	arr[Mesh.ARRAY_COLOR] = cols
+	arr[Mesh.ARRAY_INDEX] = idx
+	var mesh := ArrayMesh.new()
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arr)
+	return mesh
+
+func _cloud_mat() -> StandardMaterial3D:
+	var cm := StandardMaterial3D.new()
+	cm.albedo_color = Color(1, 1, 1)
+	cm.emission_enabled = true
+	cm.emission = Color(0.82, 0.88, 0.96)
+	cm.emission_energy_multiplier = 0.55
+	cm.roughness = 1.0
+	return cm
+
+## 一顆壓扁的球（雲、沙洲、找不到模型時的浮冰）
+func _blob(parent: Node3D, pos: Vector3, size: Vector3, col: Color, mat: Material = null) -> MeshInstance3D:
+	var s := SphereMesh.new()
+	s.radius = 1.0
+	s.height = 2.0
+	s.radial_segments = 20
+	s.rings = 10
+	var mi := MeshInstance3D.new()
+	mi.mesh = s
+	mi.material_override = mat if mat else _flat_mat(col)
+	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	mi.position = pos
+	mi.scale = size
+	parent.add_child(mi)
+	return mi
 
 ## 從島中心往 dir 這個方向到岸邊大概多遠（當成橢圓算）
 func _edge(w: Dictionary, dir: Vector2) -> float:
@@ -892,6 +1150,8 @@ func _build_routes() -> void:
 		var count := maxi(int(len / ROUTE_STEP), 3)
 		var ch: Dictionary = entries[e].ch
 		var done := _playable(ch) and Progress.chapter_cleared(ch)
+		# 浮球頂的顏色：全破綠色；北方藍、南方紅；最終章還鎖著是灰色
+		var cap: Color = GREEN if done else (LOCKED_EDGE if _gate_need(ch) > 0 else (REGION_INFO.get(_region(e), REGION_INFO.south) as Dictionary).cap)
 		var pts := PackedVector2Array()
 		for i in count + 1:
 			var t := float(i) / count
@@ -904,7 +1164,7 @@ func _build_routes() -> void:
 			mm.instance_count = pts.size()
 			var mi := MultiMeshInstance3D.new()
 			mi.multimesh = mm
-			mi.material_override = _flat_mat(Color(1, 1, 1) if layer == 0 else (GREEN if done else SHOP_RED))
+			mi.material_override = _flat_mat(Color(1, 1, 1) if layer == 0 else cap)
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 			add_child(mi)
 			mms.append(mm)
@@ -1244,6 +1504,29 @@ func _build_hero() -> void:
 	if bb.size.y > 0.01:
 		chars.scale = Vector3.ONE * (1.7 / bb.size.y)
 		chars.position.y = -bb.position.y * chars.scale.y
+	# 屁股上插著帶回來的羽毛（一個大關一根，扇形翹起來；世界地圖上才看得到）
+	_plumes = Node3D.new()
+	_plumes.name = "Plumes"
+	_plumes.position = Vector3(0, 0.75, -0.55)
+	_plumes.visible = false
+	_hero_body.add_child(_plumes)
+	var got: Array = _feathers().filter(func(f): return bool(f.have))
+	for i in got.size():
+		var cap := CapsuleMesh.new()
+		cap.radius = 0.13
+		cap.height = 1.05
+		cap.radial_segments = 10
+		cap.rings = 4
+		var arm := Node3D.new()
+		arm.rotation = Vector3(-0.55, 0, (i - (got.size() - 1) * 0.5) * 0.42)
+		_plumes.add_child(arm)
+		var mi := MeshInstance3D.new()
+		mi.mesh = cap
+		mi.material_override = _flat_mat((got[i] as Dictionary).col)
+		mi.position = Vector3(0, 0.5, 0)
+		mi.scale = Vector3(1.0, 1.0, 0.38)
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		arm.add_child(mi)
 	# 主島上的幾隻母雞（白色、沒穿帽 T）：在家門口和田邊啄來啄去
 	if not worlds.is_empty() and int(worlds[0].n) >= 2:
 		var home: Vector3 = worlds[0].pads[_first_open_stage_of(0)]
@@ -1797,19 +2080,33 @@ func _star_total(ch: Dictionary) -> Array:
 			maxn += 1
 	return [have, maxn, starred]
 
-## 所有主題島加起來：[星星拿到幾顆, 星星一共幾顆, 過了幾關（沒有三星制度的島）, 一共幾關]
+## 所有主題島加起來：[星星拿到幾顆, 星星一共幾顆, 0, 0]。還沒有三星制度的大關先算「過一關＝1 顆星」，
+## 這樣地圖上只有一種進度符號（★），總數也算得到每座島
 func _star_all() -> Array:
 	var out := [0, 0, 0, 0]
 	for ent in entries:
 		if _playable(ent.ch) and not _is_example(ent.ch):
 			var t := _star_total(ent.ch)
-			var o := 0 if t[2] else 2
-			out[o] += int(t[0])
-			out[o + 1] += int(t[1])
-	var ht := _hub_total()
-	out[2] += int(ht[0])
-	out[3] += int(ht[1])
+			out[0] += int(t[0])
+			out[1] += int(t[1])
 	return out
+
+## 左上角的羽毛列：「羽毛」兩個字＋每個大關一根（拿到的上色、沒拿到的是空框）。回傳它的框
+func _feather_chip(c: Control, u: float, pos: Vector2) -> Rect2:
+	var fs := _feathers()
+	if fs.is_empty():
+		return Rect2(pos, Vector2.ZERO)
+	var have := fs.filter(func(f): return bool(f.have)).size()
+	var label := "%d/%d" % [have, fs.size()]
+	var lw := _font().get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(24 * u)).x
+	var step := 24.0 * u
+	var r := Rect2(pos, Vector2(20 * u + step * fs.size() + 10 * u + lw + 16 * u, 50 * u))
+	c.draw_style_box(_box(PAPER, PAPER_EDGE, 14 * u, 3.0), r)
+	for i in fs.size():
+		var f: Dictionary = fs[i]
+		_feather(c, r.position + Vector2(22 * u + step * i, 42 * u), 32 * u, 0.32, f.col, bool(f.have))
+	_text(c, Vector2(r.position.x + 20 * u + step * fs.size() + 10 * u, r.position.y + 25 * u + 24 * u * 0.36), label, 24 * u, INK)
+	return r
 
 func _paint_isle_layer(c: Control) -> void:
 	_start_rect = Rect2()
@@ -1823,6 +2120,7 @@ func _paint_map_layer(c: Control) -> void:
 	if worlds.is_empty() or selected < 0:
 		return
 	_paint_chart(c, _u())
+	_paint_regions(c, _u())
 	_paint_tags(c, _u())
 	_paint_compass(c, _u())
 
@@ -1842,12 +2140,64 @@ func _next_mark(c: Control, at: Vector2, s: float) -> void:
 	c.draw_circle(np, 13.5 * s, SHOP_RED)
 	_text(c, np + Vector2(-13.0 * s, 8.5 * s), "!", 24.0 * s, Color(1, 1, 1), 26.0 * s, HORIZONTAL_ALIGNMENT_CENTER)
 
-## 世界地圖上建議下一個去哪座島（只有這一座的島牌掛驚嘆號）：先找玩到一半的，沒有就找還沒開始的；都全過了回傳 -1
+## 世界地圖上的「下一站」：一條綠色小布條貼在島牌旁邊（右邊放不下就放左邊），尖角指著島牌，左右輕輕晃
+func _next_banner(c: Control, tag: Rect2, s: float) -> void:
+	var f := _font()
+	var label := "下一站"
+	var fs := 20.0 * s
+	var lw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(fs)).x
+	var vs := get_viewport().get_visible_rect().size
+	var w := lw + 32 * s
+	var h := 34.0 * s
+	var tail := 12.0 * s
+	var nudge := absf(sin(_t * 3.4)) * 6.0 * s
+	var right := tag.end.x + tail + 6 * s + w + nudge < vs.x - 10 * s
+	var cy := tag.position.y + 30.0 * s            # 對齊島牌第一排（名字那一排）
+	var r := Rect2(Vector2(tag.end.x + tail + 4 * s + nudge if right else tag.position.x - tail - 4 * s - w - nudge, cy - h * 0.5), Vector2(w, h))
+	c.draw_style_box(_box(GREEN, Color("2f7a2f"), 17 * s, 3.0), r)
+	var bx := r.position.x + 2.0 if right else r.end.x - 2.0
+	var tip := Vector2(r.position.x - tail if right else r.end.x + tail, cy)
+	c.draw_colored_polygon(PackedVector2Array([Vector2(bx, cy - 9 * s), Vector2(bx, cy + 9 * s), tip]), GREEN)
+	var ex := r.position.x if right else r.end.x
+	c.draw_polyline(PackedVector2Array([Vector2(ex, cy - 9 * s), tip, Vector2(ex, cy + 9 * s)]), Color("2f7a2f"), 3.0, true)
+	_text(c, Vector2(r.position.x + 16 * s, cy + fs * 0.36), label, fs, Color(1, 1, 1))
+
+## 一根羽毛的圖示：base 是羽根，h 是長度，ang 往右歪幾弧度。filled = false 畫成還沒拿到的虛線空框
+func _feather(c: Control, base: Vector2, h: float, ang: float, col: Color, filled := true) -> void:
+	var dir := Vector2(sin(ang), -cos(ang))
+	var side := Vector2(-dir.y, dir.x)
+	var pts := PackedVector2Array()
+	var n := 12
+	for i in n + 1:
+		var t := float(i) / n
+		pts.append(base + dir * h * (0.22 + 0.78 * t) + side * sin(pow(t, 0.75) * PI) * h * 0.21)
+	for i in range(n, -1, -1):
+		var t := float(i) / n
+		pts.append(base + dir * h * (0.22 + 0.78 * t) - side * sin(pow(t, 0.75) * PI) * h * 0.17)
+	if filled:
+		c.draw_colored_polygon(pts, col)
+		var ring := pts.duplicate()
+		ring.append(pts[0])
+		c.draw_polyline(ring, col.darkened(0.4), maxf(h * 0.06, 1.5), true)
+		# 羽毛上兩道分岔的缺口、一道亮邊
+		for k in [0.5, 0.72]:
+			var at: Vector2 = base + dir * h * float(k)
+			c.draw_line(at + side * h * 0.19, at - dir * h * 0.05 + side * h * 0.02, Color(PAPER, 0.95), maxf(h * 0.05, 1.2), true)
+		c.draw_line(base + dir * h * 0.35 - side * h * 0.08, base + dir * h * 0.8 - side * h * 0.06, Color(1, 1, 1, 0.45), maxf(h * 0.05, 1.2), true)
+		c.draw_line(base, base + dir * h * 0.97, col.darkened(0.5), maxf(h * 0.055, 1.4), true)
+	else:
+		var ring2 := pts.duplicate()
+		ring2.append(pts[0])
+		c.draw_colored_polygon(pts, Color(col, 0.16))
+		c.draw_polyline(ring2, Color(col.darkened(0.15), 0.75), maxf(h * 0.055, 1.4), true)
+		c.draw_line(base, base + dir * h * 0.9, Color(col.darkened(0.3), 0.5), maxf(h * 0.045, 1.2), true)
+
+## 世界地圖上建議下一個去哪座島（只有這一座的島牌掛「下一站」）：先找玩到一半的，沒有就找還沒開始的；都全過了回傳 -1
 func _next_isle() -> int:
 	var fresh := -1
 	for e in range(1, entries.size()):
 		var ch: Dictionary = entries[e].ch
-		if not _playable(ch) or _is_example(ch) or _next_station(e) < 0:
+		if not _playable(ch) or _is_example(ch) or _next_station(e) < 0 or _gate_need(ch) > 0:
 			continue
 		if ch.stages.any(func(st): return Progress.is_cleared(st.id)):
 			return e
@@ -2042,10 +2392,11 @@ func _paint_bubble(c: Control, u0: float) -> void:
 				_star(c, Vector2(x, row_y), 14 * u, GOLD, Color("8a6410"))
 				var t1 := "%d/%d" % [all[0], all[1]]
 				_text(c, Vector2(x + 22 * u, row_y + 9 * u), t1, 24 * u, INK)
-				x += 22 * u + _font().get_string_size(t1, HORIZONTAL_ALIGNMENT_LEFT, -1, int(24 * u)).x + 34 * u
-			if int(all[3]) > 0:
-				_pennant(c, Vector2(x, row_y), 12 * u)
-				_text(c, Vector2(x + 20 * u, row_y + 9 * u), "%d/%d" % [all[2], all[3]], 24 * u, INK)
+				x += 22 * u + _font().get_string_size(t1, HORIZONTAL_ALIGNMENT_LEFT, -1, int(24 * u)).x + 30 * u
+			# 羽毛：一個大關一根
+			var fs := _feathers()
+			for i in fs.size():
+				_feather(c, Vector2(x - 6 * u + 17 * u * i, row_y + 15 * u), 26 * u, 0.32, fs[i].col, bool(fs[i].have))
 		"guide":
 			_icon_badge(c, bc, 29 * u, "guide")
 			_text(c, Vector2(text_x, o.y + 58 * u), "告示牌", 32 * u, INK)
@@ -2074,7 +2425,9 @@ func _paint_bubble(c: Control, u0: float) -> void:
 			var title := String(stage.title)
 			var fs := _fit(title, 32 * u, r.end.x - text_x - 20 * u, 16.0)
 			_text(c, Vector2(text_x, o.y + 46 * u + fs * 0.36), title, fs, INK)
-			if not open:
+			if not open and _gate_need(ch) > 0:
+				_text(c, Vector2(text_x, row_y + 8 * u), "還差 %d 根羽毛才能上山" % _gate_need(ch), 22 * u, Color("6f6a60"))
+			elif not open:
 				_text(c, Vector2(text_x, row_y + 8 * u), "先過第 %d 關" % int(st.k), 22 * u, Color("6f6a60"))
 			else:
 				if stars >= 0:
@@ -2100,8 +2453,9 @@ func _tag_info(e: int) -> Dictionary:
 	if not _playable(ch):
 		return {"title": "？？？", "col": LOCKED, "stat": "", "starred": false, "done": false, "kind": "locked", "fresh": false}
 	var t2 := _star_total(ch)
-	return {"title": String(ch.title), "col": _color_of(ent), "stat": "%d/%d" % [t2[0], t2[1]], "starred": bool(t2[2]),
-		"done": int(t2[1]) > 0 and int(t2[0]) >= int(t2[1]), "kind": "isle", "fresh": todo}
+	var need := _gate_need(ch)
+	return {"title": String(ch.title), "col": _color_of(ent), "stat": ("還差 %d 根羽毛" % need) if need > 0 else "%d/%d" % [t2[0], t2[1]], "starred": true,
+		"done": int(t2[1]) > 0 and int(t2[0]) >= int(t2[1]), "kind": "isle", "fresh": todo, "gate": need}
 
 ## 主島上的關卡：[過了幾關, 一共幾關]
 func _hub_total() -> Array:
@@ -2132,8 +2486,8 @@ func _paint_tags(c: Control, u: float) -> void:
 		var kind := String(info.kind)
 		var hubc: Vector3 = worlds[0].center
 		var wc: Vector3 = w.center
-		var below := kind != "hub" and wc.z > hubc.z + 8.0 and absf(wc.x - hubc.x) < 12.0
-		var top: Vector3 = wc + (Vector3(float(w.rx) + 7.5, 0, 0) if below else Vector3(0, 5.0, -float(w.rz)))
+		var lside := kind == "hub"            # 主島的島牌掛在左邊（上面是北方的島，別擋住）
+		var top: Vector3 = wc + (Vector3(-float(w.rx) - 4.0, 0, 0) if lside else Vector3(0, 5.0, -float(w.rz)))
 		if _cam.is_position_behind(top):
 			_tag_rects[e] = Rect2()
 			continue
@@ -2154,16 +2508,16 @@ func _paint_tags(c: Control, u: float) -> void:
 		var bh := 60.0 * s + (52.0 * s if can_go else 0.0)
 		var tail := 16.0 * s
 		var bob := sin(_t * 2.2 + e) * 2.5 * u if on else 0.0
-		if not below and absf(wc.x - hubc.x) > 20.0:
+		if not lside and absf(wc.x - hubc.x) > 20.0:
 			anchor.x += signf(wc.x - hubc.x) * 46.0 * u      # 東西兩邊的島：島牌往外挪一點，讓出中間給主島的島牌
 		var ax := anchor.x
-		if kind == "hub":
-			anchor.x -= bw * 0.5 + 16.0 * s          # 整張往左挪，尖角在右下角
 		var r := Rect2(Vector2(anchor.x - bw * 0.5, anchor.y - bh - tail + bob), Vector2(bw, bh))
-		if below:
-			r.position = Vector2(anchor.x + tail, anchor.y - bh * 0.5 + bob)
+		if lside:
+			r.position = Vector2(anchor.x - tail - bw, anchor.y - bh * 0.5 + bob)
 		r.position.x = clampf(r.position.x, 14.0 * u, vs.x - bw - 14.0 * u)
 		r.position.y = clampf(r.position.y, 14.0 * u, vs.y - bh - 14.0 * u)
+		if r.intersects(_region_zone) and not lside:
+			r.position.x = minf(_region_zone.end.x + 10.0 * u, vs.x - bw - 14.0 * u)     # 別蓋住「北方諸國／南方島嶼」
 		var hover := r.has_point(mouse)
 		var col: Color = info.col
 		var edge := col.darkened(0.25) if on or hover else PAPER_EDGE
@@ -2171,14 +2525,14 @@ func _paint_tags(c: Control, u: float) -> void:
 		# 尖角
 		var fill := PAPER if kind != "locked" else Color("efece4")
 		var lw2 := 4.0 if on else 3.0
-		if below:
-			# 尖角在左邊、朝左
-			var cy2 := clampf(anchor.y, r.position.y + 22 * s, r.end.y - 22 * s)
-			var lx := r.position.x
-			c.draw_colored_polygon(PackedVector2Array([Vector2(lx + 4.0, cy2 - 12 * s), Vector2(lx + 4.0, cy2 + 12 * s), Vector2(lx - tail, cy2)]), fill)
-			c.draw_polyline(PackedVector2Array([Vector2(lx + 1.0, cy2 - 12 * s), Vector2(lx - tail, cy2), Vector2(lx + 1.0, cy2 + 12 * s)]), edge, lw2, true)
+		if lside:
+			# 尖角在右邊、朝右
+			var cy3 := clampf(anchor.y, r.position.y + 22 * s, r.end.y - 22 * s)
+			var rx2 := r.end.x
+			c.draw_colored_polygon(PackedVector2Array([Vector2(rx2 - 4.0, cy3 - 12 * s), Vector2(rx2 - 4.0, cy3 + 12 * s), Vector2(rx2 + tail, cy3)]), fill)
+			c.draw_polyline(PackedVector2Array([Vector2(rx2 - 1.0, cy3 - 12 * s), Vector2(rx2 + tail, cy3), Vector2(rx2 - 1.0, cy3 + 12 * s)]), edge, lw2, true)
 		else:
-			var tx := clampf(ax - (26.0 * s if kind == "hub" else 0.0), r.position.x + 30 * s, r.end.x - 30 * s)
+			var tx := clampf(ax, r.position.x + 30 * s, r.end.x - 30 * s)
 			var ty := r.end.y
 			c.draw_colored_polygon(PackedVector2Array([Vector2(tx - 12 * s, ty - 4.0), Vector2(tx + 12 * s, ty - 4.0), Vector2(tx, ty + tail)]), fill)
 			c.draw_polyline(PackedVector2Array([Vector2(tx - 12 * s, ty - 1.0), Vector2(tx, ty + tail), Vector2(tx + 12 * s, ty - 1.0)]), edge, lw2, true)
@@ -2197,29 +2551,23 @@ func _paint_tags(c: Control, u: float) -> void:
 			_island_badge(c, entries[e].ch, bc, br, col)
 			if bool(info.done):
 				_crown(c, bc + Vector2(0, -br - 5.0 * s), s * 0.85)
-			elif Progress.chapter_cleared(entries[e].ch):
-				# 每一關都過了、星星還沒拿滿：徽章右下角一顆小綠勾（拿滿才戴皇冠）
-				var cp := bc + Vector2(br * 0.72, br * 0.72)
-				c.draw_circle(cp, 9.5 * s, Color(1, 1, 1))
-				c.draw_circle(cp, 7.8 * s, GREEN)
-				_check_icon(c, cp, 8.0 * s, Color(1, 1, 1))
+			if Progress.chapter_cleared(entries[e].ch):
+				# 每一關都過了：徽章右下角插著從這座島帶回來的羽毛（星星拿滿再多戴一頂皇冠）
+				_feather(c, bc + Vector2(br * 0.55, br * 0.95), 26.0 * s, 0.5, _feather_col(entries[e].ch))
 		var tcol := INK if kind != "locked" else Color("7d776c")
 		_text(c, Vector2(r.position.x + 66 * s, r.position.y + 30 * s + ts * 0.36), title, ts, tcol)
 		if e == hint:
-			_next_mark(c, Vector2(r.end.x - 4.0 * s, r.position.y + 2.0 * s), maxf(s, 0.9 * u) * 0.92)
+			_next_banner(c, r, maxf(s, 0.9 * u) * 0.92)
 		if stat != "":
 			var sx := r.position.x + 66 * s + tw + 16 * s
 			var chip := Rect2(Vector2(sx, r.position.y + 14 * s), Vector2(sw, 32 * s))
-			var flagged := not bool(info.starred) and not bool(info.done)
-			c.draw_style_box(_box(Color("ffe2d2") if flagged else Color("fff1bf"), Color("e0a07c") if flagged else Color("d9b84a"), 16 * s, 2.0, false), chip)
-			if bool(info.starred):
-				_star(c, chip.position + Vector2(15, 16) * s, 9 * s, GOLD, Color("8a6410"))
-			elif bool(info.done):
-				c.draw_circle(chip.position + Vector2(15, 16) * s, 8.5 * s, GREEN)
-				_check_icon(c, chip.position + Vector2(15, 16) * s, 9 * s, Color(1, 1, 1))
+			var gated := int(info.get("gate", 0)) > 0
+			c.draw_style_box(_box(Color("ecebe6") if gated else Color("fff1bf"), LOCKED_EDGE if gated else Color("d9b84a"), 16 * s, 2.0, false), chip)
+			if gated:
+				_lock_icon(c, chip.position + Vector2(15, 17) * s, 11 * s, Color("8a857a"))
 			else:
-				_pennant(c, chip.position + Vector2(16, 16) * s, 9.5 * s)
-			_text(c, chip.position + Vector2(28 * s, 23.5 * s), stat, ss, INK)
+				_star(c, chip.position + Vector2(15, 16) * s, 9 * s, GOLD, Color("8a6410"))
+			_text(c, chip.position + Vector2(28 * s, 23.5 * s), stat, ss, Color("6f6a60") if gated else INK)
 		if can_go:
 			var ks := UIStyle.keycap_size("Enter", 14 * s)
 			var pulse := 1.0 + sin(_t * 4.0) * 0.025
@@ -2232,6 +2580,96 @@ func _paint_tags(c: Control, u: float) -> void:
 			UIStyle.draw_keycap(c, Vector2(x0 + lw + 10 * s, gr.get_center().y - ks.y * 0.5), "Enter", 14 * s)
 			_go_rect = gr
 		_tag_rects[e] = r
+
+## 南北的分界線（海面上一道手繪虛線，經過主島時斷開）和兩區的名字（左邊靠分界線，北在上、南在下）
+func _paint_regions(c: Control, u: float) -> void:
+	var hub: Dictionary = worlds[0]
+	var hc: Vector3 = hub.center
+	var zline := hc.z
+	# 分界線：在世界座標沿著 z = zline 取點，投影到畫面；碰到島（主島）就斷開
+	var seg := PackedVector2Array()
+	var ink := Color(1, 1, 1, 0.55)
+	var x := _map_center.x - 260.0
+	while x <= _map_center.x + 260.0:
+		var wz := zline + sin(x * 0.045) * 2.5
+		var inside := false
+		for w in worlds:
+			var c3: Vector3 = w.center
+			if Vector2((x - c3.x) / (float(w.rx) + 9.0), (wz - c3.z) / (float(w.rz) + 9.0)).length() < 1.0:
+				inside = true
+		if absf(x - hc.x) < float(hub.rx) + 30.0:
+			inside = true                    # 主島（連碼頭）左右都留白：分界線停在兩邊的岸外
+		var p3 := Vector3(x, 0.3, wz)
+		if inside or _cam.is_position_behind(p3):
+			if seg.size() >= 2:
+				_dashes(c, seg, ink, 3.0 * u, 16.0 * u, 11.0 * u)
+			seg = PackedVector2Array()
+		else:
+			seg.append(_cam.unproject_position(p3))
+		x += 4.0
+	if seg.size() >= 2:
+		_dashes(c, seg, ink, 3.0 * u, 16.0 * u, 11.0 * u)
+	# 兩區的名字：貼在畫面左邊、分界線上下（島牌會避開這一塊，見 _paint_tags）
+	var ly := _cam.unproject_position(Vector3(_map_center.x - 120.0, 0.3, zline)).y
+	_region_zone = Rect2(Vector2(40.0 * u, ly - 78.0 * u), Vector2(262.0 * u, 184.0 * u))
+	var f := _font()
+	for key in ["north", "south"]:
+		var has := false
+		for e in range(1, entries.size()):
+			has = has or _region(e) == key
+		if not has:
+			continue
+		var info: Dictionary = REGION_INFO[key]
+		var up: bool = key == "north"
+		var nm := String(info.name)
+		var sub := String(info.sub)
+		var ns := 40.0 * u
+		var ss := 19.0 * u
+		var x0 := 52.0 * u
+		var base_y := ly - 30.0 * u if up else ly + 66.0 * u
+		# 字距拉開，像地圖上的地名
+		var cx := x0 + 44.0 * u
+		for ch in nm:
+			c.draw_string_outline(f, Vector2(cx, base_y), ch, HORIZONTAL_ALIGNMENT_LEFT, -1, int(ns), int(9 * u), Color(0.04, 0.16, 0.30, 0.55))
+			c.draw_string(f, Vector2(cx, base_y), ch, HORIZONTAL_ALIGNMENT_LEFT, -1, int(ns), info.col)
+			cx += f.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, int(ns)).x + 10.0 * u
+		var sy := base_y + 30.0 * u
+		c.draw_string_outline(f, Vector2(x0 + 46.0 * u, sy), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, int(ss), int(6 * u), Color(0.04, 0.16, 0.30, 0.5))
+		c.draw_string(f, Vector2(x0 + 46.0 * u, sy), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, int(ss), Color(info.col, 0.92))
+		# 前面的小圖示：北方一片雪花、南方一顆太陽；再一個指向那一區的箭頭
+		var ic := Vector2(x0 + 18.0 * u, base_y - 13.0 * u)
+		if up:
+			_snowflake(c, ic, 17.0 * u, info.col, 3.0 * u)
+		else:
+			c.draw_circle(ic, 9.5 * u, Color("ffd76a"))
+			for i in 8:
+				var a := i * TAU / 8.0
+				c.draw_line(ic + Vector2(cos(a), sin(a)) * 13.0 * u, ic + Vector2(cos(a), sin(a)) * 18.0 * u, Color("ffd76a"), 3.0 * u, true)
+		var ay := ly + (-10.0 if up else 10.0) * u
+		var tip := Vector2(x0 + 18.0 * u, ay + (-14.0 if up else 14.0) * u)
+		c.draw_line(Vector2(tip.x, ay), tip, Color(info.col, 0.8), 3.0 * u, true)
+		c.draw_colored_polygon(PackedVector2Array([tip + Vector2(0, (-6.0 if up else 6.0) * u), tip + Vector2(-6 * u, 0), tip + Vector2(6 * u, 0)]), Color(info.col, 0.8))
+
+## 沿著一串點畫虛線（線段長 dash、空白 gap）
+func _dashes(c: Control, pts: PackedVector2Array, col: Color, w: float, dash: float, gap: float) -> void:
+	var on := true
+	var left := dash
+	for i in pts.size() - 1:
+		var a := pts[i]
+		var b := pts[i + 1]
+		var len := a.distance_to(b)
+		var t := 0.0
+		while t < len:
+			var step := minf(left, len - t)
+			var p0 := a.lerp(b, t / len)
+			var p1 := a.lerp(b, (t + step) / len)
+			if on:
+				c.draw_line(p0, p1, col, w, true)
+			t += step
+			left -= step
+			if left <= 0.0:
+				on = not on
+				left = dash if on else gap
 
 ## 世界地圖的底：淡淡的經緯虛線＋四周壓暗（像一張攤開的航海圖），畫在島牌下面
 func _paint_chart(c: Control, u: float) -> void:
@@ -2316,22 +2754,20 @@ func _paint_hud(c: Control, u: float) -> void:
 		var x := at.x
 		if int(all[1]) > 0:
 			x = _chip(c, u, at, "star", "%d/%d" % [all[0], all[1]], 24.0).end.x + 12 * u
-		if int(all[3]) > 0:
-			_chip(c, u, Vector2(x, at.y), "check" if int(all[2]) >= int(all[3]) else "flag", "%d/%d" % [all[2], all[3]], 24.0)
+		_feather_chip(c, u, Vector2(x, at.y))
 		return
 	if _is_hub(selected):
+		# 主島沒有關卡：秀這趟旅程帶回了幾根羽毛
 		_headline(c, u, HUB_TITLE, 62.0)
-		var ht := _hub_total()
-		if int(ht[1]) > 0:
-			_chip(c, u, at, "check" if int(ht[0]) >= int(ht[1]) else "flag", "%d/%d" % [ht[0], ht[1]], 24.0)
+		_feather_chip(c, u, at)
 		return
 	var playable := _playable(ch)
 	_headline(c, u, String(ch.title) if playable else "？？？", 62.0)
 	if not playable:
 		return
-	# 「★ 7/18」；沒有三星制度的大關顯示過了幾關
+	# 「★ 7/18」（沒有三星制度的大關：過一關算一顆）
 	var tot := _star_total(ch)
-	_chip(c, u, at, "star" if tot[2] else ("check" if int(tot[0]) >= int(tot[1]) else "flag"), "%d/%d" % [tot[0], tot[1]], 24.0)
+	_chip(c, u, at, "star", "%d/%d" % [tot[0], tot[1]], 24.0)
 
 ## 右上角的圓按鈕底：米色紙片＋陰影；下面掛一顆鍵帽。回傳半徑
 func _round_button(c: Control, u: float, ctr: Vector2, key: String, label: String, bg := PAPER, edge := PAPER_EDGE, pop := 0.0) -> float:
@@ -2628,6 +3064,10 @@ func start_selected() -> bool:
 	if not _st_open(selected, stage_sel):
 		if _dev():
 			_show_toast("（開發模式：還沒解鎖也讓你進去）")
+		elif _gate_need(s.ch) > 0:
+			_show_toast("還差 %d 根羽毛：先把其他島都破完" % _gate_need(s.ch))
+			_play("bump")
+			return false
 		else:
 			_show_toast("先過第 %d 關" % int(s.k))
 			_play("bump")
@@ -2793,6 +3233,18 @@ func _process(dt: float) -> void:
 	_sea_mat.set_shader_parameter("fade_near", lerpf(60.0, 700.0, z))
 	_sea_mat.set_shader_parameter("fade_far", lerpf(260.0, 1400.0, z))
 	_sea_mat.set_shader_parameter("zoom", z)
+	_sea_mat.set_shader_parameter("region_k", smoothstep(0.15, 0.85, z))
+	if _halo_mat:
+		var here := int(_jump.e) if not _jump.is_empty() else selected
+		var dim := 0.35 if here == _halo_e else 1.0            # 選到這座島時有黃色選取圈了，光暈退一點
+		_halo_mat.albedo_color = Color(1.0, 0.86, 0.52, smoothstep(0.6, 1.0, z) * (0.55 + 0.2 * sin(_t * 1.6)) * dim)
+	if _plumes:
+		_plumes.visible = z > 0.3
+		_plumes.scale = Vector3.ONE * smoothstep(0.3, 0.8, z)
+	for fl in _floats:
+		var fn := fl.node as Node3D
+		fn.position = (fl.base as Vector3) + Vector3(sin(_t * 0.21 + float(fl.phase)) * 0.8, sin(_t * 0.9 + float(fl.phase)) * 0.06, cos(_t * 0.17 + float(fl.phase)) * 0.6)
+		fn.rotation.y = float(fl.phase) + sin(_t * 0.13 + float(fl.phase)) * 0.25
 	_hero.scale = Vector3.ONE * lerpf(1.0, HERO_BIG, z)
 	_hero_tilt.rotation.x = -0.62 * z                    # 世界地圖是從上面看：往後仰，才看得到臉
 	_hero_base.visible = z > 0.3 and _jump.is_empty()        # 飛的時候底座不跟著飛
@@ -2826,6 +3278,8 @@ func _process(dt: float) -> void:
 			(ir as Node3D).scale = big
 	_env.adjustment_saturation = lerpf(1.35, 1.2, z)
 	_shallow_mat.albedo_color = Color(_shallow_tint, lerpf(0.5, 1.0, z))
+	for r in _shallow_mats:
+		(_shallow_mats[r] as StandardMaterial3D).albedo_color = Color(_shallow_tint.lerp(SHALLOW_TINT[r], z * 0.8), lerpf(0.5, 1.0, z))
 	if absf(z - _route_z) > 0.004:
 		_size_routes(z)
 	_ov_isle.modulate.a = 1.0 - smoothstep(0.0, 0.45, z)
@@ -3000,6 +3454,28 @@ func _press(code: Key) -> void:
 	ev.pressed = true
 	Input.parse_input_event(ev)
 
+## 南北兩區排得對不對：北方的島中心在主島北邊、南方的在南邊；最終章是北方最北的那座
+func _regions_ok() -> bool:
+	var hz := float(worlds[0].center.z)
+	var top := INF
+	var top_e := -1
+	for e in range(1, entries.size()):
+		var z := float(worlds[e].center.z)
+		match _region(e):
+			"north":
+				if z >= hz:
+					return false
+				if z < top:
+					top = z
+					top_e = e
+			"south", "dev":
+				if z <= hz:
+					return false
+	for e in range(1, entries.size()):
+		if String(entries[e].ch.get("id", "")) in FINAL_IDS and _region(e) == "north" and e != top_e:
+			return false
+	return true
+
 func _autotest() -> void:
 	var lines: Array = []
 	var fails := 0
@@ -3021,15 +3497,18 @@ func _autotest() -> void:
 	for ent in entries:
 		if not (ent.ch as Dictionary).is_empty():
 			on_map += 1
+	var listed := LEVELS.filter(func(c): return not String(c.id).begins_with("_")).size()      # 範本不上地圖
 	var hub_kinds: Array = (_stations[0] as Array).map(func(s): return String(s.kind))
 	var real_isles := entries.filter(func(en): return not bool(en.get("hub", false)) and not ((en.ch as Dictionary).is_empty() == false and _is_example(en.ch))).size()
 	var checks := [
-		["選關畫面自動找到所有大關（%d 個）" % LEVELS.size(), on_map == LEVELS.size() and LEVELS.size() >= 1],
+		["選關畫面自動找到所有大關（%d 個，範本不算）" % listed, on_map == listed and listed >= 1],
 		["一進畫面家豪站在主島（農莊）的家", _is_hub(selected) and String(_st_now().kind) == "home"],
 		["主島沒有關卡，只有功能點（商店、冒險紀錄、家、告示牌、碼頭）", hub_kinds == ["shop", "board", "home", "guide", "dock"]],
 		["農場範例是開發版多出來的一座島", farm > 0],
 		["每個大關的第 1 小關都可以玩", all_first],
 		["主題島至少 %d 座（沒做好的上鎖）" % ISLAND_SLOTS, real_isles >= ISLAND_SLOTS],
+		["北方諸國的島都在主島北邊、南方島嶼都在南邊，最終章在最北", _regions_ok()],
+		["每個正式大關一根羽毛（%d 根）" % _feathers().size(), _feathers().size() == LEVELS.filter(func(c): return _playable(c) and not _is_example(c)).size()],
 	]
 	if DisplayServer.window_can_draw():
 		await RenderingServer.frame_post_draw
