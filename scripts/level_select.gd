@@ -57,6 +57,17 @@ const HubJournal := preload("res://scripts/hub/hub_journal.gd")   # 冒險手帳
 const HubGrowth := preload("res://scripts/hub/hub_growth.gd")     # 破關後農莊長出小地標和居民
 const HubUI := preload("res://scripts/hub/hub_ui.gd")            # 手帳和釣魚共用的畫圖工具
 const Journal := preload("res://scripts/hub/journal.gd")          # 手帳的存檔和資料
+const HubWalk := preload("res://scripts/hub/hub_walk.gd")         # 主島自由走：位置、障礙、吸附站點（實驗：experiment/free-walk）
+
+## 主島自由走的障礙：模型檔名 -> 擋多大一圈（公尺）。蓋主島的時候 _spawn_fit 看到這些檔名就登記
+const HUB_SOLID := {
+	"BigBarn.glb": 2.3, "Barn.glb": 2.0, "SmallBarn.glb": 1.4, "OpenBarn.glb": 1.8, "ChickenCoop.glb": 1.5,
+	"SiloHouse.glb": 1.5, "Silo.glb": 1.1, "Windmill.glb": 1.6, "BirchTree.glb": 0.5, "AutumnTree.glb": 0.5,
+	"market_stall.glb": 1.1, "tent.glb": 1.3, "cart.glb": 0.8, "chest.glb": 0.6, "campfire-pit.glb": 0.55,
+	"campfire-fishing-stand.glb": 0.8, "fish_net.glb": 0.5, "tree-log.glb": 0.7, "barrel.glb": 0.4,
+	"crate-strong.glb": 0.5, "signpost-single.glb": 0.25, "post_lantern.gltf": 0.25,
+}
+const FREE_DASH_SPEED := 38.0     # 按數字鍵衝到站點的速度（公尺／秒）
 
 ## 正式的「島」一共幾座（四個組員各一座）；不夠的用「建造中」補滿
 const ISLAND_SLOTS := 4
@@ -230,6 +241,17 @@ var _cam_bias := Vector3.ZERO      # 鏡頭多看向哪邊（釣魚時偏向池�
 var _cam_bias_to := Vector3.ZERO
 var _face_yaw := 0.0         # 家豪待機時朝哪個方向（0 = 面對鏡頭；釣魚時朝池塘）
 var _hub_yard := Rect2()     # 主島雞圈的範圍（島自己的座標：x, z, 寬, 深）
+var _free := HubWalk.new()   # 主島自由走（hub_walk.gd）
+var _free_enabled := true    # 主島用自由走（命令列 --no-freewalk 關掉；自動測試預設關掉，--freewalk 再打開）
+var _free_near := true       # 家豪離最近的站點夠近（泡泡、Enter 才有效）
+var _free_goal := Vector3.ZERO     # 滑鼠點地面：走到這個點
+var _free_goal_on := false
+var _free_stuck := 0.0       # 走向滑鼠點的路上被擋住多久了
+var _free_dash := {}         # 按數字鍵衝向站點：{"from", "to", "t", "dur", "k"}
+var _free_dist := 0.0        # 自由走一共走了幾公尺（算一跳一跳）
+var _free_hop_i := 0
+var _hub_build := false      # 正在蓋主島：_spawn_fit 要登記障礙
+var _hub_blocks: Array = []  # 主島的障礙 [節點, 半徑, 世界座標偏移]
 var _hero_tilt: Node3D       # 家豪（中間那層：世界地圖上往後仰，從上面看得到臉）
 var _hero_base: Node3D       # 世界地圖上家豪腳下的棋子底座
 var _shadow: MeshInstance3D  # 飛行時海面上的影子
@@ -246,7 +268,7 @@ var _floats: Array = []      # 海上漂的東西（北方的浮冰、南方的�
 
 func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
-		if a == "--autotest" or a.begins_with("--mapshots=") or a.begins_with("--hubshots=") or a.begins_with("--titleshots="):
+		if a == "--autotest" or a.begins_with("--mapshots=") or a.begins_with("--hubshots=") or a.begins_with("--titleshots=") or a == "--freetest" or a.begins_with("--freeshots="):
 			Journal.persist = false          # 測試不寫玩家的手帳存檔
 	_load_chapters()
 	_sync_stars()
@@ -265,6 +287,9 @@ func _ready() -> void:
 	add_child(_fishing)
 	for e in entries.size():
 		worlds.append(_build_world(e))
+	_hub_build = false
+	_free.map = self
+	_free.build()
 	_fit_map_camera()
 	_sea_mat.set_shader_parameter("region_z", float(worlds[0].center.z))
 	var isles: Array = []
@@ -300,6 +325,8 @@ func _ready() -> void:
 	var shots := ""
 	var hub_shots := ""
 	var hub_test := false
+	var free_test := false
+	var free_shots := ""
 	for a in args:
 		if a.begins_with("--mapshots="):
 			shots = a.substr(11)
@@ -310,6 +337,14 @@ func _ready() -> void:
 		if a == "--hubtest":
 			hub_test = true
 			testing = true
+		if a == "--freetest":
+			free_test = true
+			testing = true
+		if a.begins_with("--freeshots="):
+			free_shots = a.substr(12)
+			testing = true
+	# 主島自由走：預設開；--no-freewalk 關掉。舊的自動測試是照「沿路走」寫的，所以測試預設關，加 --freewalk 才開
+	_free_enabled = not ("--no-freewalk" in args) and (not testing or "--freewalk" in args or free_test or free_shots != "")
 	selected = -1
 	select(0)
 	if Engine.has_meta("map_last"):
@@ -317,7 +352,7 @@ func _ready() -> void:
 	elif not testing:
 		_zoom = 1.0                      # 剛開遊戲：先看一眼整張世界地圖，再拉近到主島
 	_place_hero(true)
-	if TitleScreen.wanted() and hub_shots == "" and not hub_test:
+	if TitleScreen.wanted() and hub_shots == "" and not hub_test and not free_test and free_shots == "":
 		# 剛開遊戲：先放標題畫面。按下開始之後鏡頭直接滑到主島（第一次玩會先接開場劇情）
 		_zoom = 0.0
 		_layer.visible = false
@@ -332,6 +367,10 @@ func _ready() -> void:
 		_hubshots.call_deferred(hub_shots)
 	if hub_test:
 		_hubtest.call_deferred()
+	if free_test:
+		_freetest.call_deferred()
+	if free_shots != "":
+		_freeshots.call_deferred(free_shots)
 	if _title == null and not testing:
 		_growth_check.call_deferred()
 		_journal_check.call_deferred()
@@ -755,6 +794,7 @@ func _build_world(e: int) -> Dictionary:
 	var ent: Dictionary = entries[e]
 	var ch: Dictionary = ent.ch
 	var hub := _is_hub(e)
+	_hub_build = hub                                  # 蓋主島的時候，_spawn_fit 會登記自由走的障礙
 	var playable := hub or _playable(ch)
 	var sts: Array = _stations[e]
 	var n := sts.size()
@@ -1032,6 +1072,10 @@ func _fence_line(root: Node3D, path: String, a: Vector2, b: Vector2, y: float, s
 		var fn := _spawn_fit(root, path, Vector3(p.x, y, p.y), len / n, yaw)
 		if fn:
 			_small.append(fn)
+			# 柵欄擋路：每一段沿著它的方向放三個小圓，門（skip 那一段）是空的，家豪走得進去
+			var along := Vector3(d.x, 0, d.y).normalized() * (len / n) * 0.33
+			for sgn in [-1.0, 0.0, 1.0]:
+				_hub_blocks.append([fn, 0.35, along * sgn, 0.0])
 
 ## 主島第幾個站點是這種功能（找不到回傳 0）
 func _hub_index(kind: String) -> int:
@@ -1632,6 +1676,11 @@ func _spawn_fit(parent: Node3D, path: String, pos: Vector3, target: float, yaw :
 	holder.position = pos
 	holder.rotation.y = yaw
 	parent.add_child(holder)
+	if _hub_build and HUB_SOLID.has(path.get_file()):
+		# 主島自由走：這個東西會擋路。第 4 個數字：家豪躲到它後面時要變透明的範圍（0 = 不透明；樹冠 1.5、建築 = 擋路半徑 + 0.9）
+		var sr := float(HUB_SOLID[path.get_file()])
+		var vis := 1.5 if path.get_file() in ["BirchTree.glb", "AutumnTree.glb"] else (sr + 0.9 if sr >= 0.8 else 0.0)
+		_hub_blocks.append([holder, sr, Vector3.ZERO, vis])
 	var n := ps.instantiate() as Node3D
 	holder.add_child(n)
 	var bb := _aabb(n, Transform3D.IDENTITY)
@@ -1803,7 +1852,124 @@ func _token(e: int) -> Vector3:
 
 ## 家豪現在該站在哪（島上：站點上；世界地圖：那座島的棋子位置；拉遠拉近時在兩個之間）
 func _stand_now() -> Vector3:
+	if _free_hub():
+		return _free.pos.lerp(_token(selected), _z())        # 主島自由走：家豪在農莊裡哪裡就是哪裡
 	return _stand(selected, stage_sel).lerp(_token(selected), _z())
+
+# ---------------------------------------------------------------- 主島自由走
+
+## 這座島（現在站的那座）用自由走嗎？只有主島；不管現在拉近還是拉遠
+func _free_hub() -> bool:
+	return _free_enabled and selected >= 0 and selected < entries.size() and _is_hub(selected)
+
+## 現在是不是正在用自由走操作家豪（主島、拉近、標題畫面收掉了）
+func _free_active() -> bool:
+	return _free_hub() and not _map and _title == null and _z() < 0.25
+
+## 按住的方向鍵換成世界座標的水平方向（鏡頭朝北：上 = −z、右 = +x）
+func _free_input() -> Vector2:
+	var d := Vector2(
+		float(Input.is_key_pressed(KEY_RIGHT) or Input.is_key_pressed(KEY_D)) - float(Input.is_key_pressed(KEY_LEFT) or Input.is_key_pressed(KEY_A)),
+		float(Input.is_key_pressed(KEY_DOWN) or Input.is_key_pressed(KEY_S)) - float(Input.is_key_pressed(KEY_UP) or Input.is_key_pressed(KEY_W)))
+	return d.normalized() if d != Vector2.ZERO else d
+
+## 有東西蓋住畫面（釣魚、手帳、操作說明）：不能走
+func _free_locked() -> bool:
+	return _fishing.active or _journal.is_open() or (_guide != null and _guide.is_open()) or _starting
+
+## 按數字鍵：衝到第 k 個站點（沿直線跳過去，不管中間有沒有東西）
+func _free_dash_to(k: int) -> void:
+	if _busy() or _starting or _map or k < 0 or k >= int(worlds[0].n):
+		return
+	var to := _free.station(k)
+	var dist := Vector2(to.x - _free.pos.x, to.z - _free.pos.z).length()
+	if dist < 0.5:
+		return
+	_free_goal_on = false
+	_free_dash = {"from": _free.pos, "to": to, "t": 0.0, "dur": clampf(dist / FREE_DASH_SPEED, 0.25, 0.9), "k": k}
+	_bubble_a = 0.0
+	_play("fly", 1.3)
+
+## 滑鼠點地面：走到那個點（點在哪個地方用鏡頭射線打到島面的高度）
+func _free_goto_screen(pos: Vector2) -> bool:
+	var org := _cam.project_ray_origin(pos)
+	var dir := _cam.project_ray_normal(pos)
+	var hit: Variant = Plane(Vector3.UP, _free.pos.y - 0.3).intersects_ray(org, dir)
+	if hit == null:
+		return false
+	var g := _free.resolve(Vector3(hit.x, _free.pos.y, hit.z))
+	_free_goal = g
+	_free_goal_on = true
+	_free_stuck = 0.0
+	return true
+
+## 每一幕：走路（一跳一跳）、衝刺、靠近站點就冒泡泡
+func _tick_free(dt: float) -> void:
+	var moved := 0.0
+	var heading := Vector2.ZERO
+	if not _free_dash.is_empty():
+		var k: float = minf(float(_free_dash.t) + dt / float(_free_dash.dur), 1.0)
+		_free_dash.t = k
+		var e := k * k * (3.0 - 2.0 * k)
+		var a: Vector3 = _free_dash.from
+		var b: Vector3 = _free_dash.to
+		_free.pos = a.lerp(b, e)
+		_hero_body.position.y = sin(k * PI) * 2.4
+		heading = Vector2(b.x - a.x, b.z - a.z)
+		if k >= 1.0:
+			_free_dash = {}
+			_hero_body.position.y = 0.0
+			_play("land")
+	else:
+		var dir := Vector2.ZERO
+		if not _free_locked():
+			dir = _free_input()
+			if dir != Vector2.ZERO:
+				_free_goal_on = false
+			elif _free_goal_on:
+				var to := Vector2(_free_goal.x - _free.pos.x, _free_goal.z - _free.pos.z)
+				if to.length() < 0.3:
+					_free_goal_on = false
+				else:
+					dir = to.normalized() * minf(1.0, to.length() / (HubWalk.SPEED * dt))
+		if dir != Vector2.ZERO:
+			moved = _free.step(dt, dir)
+			heading = dir
+			if _free_goal_on:
+				# 被擋住（走了不到該走的三成）超過 0.35 秒就放棄
+				_free_stuck = _free_stuck + dt if moved < HubWalk.SPEED * dt * dir.length() * 0.3 else 0.0
+				if _free_stuck > 0.35:
+					_free_goal_on = false
+		if moved > 0.0001:
+			_free_dist += moved
+			_hero_body.position.y = absf(sin(_free_dist * PI / HOP_LEN)) * 0.7
+			var hops := int(_free_dist / HOP_LEN)
+			if hops != _free_hop_i:
+				_free_hop_i = hops
+				_play("hop", 1.0 + 0.12 * (hops % 2))
+		else:
+			_hero_body.position.y = lerpf(_hero_body.position.y, absf(sin(_t * 3.2)) * 0.08, 1.0 - exp(-dt * 12.0))
+	if heading.length_squared() > 0.0001:
+		_hero.rotation.y = lerp_angle(_hero.rotation.y, atan2(heading.x, heading.y), 1.0 - exp(-dt * 18.0))
+	else:
+		_hero.rotation.y = lerp_angle(_hero.rotation.y, _face_yaw, 1.0 - exp(-dt * 8.0))
+	var base := _free.pos
+	if _bump_t > 0.0:
+		_bump_t = maxf(_bump_t - dt, 0.0)
+		base += _bump_dir * sin(_bump_t / 0.25 * PI) * 0.6
+	_hero.position = base
+	# 靠近站點：stage_sel 永遠是「最近的那個站點」；夠近了才冒泡泡
+	var ns := _free.nearest(_free.pos)
+	var was := _free_near
+	_free_near = float(ns.d) < (HubWalk.FAR if was else HubWalk.NEAR)
+	if _free_near and (not was or int(ns.k) != stage_sel):
+		stage_sel = int(ns.k)
+		_bubble_a = 0.0
+		_set_mood(selected, stage_sel)
+	elif was and not _free_near:
+		_bubble_a = 0.0
+	if not _free_near:
+		_start_rect = Rect2()
 
 # ================================================================== 音效（程式合成）
 
@@ -2618,13 +2784,13 @@ func _paint_nodes(c: Control, u: float) -> void:
 	var next_k := _next_station(e)
 	var moving := not _walk.is_empty() or not _jump.is_empty()
 	for k in int(w.n):
-		if k == stage_sel and not moving:
+		if k == stage_sel and not moving and (not _free_hub() or _free_near):
 			continue                  # 家豪站的那一格不畫徽章（那一格有泡泡；釣魚、翻手帳的時候也不擋住家豪）
 		var wp: Vector3 = (w.pads[k] as Vector3) + Vector3(0, 1.5, 0)
 		if _cam.is_position_behind(wp):
 			continue
 		var sp := _cam.unproject_position(wp)
-		if absi(k - stage_sel) == 1 and not busy:
+		if absi(k - stage_sel) == 1 and not busy and not _free_hub():
 			# 左右隔壁那一格：就算站點在畫面邊上，徽章也要完整看得到
 			sp.x = clampf(sp.x, 64.0 * u, c.size.x - 64.0 * u)
 			sp.y = minf(sp.y, c.size.y - 150.0 * u)
@@ -2697,6 +2863,8 @@ func _bubble_button(c: Control, u: float, r: Rect2, label: String, bg: Color, ed
 func _paint_bubble(c: Control, u0: float) -> void:
 	if _map or _bubble_a <= 0.02 or _busy():
 		return
+	if _free_hub() and not _free_near:
+		return                        # 主島自由走：離站點還遠，沒有泡泡
 	var w: Dictionary = worlds[selected]
 	var ir: Node3D = w.isle_roots[stage_sel]
 	var wp: Vector3 = (w.isles[stage_sel] as Vector3) + Vector3(0, float(ir.get_meta("bubble_y", 5.0)), 0)
@@ -3265,9 +3433,12 @@ func _paint_keys(c: Control, u: float) -> void:
 		items = [[["↑", "←", "↓", "→"], "選島"], [["Esc"], "返回標題"]]
 	else:
 		var n := int(worlds[selected].n)
-		items = [[["←", "→"], "走路" if n > 1 else "離島"]]
-		if n >= 4:
-			items.append([["1~%d" % n], "直達"])
+		if _free_hub():
+			items = [[["W", "A", "S", "D"], "走路"], [["Enter"], "進去"], [["1~%d" % n], "直達"]]
+		else:
+			items = [[["←", "→"], "走路" if n > 1 else "離島"]]
+			if n >= 4:
+				items.append([["1~%d" % n], "直達"])
 		if _is_hub(selected):
 			items.append([["E"], "戳一戳"])
 		items.append([["M"], "世界地圖"])
@@ -3309,7 +3480,7 @@ func _unlocked_ch(ch: Dictionary, n: int) -> bool:
 	return Progress.unlocked(ch.id, n)
 
 func _busy() -> bool:
-	return not _walk.is_empty() or not _jump.is_empty() or (_fishing != null and _fishing.active) or (_journal != null and _journal.is_open())
+	return not _walk.is_empty() or not _jump.is_empty() or not _free_dash.is_empty() or (_fishing != null and _fishing.active) or (_journal != null and _journal.is_open())
 
 ## 一登島先站在哪一格：主島是家；主題島是「第一個還沒過、可以玩的小關」
 func _first_open_stage_of(e: int) -> int:
@@ -3350,6 +3521,12 @@ func _place_hero(snap := false) -> void:
 	_walk = {}
 	_jump = {}
 	_queued = 0
+	if _free_hub():
+		# 主島自由走：直接站回目前這個站點
+		_free.pos = _stand(selected, stage_sel)
+		_free_near = true
+		_free_goal_on = false
+		_free_dash = {}
 	_hero.position = _stand_now()
 	_hero.rotation.y = 0.0
 	_hero_body.position = Vector3.ZERO
@@ -3410,6 +3587,7 @@ func set_map(on: bool) -> void:
 		_play("bump")
 		return
 	_map = on
+	_free_goal_on = false
 	_play("fly", 0.8 if on else 1.15)
 	_bubble_a = 0.0
 	_set_mood(selected, stage_sel)
@@ -3462,6 +3640,8 @@ func start_selected() -> bool:
 	if _map:
 		set_map(false)
 		return false
+	if _free_hub() and not _free_near:
+		return false                     # 主島自由走：離站點還遠，Enter 沒有東西可以開
 	var s := _st_now()
 	match String(s.kind):
 		"shop":
@@ -3523,8 +3703,8 @@ func _open_guide() -> void:
 		_guide.kicker_text = "操作說明"
 		add_child(_guide)
 		_guide.set_pages([
-			{"title": "在島上", "body": "家豪沿著路一格一格走。走到地標前面，按 Enter 開始那一關。",
-				"controls": [["←／→", "走到隔壁一格"], ["Enter", "開始／進去"], ["1～9", "直接走到那一格"], ["M", "世界地圖"]]},
+			{"title": "在島上", "body": "家豪沿著路一格一格走。走到地標前面，按 Enter 開始那一關。農莊裡可以隨便跑：WASD 或方向鍵走路，走近建築就會冒出泡泡。",
+				"controls": [["←／→", "冒險島：走到隔壁一格"], ["WASD", "農莊：自由走路（滑鼠點地面也行）"], ["Enter", "開始／進去"], ["1～9", "直接走到那一格"], ["M", "世界地圖"]]},
 			{"title": "世界地圖", "body": "每座島的第一關一開始就能玩，想先去哪座島都可以。星星拿去商店換衣服。",
 				"controls": [["↑／←／↓／→", "飛到那個方向的島"], ["Enter", "登島"], ["B", "商店"], ["V", "聲音開關"]]},
 			{"title": "農莊", "body": "神可以戳農莊裡的任何東西：母雞、樹、風車、穀倉都有反應。池塘可以釣魚，手帳記著你的一切。",
@@ -3599,6 +3779,14 @@ func _unhandled_input(ev: InputEvent) -> void:
 			var k := _node_at(ev.position)
 			if _life.poke_at(ev.position, k >= 0):
 				pass                         # 戳到農莊裡的東西（站點旁邊只有母雞、蛋、家豪比站點優先）
+			elif _free_hub():
+				# 主島自由走：點到站點 → 在那裡就開始、不在就衝過去；點到空地 → 走過去
+				if k >= 0 and k == stage_sel and _free_near:
+					start_selected()
+				elif k >= 0:
+					_free_dash_to(k)
+				else:
+					_free_goto_screen(ev.position)
 			elif k == stage_sel:
 				start_selected()
 			elif k >= 0:
@@ -3615,7 +3803,10 @@ func _unhandled_input(ev: InputEvent) -> void:
 				_arrow(Vector2(0, 1))
 			KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9:
 				if not _map:
-					walk_to(ev.keycode - KEY_1)
+					if _free_hub():
+						_free_dash_to(ev.keycode - KEY_1)       # 主島自由走：衝到那個站點
+					else:
+						walk_to(ev.keycode - KEY_1)
 			KEY_ENTER, KEY_KP_ENTER, KEY_SPACE:
 				start_selected()
 			KEY_M, KEY_TAB:
@@ -3649,6 +3840,8 @@ func _unhandled_input(ev: InputEvent) -> void:
 
 ## 方向鍵：世界地圖上是換島；島上 ← → 是沿著路走，↑ ↓ 沒有路（頂一下）
 func _arrow(d: Vector2) -> void:
+	if _free_active():
+		return                           # 主島自由走：方向鍵是按住就走（_tick_free 每幕去讀），不在這裡處理
 	if _map:
 		_move_dir(d)
 	elif d.x != 0.0:
@@ -3722,6 +3915,8 @@ func _process(dt: float) -> void:
 		_ring_edge.albedo_color = Color(PATH_EDGE, z * 0.85)
 	for sm in _small:
 		(sm as Node3D).visible = z < 0.5
+	if _free_hub():
+		_free.update_occlusion(dt, _cam.global_position, _hero.position, _free_active())      # 家豪躲到樹和建築後面：它們變透明
 	_life.tick(dt, _t)
 	_growth.tick(dt, _t)
 	_fishing.tick(dt, _t)
@@ -3757,7 +3952,7 @@ func _process(dt: float) -> void:
 		var pn: Array = worlds[e].pad_nodes
 		var show := e == selected or e == cur_e or z > 0.12
 		for k in pn.size():
-			var on := e == selected and k == stage_sel and not _busy() and not _map
+			var on := e == selected and k == stage_sel and not _busy() and not _map and (not _free_hub() or _free_near)
 			(pn[k] as Node3D).scale = Vector3.ONE * ((1.06 + sin(_t * 4.0) * 0.04) if on else 1.0)
 			(pn[k] as Node3D).visible = show
 		for mk in worlds[e].marks:
@@ -3837,8 +4032,14 @@ func _tick_hero(dt: float) -> void:
 			_hero_body.rotation = Vector3.ZERO
 			_hero_body.scale = Vector3.ONE
 			_play("land")
+			if _free_hub():
+				_free.pos = _stand(selected, stage_sel)         # 飛回主島：落在站點上
+				_free_near = true
 			if String(_st_now().kind) == "locked":
 				_shake_t = SHAKE_TIME
+		return
+	if _free_active():
+		_tick_free(dt)
 		return
 	# 待機：轉回來面對鏡頭、輕輕彈；被擋住時往那邊頂一下
 	_hero.rotation.y = lerp_angle(_hero.rotation.y, _face_yaw, 1.0 - exp(-dt * 8.0))
@@ -4165,6 +4366,227 @@ func _hubtest() -> void:
 			fails += 1
 		print("[%s] %s" % ["PASS" if bool(c[1]) else "FAIL", c[0]])
 	print("HUBTEST: %s" % ("ALL PASS" if fails == 0 else "%d FAIL" % fails))
+	get_tree().quit()
+
+# ================================================================== 開發用：主島自由走（--freetest 快速驗收、--freeshots=資料夾 截圖）
+
+## 世界座標 p 在這座島的哪一種障礙裡？（驗收用：回傳 "" 表示沒事）
+func _free_violation(p: Vector3) -> String:
+	for c in _free.circles:
+		if Vector2(p.x - c.x, p.z - c.y).length() < HubWalk.RADIUS + float(c.z) - 0.25:
+			return "撞進障礙 (%.1f, %.1f)" % [c.x, c.y]
+	var w: Dictionary = worlds[0]
+	var ctr: Vector3 = w.center
+	var d := Vector2(p.x - ctr.x, p.z - ctr.z)
+	if d.length() > _outline(float(w.rx), float(w.rz), atan2(d.y, d.x), HubWalk.OUTLINE_S) - HubWalk.EDGE + 1.0:
+		return "出島"
+	var pc: Vector3 = _fishing.pond_center()
+	var ax: float = _fishing.pond_rx * 0.95 + 0.3
+	var az: float = _fishing.pond_rz * 0.95 + 0.3
+	if pow((p.x - pc.x) / ax, 2.0) + pow((p.z - pc.z) / az, 2.0) < 0.97:
+		return "進池塘"
+	return ""
+
+func _freetest() -> void:
+	await get_tree().create_timer(1.0).timeout
+	var checks: Array = []
+	var w: Dictionary = worlds[0]
+	var ctr: Vector3 = w.center
+	var off: Vector3 = w.origin
+	print("FREE circles=%d  hub_blocks=%d" % [_free.circles.size(), _hub_blocks.size()])
+	checks.append(["有登記障礙（樹、建築、柵欄）：%d 個" % _free.circles.size(), _free.circles.size() >= 40])
+	# 1. 六個站點都站得上去
+	var pads_bad := []
+	for k in int(w.n):
+		var p: Vector3 = _free.station(k)
+		var r: Vector3 = _free.resolve(p)
+		if Vector2(r.x - p.x, r.z - p.z).length() > 0.05:
+			pads_bad.append(k)
+	checks.append(["每個站點都站得上去（沒被障礙擋住）%s" % str(pads_bad), pads_bad.is_empty()])
+	# 2. 隨便亂走：撞到東西只會滑開，不會穿進去、出島或下池塘
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 7
+	var bad := ""
+	var steps := 0
+	for k in int(w.n):
+		_free.pos = _free.station(k)
+		var dir := Vector2.from_angle(rng.randf() * TAU)
+		for i in 900:
+			if i % 40 == 0:
+				dir = Vector2.from_angle(rng.randf() * TAU)
+			_free.step(1.0 / 60.0, dir)
+			steps += 1
+			var v := _free_violation(_free.pos)
+			if v != "" and bad == "":
+				bad = "%s（站點 %d 第 %d 步 %s）" % [v, k, i, str(_free.pos)]
+	checks.append(["亂走 %d 步：不穿障礙、不出島、不下池塘 %s" % [steps, bad], bad == ""])
+	# 3. 衝出島外會被擋在岸邊
+	var shore_ok := true
+	for i in 24:
+		var a := i * TAU / 24.0
+		var q := _free.resolve(Vector3(ctr.x + cos(a) * 200.0, ctr.y, ctr.z + sin(a) * 200.0))
+		if _free_violation(q) != "" and not _free_violation(q).begins_with("撞進障礙"):
+			shore_ok = false
+	checks.append(["往四面八方衝出島外，都停在岸邊", shore_ok])
+	# 4. 池塘中心被推出水面
+	var pc: Vector3 = _fishing.pond_center()
+	var pq := _free.resolve(Vector3(pc.x, ctr.y, pc.z))
+	checks.append(["站在池塘正中央會被推到岸上", _free_violation(pq) == "" or _free_violation(pq).begins_with("撞進障礙")])
+	# 5. 雞圈的門走得進去（北邊中間留的缺口）
+	var gate := Vector3(_hub_yard.get_center().x + off.x, ctr.y, _hub_yard.position.y + off.z)
+	_free.pos = _free.resolve(gate + Vector3(0, 0, -3.0))
+	for i in 120:
+		_free.step(1.0 / 60.0, Vector2(0, 1))
+	checks.append(["從雞圈的門直直往南走，走得進雞圈（z %.1f → %.1f，圈在 %.1f 以南）" % [gate.z - 3.0, _free.pos.z, gate.z], _free.pos.z > gate.z + 2.0])
+	# 6. 整座島連得起來：六個站點彼此走得到（0.75 公尺格子，能站的格子才算）
+	var cell := 0.75
+	var start: Vector3 = _free.station(2)
+	var seen := {}
+	var ok := {Vector2i(0, 0): true}                 # 站得上去、而且從家連得過來的格子
+	var queue: Array = [Vector2i(0, 0)]
+	seen[Vector2i(0, 0)] = true
+	var reached := 0
+	while not queue.is_empty():
+		var cur: Vector2i = queue.pop_back()
+		for dx in [-1, 0, 1]:
+			for dz in [-1, 0, 1]:
+				if dx == 0 and dz == 0:
+					continue
+				var nx := Vector2i(cur.x + dx, cur.y + dz)
+				if seen.has(nx):
+					continue
+				seen[nx] = true
+				var wp := Vector3(start.x + nx.x * cell, start.y, start.z + nx.y * cell)
+				var rr := _free.resolve(wp)
+				if Vector2(rr.x - wp.x, rr.z - wp.z).length() > 0.02:
+					continue
+				queue.append(nx)
+				ok[nx] = true
+				reached += 1
+	var unreachable := []
+	for k in int(w.n):
+		var sp: Vector3 = _free.station(k)
+		var cx := Vector2i(roundi((sp.x - start.x) / cell), roundi((sp.z - start.z) / cell))
+		var found := false
+		for dx in [-1, 0, 1]:
+			for dz in [-1, 0, 1]:
+				if ok.has(Vector2i(cx.x + dx, cx.y + dz)):
+					found = true
+		if not found:
+			unreachable.append(k)
+	print("FREE flood: %d 格可走" % reached)
+	checks.append(["可走的空地連成一片（%d 格），六個站點都到得了 %s" % [reached, str(unreachable)], unreachable.is_empty() and reached > 800])
+	# 7. 吸附站點：站上去就冒泡泡、Enter 有效；站在遠遠的空地就沒有，Enter 什麼都不會開
+	select_stage(2)
+	await get_tree().create_timer(0.3).timeout
+	checks.append(["站在家的站點上：算到了、stage_sel 是家", _free_near and String(_st_now().kind) == "home" and not _busy()])
+	var far_p := Vector3.ZERO
+	var far_d := 0.0
+	for gx in range(-30, 31, 3):
+		for gz in range(-30, 31, 3):
+			var cand := _free.resolve(Vector3(ctr.x + gx, start.y, ctr.z + gz))
+			if _free_violation(cand) != "":
+				continue
+			var nd := float(_free.nearest(cand).d)
+			if nd > far_d:
+				far_d = nd
+				far_p = cand
+	_free.pos = far_p
+	await get_tree().create_timer(0.3).timeout
+	var started := start_selected()
+	checks.append(["站在離站點 %.1f 公尺的空地：沒有泡泡，按 Enter 不會開任何東西" % far_d, far_d > HubWalk.FAR and not _free_near and not started and not _starting])
+	# 8. 真的按住方向鍵：往右走、放開就停、家豪朝右
+	select_stage(2)
+	await get_tree().create_timer(0.3).timeout
+	var x0 := _free.pos.x
+	var ev := InputEventKey.new()
+	ev.keycode = KEY_D
+	ev.pressed = true
+	Input.parse_input_event(ev)
+	await get_tree().create_timer(0.5).timeout
+	var x1 := _free.pos.x
+	var yaw_ok := absf(angle_difference(_hero.rotation.y, PI * 0.5)) < 0.5
+	var ev2 := InputEventKey.new()
+	ev2.keycode = KEY_D
+	ev2.pressed = false
+	Input.parse_input_event(ev2)
+	await get_tree().create_timer(0.3).timeout
+	var x2 := _free.pos.x
+	await get_tree().create_timer(0.3).timeout
+	checks.append(["按住 D 0.5 秒：往東走了 %.1f 公尺、家豪朝東；放開就停" % (x1 - x0), x1 - x0 > 4.0 and yaw_ok and absf(_free.pos.x - x2) < 0.05])
+	checks.append(["家豪的模型跟著位置走", _hero.position.distance_to(_free.pos) < 0.05])
+	# 9. 數字鍵衝到站點
+	select_stage(0)
+	await get_tree().create_timer(0.3).timeout
+	_press(KEY_5)
+	await get_tree().create_timer(1.3).timeout
+	checks.append(["按 5：衝到第 5 個站點（釣魚），到了就算站在那裡", _free_dash.is_empty() and stage_sel == 4 and _free_near and Vector2(_free.pos.x - _free.station(4).x, _free.pos.z - _free.station(4).z).length() < 0.1])
+	# 10. 滑鼠點空地：走過去
+	select_stage(2)
+	await get_tree().create_timer(0.4).timeout
+	var tgt := _free.resolve(_free.pos + Vector3(7.0, 0, 5.0))
+	var scr := _cam.unproject_position(Vector3(tgt.x, TOP_Y, tgt.z))
+	var got := _free_goto_screen(scr)
+	await get_tree().create_timer(1.5).timeout
+	var dd := Vector2(_free.pos.x - tgt.x, _free.pos.z - tgt.z).length()
+	checks.append(["滑鼠點地面：走到那個點（差 %.1f 公尺）" % dd, got and dd < 1.2 and not _free_goal_on])
+	# 11. 其他島不受影響：還是沿路走
+	select(1)
+	var other_ok := not _free_hub() and not _free_active()
+	var on_rail := _stand_now().distance_to(_stand(selected, stage_sel)) < 0.01
+	select(0)
+	checks.append(["其他島不用自由走（家豪還是站在站點上、沿路走）", other_ok and on_rail])
+	# 12. 拉遠看世界地圖再回來，家豪還在原本的位置
+	select_stage(2)
+	_free.pos = _free.resolve(_free.station(2) + Vector3(4.0, 0, 3.0))
+	await get_tree().create_timer(0.3).timeout
+	var keep := _free.pos
+	set_map(true)
+	await get_tree().create_timer(1.3).timeout
+	set_map(false)
+	await get_tree().create_timer(1.3).timeout
+	checks.append(["開世界地圖再關掉，家豪回到原本的位置", Vector2(_free.pos.x - keep.x, _free.pos.z - keep.z).length() < 0.05 and _free_active()])
+	var fails := 0
+	for c in checks:
+		if not bool(c[1]):
+			fails += 1
+		print("[%s] %s" % ["PASS" if bool(c[1]) else "FAIL", c[0]])
+	print("FREETEST: %s" % ("ALL PASS" if fails == 0 else "%d FAIL" % fails))
+	get_tree().quit()
+
+func _freeshots(dir: String) -> void:
+	DirAccess.make_dir_recursive_absolute(dir)
+	await get_tree().create_timer(1.0).timeout
+	var w: Dictionary = worlds[0]
+	var ctr: Vector3 = w.center
+	var off: Vector3 = w.origin
+	var barn := Vector3.ZERO
+	for c in _free.circles:
+		if absf(float(c.z) - 2.3) < 0.01:
+			barn = Vector3(c.x, ctr.y, c.y)
+	var pc: Vector3 = _fishing.pond_center()
+	var spots := {
+		"home_south": _free.station(2) + Vector3(0, 0, 4.0),
+		"yard": Vector3(_hub_yard.get_center().x + off.x, ctr.y, _hub_yard.get_center().y + off.z),
+		"yard_gate": Vector3(_hub_yard.get_center().x + off.x, ctr.y, _hub_yard.position.y + off.z - 1.5),
+		"barn_front": barn + Vector3(0, 0, 5.0),
+		"pond_shore": pc + Vector3(0, 0, _fishing.pond_rz + 1.5),
+		"north_fields": Vector3(ctr.x, ctr.y, ctr.z - 18.0),
+		"west_windmill": _free.station(0) + Vector3(-9.0, 0, 3.0),
+		"south_coast": Vector3(ctr.x, ctr.y, ctr.z + float(w.rz)),
+	}
+	for key in spots:
+		var p: Vector3 = _free.resolve(spots[key] + Vector3(0, 0.3, 0))
+		p.y = _free.station(0).y
+		_free.pos = p
+		_hero.position = p
+		var ns := _free.nearest(p)
+		_free_near = float(ns.d) < HubWalk.NEAR
+		if _free_near:
+			stage_sel = int(ns.k)
+		_zoom = 0.0
+		_map = false
+		await _shot(dir.path_join("free_%s.png" % key))
 	get_tree().quit()
 
 func _autotest() -> void:
