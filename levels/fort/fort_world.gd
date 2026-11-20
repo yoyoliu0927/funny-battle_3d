@@ -68,6 +68,8 @@ const STAGES := {
 		"chests": [Vector2(-2.0, -11.0), Vector2(37.0, -2.0)],
 		"routes": [
 			{"route": [Vector3(-8.0, 0, 2.0), Vector3(-4.0, 0, 4.5)], "loop": false, "pause": 1.3},
+			# 自爆農夫：背火藥桶，正面碰到會炸；搶先啄倒他就不會爆，用巨石／砲彈砸他會炸到旁邊的人
+			{"route": [Vector3(1.0, 0, -3.0), Vector3(3.5, 0, 1.0)], "loop": false, "pause": 1.2, "kind": "bomber"},
 			{"route": [Vector3(19.0, 0, -6.0), Vector3(20.0, 0, 0.0)], "loop": false, "pause": 1.2}]},
 }
 const FUSE_TIME := 4.0            # 引信從點燃到發射的秒數（= 瞄準時間）
@@ -143,8 +145,99 @@ func _ready() -> void:
 	_build_chests()
 	_build_fort_grass()
 	_build_farm_forest()
+	_build_side_gate()
 	_build_fort_characters()
 	_place_player()
+
+## 東門：東南邊城牆上本來就有的一座小城門（每個小關都有）。鐵柵門平常放下；
+## 2-1、2-2 過關後才升起來，家豪從這裡走出去接到下一小關（fort_battle.gd 的 _tick_exit）。
+const SIDE_GATE_THETA := deg_to_rad(46.0)   # 離北邊山坡遠一點，兩側的塔才不會埋進坡裡
+const SIDE_GATE_HALF_W := 1.7
+var next_door: Node3D          # 2-1、2-2：過關後要打開的門（就是東門）；2-3 是 null（門一直關著）
+
+func _side_gate_hit(th: float, seg_len: float, tan_len: float) -> bool:
+	return absf(wrapf(th - SIDE_GATE_THETA, -PI, PI)) * tan_len < SIDE_GATE_HALF_W + seg_len * 0.5
+
+func _build_side_gate() -> void:
+	var th := SIDE_GATE_THETA
+	var p := _ellipse(th)
+	var tan := Vector2(-FORT_RX * sin(th), FORT_RZ * cos(th)).normalized()
+	# 朝院子的方向取「垂直牆面」的法線（橢圓上指向中心的方向和牆面不垂直，門牌會斜插進拱裡）
+	var to_c := Vector2(-tan.y, tan.x)
+	if to_c.dot(FORT_C - p) < 0.0:
+		to_c = -to_c
+	var yaw := atan2(-tan.y, tan.x)
+	var gy := _wall_base(p)
+	var gate := Node3D.new()
+	gate.set_script(preload("res://levels/fort/next_door.gd"))
+	gate.name = "EastGate"
+	gate.position = Vector3(p.x, gy, p.y)
+	add_child(gate)
+	gate.inward = Vector3(to_c.x, 0, to_c.y)
+	# 門洞兩側的小塔（比正門的塔矮一點、細一點）
+	for sd in [-1.0, 1.0]:
+		var tp: Vector2 = p + tan * sd * (SIDE_GATE_HALF_W + 1.0)
+		var t := _model(M_CASTLE + "tower-base.glb")
+		t.position = Vector3(tp.x, _wall_base(tp) - 0.1, tp.y) - gate.position
+		t.rotation.y = yaw
+		t.scale = Vector3(2.0, (WALL_H + 0.9) / 1.31, 2.0)
+		gate.add_child(t)
+		var top := _model(M_CASTLE + "tower-top.glb")
+		top.position = t.position + Vector3(0, WALL_H + 0.9, 0)
+		top.rotation.y = yaw
+		top.scale = Vector3.ONE * 2.0
+		gate.add_child(top)
+		obstacles.append([tp, 1.2])
+	# 門洞上方的拱＋門牌
+	# 拱做得厚一點：鐵柵門升起來時整片收進拱裡，不會從上面戳出來
+	_box(gate, Vector3(SIDE_GATE_HALF_W * 2.0 + 0.6, 2.7, WALL_T + 0.2), Vector3(0, WALL_H + 0.95, 0), _toon(Color(0.62, 0.6, 0.58)), Vector3(0, yaw, 0))
+	var sign := Label3D.new()
+	sign.text = "東門"
+	sign.font_size = 64
+	sign.pixel_size = 0.007
+	sign.modulate = Color(0.25, 0.2, 0.16)
+	sign.outline_size = 0
+	sign.position = Vector3(0, WALL_H + 0.7, 0) + gate.inward * (WALL_T * 0.5 + 0.2)
+	sign.rotation.y = atan2(to_c.x, to_c.y)
+	gate.add_child(sign)
+	# 門洞裡的暗影（門外是密林，暗一點看起來像通道）
+	var shade := _box(gate, Vector3(SIDE_GATE_HALF_W * 2.0, WALL_H, 0.1), Vector3(0, WALL_H * 0.5, 0) - gate.inward * (WALL_T * 0.5 - 0.1), _toon(Color(0.16, 0.13, 0.12)), Vector3(0, yaw, 0))
+	shade.name = "Shade"
+	# 鐵柵門：放下＝關著
+	var pivot := Node3D.new()
+	pivot.name = "Portcullis"
+	pivot.rotation.y = yaw
+	gate.add_child(pivot)
+	var mg := _model(M_CASTLE + "metal-gate.glb")
+	mg.rotation.y = PI * 0.5
+	mg.scale = Vector3(2.0, (WALL_H - 0.1) / 0.73, (SIDE_GATE_HALF_W * 2.0) / 0.695)
+	pivot.add_child(mg)
+	gate.portcullis = pivot
+	gate.closed_y = 0.0
+	gate.lift = 2.3   # 升到家豪走得過去就好（再高會露出拱頂）
+	# 門口地上的光圈（開門後才亮）
+	var glow := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 1.2
+	cm.bottom_radius = 1.2
+	cm.height = 0.04
+	cm.radial_segments = 32
+	glow.mesh = cm
+	var front: Vector3 = gate.front_point()
+	glow.position = Vector3(front.x, height_at(front.x, front.z) + 0.15, front.z) - gate.position
+	var gm := StandardMaterial3D.new()
+	gm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	gm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	gm.albedo_color = Color(1.0, 0.85, 0.4, 0.0)
+	glow.material_override = gm
+	glow.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	gate.add_child(glow)
+	gate.glow = glow
+	gate.set_open(0.0)
+	# 門洞仍然算牆：戰鬥中誰都過不去
+	wall_segments.append([p - tan * SIDE_GATE_HALF_W, p + tan * SIDE_GATE_HALF_W])
+	if stage < 3:
+		next_door = gate
 
 # ---------------------------------------------------------------- 形狀
 
@@ -378,6 +471,8 @@ func _build_walls() -> void:
 			continue
 		if _theta_is_nature(th):
 			continue
+		if _side_gate_hit(th, seg_len, tan.length()):
+			continue   # 東門那一段（_build_side_gate 蓋門）
 		var divider := false
 		if east and e2(p.x, p.y) < 1.0:
 			# 伸進第二個院子的這段：北半段是隔牆，南半段空出來當通道
@@ -732,7 +827,7 @@ func _build_chests() -> void:
 	for cp in STAGES[stage].chests:
 		var to_c: Vector2 = (R2_C if in_east(cp.x, cp.y) else FORT_C) - cp
 		var yaw := atan2(to_c.x, to_c.y)
-		var ch := _place_model(node, M_PIRATE + "chest.glb", Vector3(cp.x, 0, cp.y), yaw, 1.6, 0.6)
+		var ch := _place_model(node, M_PIRATE + "chest.glb", Vector3(cp.x, 0, cp.y), yaw, 1.6, 0.85)   # 擋路的半徑跟箱子一樣大，家豪不會鑽進箱子裡
 		chests.append({"pos": cp, "node": ch, "yaw": yaw})
 
 # ---------------------------------------------------------------- 雜物
@@ -797,7 +892,7 @@ func _place_player() -> void:
 ## 進場的三個鏡頭（battle.gd 播）：入口推進 → 西南邊俯瞰 → 東北邊俯瞰
 func intro_shots() -> Array:
 	var c := Vector3(12.0, 0.0, -5.0) if east else Vector3(0.0, 0.0, -3.0)
-	var hint: String = ["", "提示：在大砲口前撒飼料，把家豪射上炮塔", "提示：三座炮塔各有不同的拆法", "提示：兩個院子靠南邊的通道相連；指揮官的高台要用大砲射上去"][stage]
+	var hint: String = ["", "提示：在大砲口前撒飼料，把家豪射上炮塔", "提示：三座炮塔各有不同的拆法", "提示：小心背火藥桶的自爆農夫——搶先啄倒他就不會爆；指揮官的高台要用大砲射上去"][stage]
 	var g := Vector3(gate_pos.x, 0, gate_pos.y)
 	var out := Vector3(gate_dir.x, 0, gate_dir.y)
 	var sw := Vector3(-26, 24, 20) if not east else Vector3(-22, 32, 26)

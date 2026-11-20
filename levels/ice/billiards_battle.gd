@@ -19,7 +19,7 @@ const STUN_TIME := 1.2         # 被啄飛停下來後暈多久（不是破綻�
 const OPEN_SLIP := 5.0         # 踩到香蕉皮躺多久（破綻）
 const CRIT_SEEK := 9.0         # 家豪會主動衝過去啄多遠內的破綻
 const HIT_R := 0.95            # 滑行中撞到別人的距離
-const HEARTS := 3
+const HEARTS := 1            # 統一規則：小兵一下就倒（會心一擊扣 1 顆心）
 
 var _intents := {}             # Fighter -> Label3D
 var _lines: MeshInstance3D     # 預告滑行路線
@@ -324,9 +324,7 @@ func _update_intents() -> void:
 			l.visible = false
 			continue
 		l.visible = true
-		var hearts := ""
-		for k in HEARTS:
-			hearts += "♥" if k < int(f.hp) else "♡"
+		var hearts := ""             # 統一介面：不顯示敵人血量（原本這裡畫 ♥♡）
 		var t := ""
 		var c := Color(0.85, 0.85, 0.85)
 		match f.state:

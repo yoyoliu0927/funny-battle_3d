@@ -14,7 +14,7 @@ const SIM_DT := 1.0 / 60.0
 
 var enemy_damage := 999.0      # 撞到敵人扣多少（999 = 一次就倒）
 var bird_damage := 4.0         # 撞到家豪扣多少（最少會留 1 滴）
-var rocks: Array = []          # {path, i, node, done, hit}
+var rocks: Array = []          # {path, i, node, done, hit, obs}
 
 func _init() -> void:
 	id = "rock"
@@ -24,7 +24,11 @@ func _init() -> void:
 	radius = ROCK_RADIUS
 	cooldown = 8.0
 
-func reset(_bt) -> void:
+func reset(bt) -> void:
+	# 停在場上的巨石算障礙物；重來時拿掉
+	for r in rocks:
+		if r.get("obs") != null and bt and bt.world:
+			bt.world.obstacles.erase(r.obs)
 	rocks.clear()
 
 func placement_error(bt, p: Vector3) -> String:
@@ -52,6 +56,8 @@ func cast(bt, p: Vector3) -> void:
 	rock.position = path[0] if path.size() > 0 else p
 	bt.fx_root.add_child(rock)
 	rocks.append({"path": path, "i": 0, "node": rock, "done": path.size() < 2, "hit": []})
+	if path.size() < 2:
+		_rest(bt, rocks[-1])   # 放在平地上不會滾：直接就是一塊路障
 
 ## 從 start 放下巨石，預測它每個物理幀的位置（和實際滾動完全一樣，用來畫路徑）
 static func simulate(bt, start: Vector3, ball_radius := ROCK_RADIUS) -> PackedVector3Array:
@@ -88,6 +94,7 @@ func step(bt, dt: float) -> void:
 		var i: int = r.i + 1
 		if i >= path.size():
 			r.done = true
+			_rest(bt, r)
 			continue
 		r.i = i
 		var prev := path[i - 1]
@@ -107,11 +114,32 @@ func step(bt, dt: float) -> void:
 		# 關卡的機關（例如水塔）：回傳 true 代表巨石停在那裡
 		if bt._on_rock_rolling(r, cur, speed):
 			r.done = true
+			_rest(bt, r)
 			continue
 		if i == path.size() - 1:
 			r.done = true
+			_rest(bt, r)
 			if r.hit.is_empty():
 				bt.log_event("巨石滾停了，沒撞到人")
+
+## 巨石停下來了：變成障礙物（家豪和敵人會繞過去），剛好被壓在底下的人推到旁邊
+func _rest(bt, r: Dictionary) -> void:
+	if r.get("obs") != null:
+		return
+	var node: Node3D = r.node
+	if not is_instance_valid(node):
+		return
+	var c := Vector2(node.position.x, node.position.z)
+	var rad := ROCK_RADIUS * 0.9
+	r["obs"] = [c, rad]
+	bt.world.obstacles.append(r.obs)
+	for f in bt.all_fighters():
+		var d := Vector2(f.pos.x, f.pos.z) - c
+		var need := rad + 0.6
+		if f.alive() and d.length() < need:
+			var dir := d.normalized() if d.length() > 0.01 else Vector2.RIGHT
+			var np := c + dir * need
+			f.pos = bt.ground(Vector3(np.x, 0, np.y))
 
 func _hit(bt, f, p: Vector3, dir: Vector3) -> void:
 	if f.immune_rock:

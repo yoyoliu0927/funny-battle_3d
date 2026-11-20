@@ -309,6 +309,9 @@ func _tick_night() -> void:
 	# 放在道具欄右邊、隔開一段，跟道具欄底部對齊
 	var hb_w: float = maxf(_hotbar.size.x, float(items.size()) * 84.0 + 4.0)
 	_night_slot.position = _hotbar.global_position + Vector2(hb_w + NIGHT_GAP, 84.0 - NIGHT_SLOT)
+	if _hero_card:
+		# 家豪的愛心紙片排在「夜晚」那一格的右邊
+		_hero_card.offset_left = _night_slot.position.x + NIGHT_SLOT + 18.0
 	_night_slot.visible = _hotbar.visible and not _leaving
 	_night_box.border_color = Color(0.55, 0.95, 0.9) if held else Color(0.45, 0.46, 0.48)
 
@@ -980,7 +983,7 @@ func _hide_dead_bars() -> void:
 			f.data["bar_hidden"] = true
 		elif f.data.get("bar_hidden", false):
 			f.data.erase("bar_hidden")
-			f.bar.visible = true
+			f.bar.visible = show_float_bars   # 統一介面預設不顯示頭上血條
 
 # ---------------------------------------------------------------- 家豪和敵人互打：每一下扣得比較少
 
@@ -988,19 +991,13 @@ func _hide_dead_bars() -> void:
 ## 道具和機關（滾石、風車、倒樹、雷擊水池、岩漿、鐵桶）造成的傷害不受影響。
 const MELEE_SCALE := 0.6
 
-## 家豪啄中敵人
-func _hit_enemy(f: Fighter, dmg: float, from: Vector3) -> void:
-	super(f, dmg * MELEE_SCALE, from)
-
-## 家豪偷襲（共用程式裡直接扣固定的傷害，所以先把少扣的部分補回去）
-func _sneak(f: Fighter) -> void:
-	f.hp += PECK_DAMAGE * SNEAK_MULT * (1.0 - MELEE_SCALE)
-	super(f)
+## 家豪啄中敵人、偷襲：統一規則是敵人一到兩下就倒，所以不再打折（只有敵人踢家豪還是打折）
 
 ## 不播開場的黑框道具教學（一進場技能欄上面會浮現一行說明，就夠了）
 func _level_setup() -> void:
 	super()
 	show_tutorial = false
+	auto_next = false        # 過關後家豪沿著島上的路走到下一小關（自己的流程），不用共用的自動出發
 	if hands == null and camera:
 		hands = GodHands.new()
 		hands.name = "GodHands"
@@ -1061,7 +1058,9 @@ func _tick_item_hint(dt: float) -> void:
 	if _hint_label.visible:
 		var hb := _hotbar.get_global_rect()
 		_hint_label.size = Vector2(700.0, 28.0)
-		_hint_label.position = Vector2(hb.position.x + hb.size.x * 0.5 - 350.0, hb.position.y - 78.0)
+		# 道具欄在左下角：說明靠左對齊道具欄（置中會跑出畫面左邊）
+		_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+		_hint_label.position = Vector2(hb.position.x + 4.0, hb.position.y - 78.0)
 		_hint_label.modulate.a = clampf(_hint_t / 0.5, 0.0, 1.0)
 
 ## 準心沒有指到地面的時候（例如看著天空或海），就當成指著正前方 10 公尺的地面
@@ -1111,6 +1110,10 @@ func try_cast() -> bool:
 	if aim_point == null and p == _ahead_point() and not (selected >= 0 and selected < items.size() and items[selected].get("any_aim") == true):
 		return super()
 	return cast(selected, p)
+
+## 開場預覽、星星特寫、跟拍時，Tab 的俯看切換先不作用（共用的 scripts/battle/view_toggle.gd）
+func _view_blocked() -> bool:
+	return _camera_borrowed() or super()
 
 ## 鏡頭現在是不是被過場借走了（這時候神的手收起來）。小關有自己的過場就覆寫，記得 or super()
 func _camera_borrowed() -> bool:

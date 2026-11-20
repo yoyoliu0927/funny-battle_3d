@@ -25,6 +25,10 @@ const TutArrow := preload("res://scripts/ui/tut_arrow.gd")
 const EnemyFace := preload("res://scripts/ui/enemy_face.gd")
 const PauseMenu := preload("res://scripts/ui/pause_menu.gd")
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術（手帳風格）
+const HeartBar := preload("res://scripts/ui/heart_bar.gd")
+const TutorialPopup := preload("res://scripts/ui/tutorial_popup.gd")
+const ViewToggle := preload("res://scripts/battle/view_toggle.gd")
+const Registry := preload("res://scripts/registry.gd")
 const Progress := preload("res://scripts/progress.gd")
 const LEVEL_SELECT_SCENE := "res://scenes/level_select.tscn"
 
@@ -43,7 +47,8 @@ const FEED_EAT_TIME := 0.9
 const FEED_LINGER := 3.0       # 吃完飼料後，家豪會在原地東張西望這麼久才繼續衝
 const FEED_HEAL := 1.0         # 吃一把飼料回的血
 # 一般近戰敵人（農夫型）的預設值；每個敵人可以在 _enemy_specs() 個別改
-const ENEMY_MAX_HP := 8.0
+const ENEMY_MAX_HP := 2.0     # 小兵：家豪啄一下就倒（PECK_DAMAGE 2.5）；Boss 在 _enemy_specs() 另外給 "hp"
+const HEART_HP := 2.0         # 一顆愛心 = 幾點血（家豪 10 點血 = 5 顆心）
 const ALERT_RADIUS := 11.0     # 打鬥聲傳得到的距離：哪裡有人挨打，這個距離內的敵人會趕過來
 const DEFEAT_ORIGIN := Vector3(600.0, 0.0, 600.0)
 const SIM_DT := 1.0 / 60.0
@@ -107,6 +112,9 @@ var _summary_label: Label
 var _hotbar: Hotbar
 var _dialog: DialogBox
 var _enemy_rows: Array = []    # 右上角敵人欄 {fighter, face, fill, chip, width}
+var _enemy_col: VBoxContainer  # 右上角整個敵人欄（關卡要整個藏起來就藏這個）
+var _crew_label: Label         # 小兵那張紙片上的「敵人 2/3」
+var _corner_keys: Control      # 右下角「H 操作說明｜R 重試｜M 地圖」
 var tutorial_step := -1        # -1 = 沒在教學
 var _tut_t := 0.0
 var _tut_seen := false
@@ -114,6 +122,25 @@ var _tut_arrow: TutArrow
 var _tut_panel: PanelContainer
 var _tut_label: Label
 var pause_menu: PauseMenu      # 暫停選單（Esc）。pause_menu.is_open＝現在暫停中
+# 統一介面（參照冰雪大關）：道具欄左下、家豪愛心在道具欄上方、開始鈕右下、不顯示血條
+var show_start_button := true  # 關卡自己畫了開始鈕就在 _level_setup() 設成 false
+var show_corner_keys := true   # 右下角「H 操作說明｜R 重試｜M 地圖」；關卡自己有按鍵提示就設成 false
+var show_float_bars := false   # true：角色頭上照舊顯示血條
+var _hearts: HeartBar
+var _hero_card: Control
+var _start_btn: Control
+var help_popup: TutorialPopup  # 按 H 打開的教學彈窗（頁面來自 _tutorial_pages()）
+# 兩種視角（按 Tab）：家豪旁邊 ↔ 俯看全場。關卡自己有俯視功能的可以在 _level_setup() 把 use_view_toggle 設成 false
+var use_view_toggle := true
+var start_beside_hero := true  # 開場把幽靈放在家豪旁邊
+var view: ViewToggle
+# 過關後直接前往同一大關的下一小關（不用回選關地圖）；最後一小關照舊停在結算。關卡不要的話在 _level_setup() 設成 false
+var auto_next := true
+const NEXT_WAIT := 3.5          # 過關後等幾秒自動出發（這段時間按空白鍵立刻出發、按 R 留下來重玩）
+var _next_t := -1.0             # -1 = 沒有要自動出發
+var _next_info := {}           # 下一小關 {id, scene, title}
+var _next_space := false
+var _next_fade: ColorRect
 # 輸了的畫面
 var defeat_room: Node3D
 var defeat_shown := false
@@ -188,6 +215,31 @@ func _on_rock_rolling(_rock: Dictionary, _pos: Vector3, _speed: float) -> bool:
 func _update_highlights(_path: PackedVector3Array, _on: bool) -> void:
 	pass
 
+## 按 H 的教學彈窗要放哪些頁（格式見 scripts/ui/tutorial_popup.gd）。
+## 預設：操作方式 → 家豪會自己做什麼 → 每個道具一頁。關卡可以覆寫，例如改 _hero_logic_text() 或多加一頁機關說明。
+func _tutorial_pages() -> Array:
+	var ctl: Array = help_list().duplicate()
+	if use_view_toggle:
+		ctl.append(["Tab", "俯看全場／回到家豪旁邊"])
+	ctl.append(["H", "再看一次教學"])
+	var pages: Array = [
+		{"title": "操作方式", "controls": ctl,
+			"body": "你是飄在空中的神，只能從旁觀察、偷偷降下神蹟幫家豪。\n\n準備階段先把神蹟佈置好，再按 Enter 開打。"},
+		{"title": "家豪會自己行動", "clip": "hero", "icon": _load_tex("res://assets/ui/jiahao_portrait.png"), "body": _hero_logic_text()},
+	]
+	for i in items.size():
+		var it = items[i]
+		var tex: Texture2D = it.icon_tex if it.icon_tex else it.icon
+		pages.append({"title": it.name, "clip": String(it.id), "icon": tex, "item": it, "body": it.tutorial,
+			"keys": [[str(i + 1), "選擇"], ["LMB", "施放"]]})
+	return pages
+
+## 「家豪會自己行動」那一頁的說明：不放神蹟時家豪怎麼決定要去哪
+func _hero_logic_text() -> String:
+	return "不用畫路線，家豪會自己往最近的目標衝過去。
+
+其他的，玩玩看就知道了。"
+
 ## 開場教學每一步的文字（預設用每個道具的 tutorial）
 func _tutorial_texts() -> Array:
 	var out: Array = []
@@ -243,9 +295,14 @@ func _ready() -> void:
 	_build_hud()
 	_build_defeat()
 	_build_pause()
+	_build_view_toggle()
 	reset()
-	if show_tutorial and not "--autotest" in OS.get_cmdline_user_args():
-		start_tutorial()
+	if view and start_beside_hero:
+		view.snap_to_hero()
+	# 開場教學：第一次進這個大關時自動打開教學彈窗（跟要塞一樣）；之後按 H 隨時再看。
+	# 自動測試、smoke test 不跳（彈窗會暫停整個遊戲）
+	if show_tutorial and not _automated_run():
+		_auto_help.call_deferred()
 
 func _ensure_actions() -> void:
 	var map := {"battle_start": [KEY_ENTER, KEY_KP_ENTER], "battle_reset": [KEY_R], "back_to_map": [KEY_M]}
@@ -342,20 +399,11 @@ func _build_fighters() -> void:
 		enemies.append(f)
 
 func _build_preview() -> void:
-	_preview = MeshInstance3D.new()
-	var tm := TorusMesh.new()
-	tm.inner_radius = 0.9
-	tm.outer_radius = 1.0
-	tm.rings = 40
-	tm.ring_segments = 6
-	_preview.mesh = tm
-	var m := StandardMaterial3D.new()
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.no_depth_test = true
-	m.albedo_color = Color(1, 1, 1, 0.8)
-	_preview.material_override = m
-	_preview.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# 地上的瞄準圈：每一幀沿著地形長出來的細線圈＋淡底色＋中心小十字，被東西擋住時淡淡透出（scripts/ui/aim_ring.gd）
+	_preview = preload("res://scripts/ui/aim_ring.gd").new()
+	_preview.set("world", world)
+	_preview.material_override = StandardMaterial3D.new()
+	(_preview.material_override as StandardMaterial3D).albedo_color = Color(1, 1, 1, 0.9)
 	_preview.visible = false
 	world.add_child(_preview)
 	var dot_mesh := SphereMesh.new()
@@ -388,6 +436,7 @@ func is_shared(i: int) -> bool:
 	return items[i].is_shared()
 
 func reset() -> void:
+	_next_t = -1.0   # 過關後按 R：留下來重玩這一關，不自動出發
 	phase = Phase.PREPARE
 	time = 0.0
 	_acc = 0.0
@@ -475,6 +524,7 @@ func _end(result: String) -> void:
 			Progress.mark_cleared(stage_id)   # 選關地圖會記得這一小關過了
 		bird.set_state("cheer")
 		bird.air = 0.0
+		_queue_next_stage()
 	else:
 		for f in enemies:
 			if f.alive():
@@ -537,6 +587,11 @@ func select_skill(i: int) -> void:
 	_refresh_slots()
 
 func _update_aim() -> void:
+	if view and view.overview:
+		# 俯看時用滑鼠指的位置瞄準（游標放出來了）
+		var ray: Array = view.mouse_ray()
+		aim_point = world.ray_ground(ray[0], ray[1], 160.0)
+		return
 	aim_point = world.ray_ground(camera.global_position, -camera.global_basis.z, 70.0)
 
 ## 在準心指到的地面施放目前選的道具
@@ -669,6 +724,7 @@ func _step(dt: float) -> void:
 		_tick_fx(dt)
 
 func _process(dt: float) -> void:
+	_tick_next_stage(dt)
 	_tick_tutorial(dt)
 	_tick_cooldowns(dt)
 	_update_aim()
@@ -708,6 +764,14 @@ func _process(dt: float) -> void:
 	_update_bars(dt)
 	for f in enemies:
 		_draw_cone(f)
+	if _crew_label:
+		var up := 0
+		var n := 0
+		for f in enemies:
+			if not f.is_boss:
+				n += 1
+				up += 1 if f.alive() else 0
+		_crew_label.text = "敵人 %d/%d" % [up, n]
 	for row in _enemy_rows:
 		var f: Fighter = row.fighter
 		var rr: float = f.ratio() if f.alive() else 0.0
@@ -1369,13 +1433,25 @@ func _detour(from: Vector3, to: Vector3, seg: Array) -> Vector3:
 
 ## 避開建築和樹：要走進去時沿著邊緣滑開
 func _avoid(from: Vector3, to: Vector3, pad: float) -> Vector3:
+	# 要走進障礙物（建築、樹、停下來的巨石）時：推回邊緣，再往「繞過去」的方向滑一點。
+	# 只推回邊緣的話，正面撞上去會一直卡在原地抖（推出去、又走進來）
 	var p := Vector2(to.x, to.z)
+	var f2 := Vector2(from.x, from.z)
+	var mv := p - f2
 	for o in world.obstacles:
 		var c: Vector2 = o[0]
 		var r: float = o[1] + pad
 		var d := p - c
 		if d.length() < r:
-			p = c + d.normalized() * r
+			var n := d.normalized() if d.length() > 0.001 else (f2 - c).normalized()
+			var t := Vector2(-n.y, n.x)
+			# 往比較順的那一邊繞：跟原本前進方向同側；幾乎正面撞上時固定往同一側（用相對位置決定，不會左右搖擺）
+			var side := signf(t.dot(mv))
+			if absf(t.dot(mv.normalized())) < 0.2:
+				side = 1.0 if (f2 - c).cross(mv) >= 0.0 else -1.0
+			if side == 0.0:
+				side = 1.0
+			p = c + n * r + t * side * maxf(mv.length(), 0.02)
 	return Vector3(p.x, to.y, p.y)
 
 func hits_obstacle(p: Vector2) -> bool:
@@ -1577,12 +1653,15 @@ func _build_hud() -> void:
 	_hotbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var hb := _hotbar.bar_size()
 	_hotbar.custom_minimum_size = hb
-	_hotbar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_hotbar.offset_left = -hb.x * 0.5
-	_hotbar.offset_right = hb.x * 0.5
-	_hotbar.offset_top = -hb.y - 22
-	_hotbar.offset_bottom = -22
+	# 統一介面：道具欄放左下（跟冰雪大關一樣）
+	_hotbar.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_hotbar.offset_left = 28
+	_hotbar.offset_right = 28 + hb.x
+	_hotbar.offset_top = -hb.y - 30
+	_hotbar.offset_bottom = -30
 	layer.add_child(_hotbar)
+	_build_hero_card(layer, hb)
+	_build_start_button(layer)
 	# 對話框：放在快捷欄上方
 	_dialog = DialogBox.new()
 	UIStyle.apply_theme(_dialog)
@@ -1612,53 +1691,75 @@ func _build_hud() -> void:
 	_tut_panel.add_child(_tut_label)
 	layer.add_child(_tut_panel)
 
-	var top := UIStyle.ls(24, Color(1, 1, 1))
-	# 右上角敵人欄：一列一個敵人（頭像方格 + 右側血條），Boss 排最上面
+	var top := UIStyle.ls(22, UIStyle.INK)
+	# 右上角敵人欄（跟要塞一樣的米色小紙片）：Boss 一張（頭像＋名字）；小兵合成一張，
+	# 一排小頭像，被打倒就打紅叉——一下就倒，血量沒什麼好看的
 	var col := VBoxContainer.new()
-	col.add_theme_constant_override("separation", 8)
+	col.add_theme_constant_override("separation", 10)
 	col.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 	col.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	col.offset_right = -20
 	col.offset_top = 16
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(col)
+	_enemy_col = col
+	var crew_row: HBoxContainer = null
 	var order: Array = enemies.filter(func(f): return f.is_boss) + enemies.filter(func(f): return not f.is_boss)
-	var ns := UIStyle.ls(17, Color(1, 1, 1), 6)
 	for f in order:
-		var erow := HBoxContainer.new()
-		erow.add_theme_constant_override("separation", 10)
-		erow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		col.add_child(erow)
+		var holder: BoxContainer
+		if f.is_boss:
+			var card := PanelContainer.new()
+			UIStyle.slip(card, Vector2(12, 8))
+			card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			card.size_flags_horizontal = Control.SIZE_SHRINK_END
+			col.add_child(card)
+			holder = HBoxContainer.new()
+			holder.add_theme_constant_override("separation", 10)
+			holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			card.add_child(holder)
+		else:
+			if crew_row == null:
+				var card := PanelContainer.new()
+				UIStyle.slip(card, Vector2(12, 8))
+				card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				card.size_flags_horizontal = Control.SIZE_SHRINK_END
+				col.add_child(card)
+				crew_row = HBoxContainer.new()
+				crew_row.add_theme_constant_override("separation", 8)
+				crew_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+				card.add_child(crew_row)
+				_crew_label = Label.new()
+				_crew_label.label_settings = UIStyle.ls(17, UIStyle.INK)
+				_crew_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+				crew_row.add_child(_crew_label)
+			holder = crew_row
+		# 每個頭像各自包一層（關卡要藏某一個敵人時，藏它的外層就好）
+		var slot := VBoxContainer.new()
+		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		slot.alignment = BoxContainer.ALIGNMENT_CENTER
+		holder.add_child(slot)
 		var face := EnemyFace.new()
 		face.boss = f.face == "boss"
 		face.portrait = f.portrait
-		face.custom_minimum_size = Vector2(64, 64) if f.is_boss else Vector2(52, 52)
+		face.custom_minimum_size = Vector2(52, 52) if f.is_boss else Vector2(40, 40)
 		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		erow.add_child(face)
-		var info := VBoxContainer.new()
-		info.alignment = BoxContainer.ALIGNMENT_CENTER
-		info.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		erow.add_child(info)
-		var nm := Label.new()
-		nm.text = f.hud_name if f.hud_name != "" else f.name
-		nm.label_settings = ns
-		info.add_child(nm)
+		slot.add_child(face)
+		if f.is_boss:
+			var nm := Label.new()
+			nm.text = f.hud_name if f.hud_name != "" else f.name
+			nm.label_settings = UIStyle.ls(17, UIStyle.INK)
+			nm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+			holder.add_child(nm)
+		# 血條節點保留但不顯示（關卡程式還會讀 fill／chip）
 		var bar := Control.new()
-		bar.custom_minimum_size = Vector2(170 if f.is_boss else 140, 14)
+		bar.custom_minimum_size = Vector2(140, 14)
 		bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		info.add_child(bar)
-		var bg := ColorRect.new()
-		bg.color = Color(0.08, 0.06, 0.06, 0.8)
-		bg.size = bar.custom_minimum_size
-		bar.add_child(bg)
+		bar.visible = false
+		slot.add_child(bar)
 		var chip := ColorRect.new()
-		chip.color = Color(1.0, 0.92, 0.8, 0.9)
-		chip.position = Vector2(2, 2)
 		chip.size = bar.custom_minimum_size - Vector2(4, 4)
 		bar.add_child(chip)
 		var fill := ColorRect.new()
-		fill.color = Color(0.86, 0.13, 0.12)
-		fill.position = Vector2(2, 2)
 		fill.size = bar.custom_minimum_size - Vector2(4, 4)
 		bar.add_child(fill)
 		_enemy_rows.append({"fighter": f, "face": face, "fill": fill, "chip": chip, "width": bar.custom_minimum_size.x - 4.0})
@@ -1666,10 +1767,36 @@ func _build_hud() -> void:
 	_phase_label.label_settings = top
 	_phase_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_phase_label.set_anchors_and_offsets_preset(Control.PRESET_CENTER_TOP)
-	_phase_label.offset_top = 56
+	_phase_label.offset_top = 18
 	_phase_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
-	UIStyle.pill(_phase_label, Color(0.1, 0.13, 0.2, 0.78), Color(1, 1, 1, 0.4), Color(1, 1, 1))   # 上方提示＝深色膠囊
+	UIStyle.slip(_phase_label, Vector2(18, 8))   # 上方的階段＝米色小紙片（跟要塞一樣）
 	layer.add_child(_phase_label)
+	# 右下角：常用的三顆鍵（其他操作都在 H 的教學裡），開始鈕在它上面
+	var corner := PanelContainer.new()
+	UIStyle.slip(corner, Vector2(12, 6))
+	corner.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	corner.modulate.a = 0.85
+	corner.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
+	corner.offset_right = -20
+	corner.offset_bottom = -22
+	corner.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	corner.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	layer.add_child(corner)
+	var crow := HBoxContainer.new()
+	crow.add_theme_constant_override("separation", 14)
+	crow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	corner.add_child(crow)
+	crow.add_child(UIStyle.key_hint("H", "操作說明", 13))
+	if use_view_toggle:
+		crow.add_child(UIStyle.key_hint("Tab", "俯看", 13))
+	crow.add_child(UIStyle.key_hint("R", "重試", 13))
+	crow.add_child(UIStyle.key_hint("M", "地圖", 13))
+	_corner_keys = corner
+	corner.visible = show_corner_keys
+	# 最上面那一整行操作文字收起來（跟要塞一樣；內容還是留著給 H 的操作表讀）
+	var hint := get_node_or_null("../HUD/Hint") as Label
+	if hint:
+		hint.visible = false
 
 	var ts := UIStyle.ls(30)
 	_toast_label = Label.new()
@@ -1692,6 +1819,185 @@ func _build_hud() -> void:
 	_summary_label.label_settings = ss
 	_summary_panel.add_child(_summary_label)
 	layer.add_child(_summary_panel)
+	_build_help_popup()
+
+## 家豪的愛心：道具欄上方一張小紙片（頭像＋名字＋愛心）
+func _build_hero_card(layer: CanvasLayer, hb: Vector2) -> void:
+	var card := PanelContainer.new()
+	card.add_theme_stylebox_override("panel", UIStyle.slip_box(Vector2(12, 6)))
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	# 放在道具欄右邊同一排（道具欄上方留給切換道具時浮出的名稱和說明，不會疊在一起）
+	card.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	card.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	card.offset_left = 28 + hb.x + 18
+	card.offset_bottom = -30 - (hb.y - 56.0) * 0.5
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 10)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(row)
+	var face := TextureRect.new()
+	face.texture = _load_tex("res://assets/ui/jiahao_portrait.png")
+	face.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	face.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	face.custom_minimum_size = Vector2(40, 40)
+	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(face)
+	_hearts = HeartBar.new()
+	_hearts.max_hp = bird.max_hp if bird else 10.0
+	_hearts.per_heart = HEART_HP
+	_hearts.hp = _hearts.max_hp
+	_hearts.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	_hearts.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	row.add_child(_hearts)
+	layer.add_child(card)
+	_hero_card = card
+
+## 右下角「開始 ▶ [Enter]」（準備階段才顯示；點它也能開打）
+func _build_start_button(layer: CanvasLayer) -> void:
+	var p := PanelContainer.new()
+	var sb := UIStyle._box(UIStyle.GO, UIStyle.GO_EDGE, 22, 3)
+	sb.content_margin_left = 20
+	sb.content_margin_right = 14
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 8
+	p.add_theme_stylebox_override("panel", sb)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 10)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(h)
+	var t := Label.new()
+	t.text = "開始 ▶"
+	t.label_settings = UIStyle.ls(30, Color(1, 1, 1))
+	h.add_child(t)
+	h.add_child(UIStyle.keycap("Enter", 18))
+	p.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	p.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	p.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	p.offset_right = -36
+	p.offset_bottom = -76   # 在右下角按鍵小紙片的上面
+	p.mouse_filter = Control.MOUSE_FILTER_STOP
+	p.gui_input.connect(func(ev):
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT and phase == Phase.PREPARE:
+			start())
+	layer.add_child(p)
+	_start_btn = p
+
+# ================================================================== 過關後前往下一小關
+
+## 同一個大關的下一小關（沒有就回傳空的）
+func _find_next_stage() -> Dictionary:
+	if stage_id == "" or not stage_id.contains("/"):
+		return {}
+	var cid := stage_id.get_slice("/", 0)
+	var n := int(stage_id.get_slice("/", 1))
+	for ch in Registry.chapters():
+		if ch.id != cid:
+			continue
+		for st in ch.stages:
+			if int(st.n) == n + 1 and String(st.scene) != "":
+				return st
+	return {}
+
+func _queue_next_stage() -> void:
+	if not auto_next or (_automated_run() and not "--nexttest" in OS.get_cmdline_user_args()):
+		return
+	_next_info = _find_next_stage()
+	if _next_info.is_empty():
+		return
+	_next_t = NEXT_WAIT
+	_next_space = true   # 剛過關時空白鍵可能還按著，要先放開一次才算
+	_show_next_countdown()
+
+## 上方的階段膠囊改成倒數：「勝利！3 秒後前往…」
+func _show_next_countdown() -> void:
+	if _phase_label == null:
+		return
+	_phase_label.text = "勝利！%d 秒後前往「%s」　空白鍵立刻出發｜R 留下來重玩" % [maxi(ceili(_next_t - 0.5), 0), _next_info.title]
+	_phase_label.visible = true
+
+func _tick_next_stage(dt: float) -> void:
+	if _next_t < 0.0:
+		return
+	if pause_menu and pause_menu.is_open:
+		return
+	var space := Input.is_physical_key_pressed(KEY_SPACE)
+	if space and not _next_space:
+		_next_t = minf(_next_t, 0.5)   # 空白鍵：直接開始轉場
+	_next_space = space
+	_next_t -= dt
+	_show_next_countdown()
+	if _next_t <= 0.5:
+		if _next_fade == null:
+			var layer := CanvasLayer.new()
+			layer.layer = 30
+			add_child(layer)
+			_next_fade = ColorRect.new()
+			_next_fade.color = Color(0, 0, 0, 0)
+			_next_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
+			_next_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			layer.add_child(_next_fade)
+		_next_fade.color.a = clampf(1.0 - _next_t / 0.5, 0.0, 1.0)
+	if _next_t <= 0.0:
+		_next_t = -1.0
+		Engine.set_meta("next_scene", _next_info.scene)
+		Engine.set_meta("stage_id", _next_info.id)
+		get_tree().paused = false
+		get_tree().change_scene_to_file("res://scenes/loading.tscn")
+
+## 兩種視角切換（Tab）
+func _build_view_toggle() -> void:
+	if not use_view_toggle:
+		return
+	view = ViewToggle.new()
+	view.name = "ViewToggle"
+	view.setup(player, camera, func() -> Vector3: return bird.pos if bird else player.global_position, _view_area)
+	view.on_click = func() -> void: try_cast()
+	view.blocked = _view_blocked
+	view.changed.connect(func(on: bool) -> void:
+		if crosshair:
+			crosshair.visible = not on)
+	add_child(view)
+
+## 關卡的過場正在借鏡頭時回傳 true（Tab 先不作用）；有自己過場的關卡覆寫
+func _view_blocked() -> bool:
+	return phase == Phase.ENDED and defeat_shown
+
+## 俯看時要裝進畫面的場地範圍（x, z）。預設用場地的遊玩範圍；關卡可以覆寫
+func _view_area() -> Rect2:
+	var a = world.get("play_min")
+	var b = world.get("play_max")
+	if a is Vector2 and b is Vector2:
+		return Rect2(a, b - a)
+	var c = world.get("camera_look")
+	var cc: Vector3 = c if c is Vector3 else Vector3.ZERO
+	return Rect2(cc.x - 15.0, cc.z - 15.0, 30.0, 30.0)
+
+func _automated_run() -> bool:
+	if "--autotest" in OS.get_cmdline_user_args():
+		return true
+	var args := OS.get_cmdline_args()
+	return "-s" in args or "--script" in args or DisplayServer.get_name() == "headless"
+
+## 每個大關第一次進來時打開一次教學彈窗（這次開遊戲期間記住）
+func _auto_help() -> void:
+	var key := "help_seen_" + (stage_id.get_slice("/", 0) if stage_id != "" else String(get_parent().scene_file_path))
+	if Engine.has_meta(key) or help_popup == null:
+		return
+	Engine.set_meta(key, true)
+	help_popup.open(0)
+
+## 按 H 的教學彈窗
+func _build_help_popup() -> void:
+	help_popup = TutorialPopup.new()
+	help_popup.name = "HelpPopup"
+	add_child(help_popup)
+	# 示範動畫（tools/record_tutorial.gd 錄的）放在 res://levels/<大關>/assets/tutorial/<道具 id>.jpg；沒有就顯示道具圖示
+	var sp := String(get_parent().scene_file_path)
+	if sp.begins_with("res://levels/"):
+		help_popup.clip_dir = "res://levels/%s/assets/tutorial" % sp.get_slice("/", 3)
+	help_popup.set_pages(_tutorial_pages())
+	help_popup.hotkey_h = not "--autotest" in OS.get_cmdline_user_args()
+	help_popup.can_open = func() -> bool: return not (pause_menu and pause_menu.is_open) and not defeat_shown
 
 func _refresh_slots() -> void:
 	if _hotbar == null:
@@ -1704,9 +2010,14 @@ func _refresh_slots() -> void:
 	_hotbar.queue_redraw()
 
 func _update_bars(dt: float) -> void:
+	if _hearts and bird:
+		_hearts.max_hp = bird.max_hp
+		_hearts.hp = maxf(bird.hp, 0.0)
+	if _start_btn:
+		_start_btn.visible = show_start_button and phase == Phase.PREPARE and not defeat_shown
 	for f in all_fighters():
 		var head: Vector3 = f.pos + Vector3(0, f.air + f.bar_y, 0)
-		var show: bool = not camera.is_position_behind(head) and (f.alive() or phase == Phase.ENDED)
+		var show: bool = show_float_bars and not camera.is_position_behind(head) and (f.alive() or phase == Phase.ENDED)
 		f.bar.visible = show
 		if not show:
 			continue

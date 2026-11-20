@@ -26,7 +26,15 @@ signal phase_changed(phase: String)
 enum Phase { PREPARE, RUNNING, ENDED }
 
 const BIRD_MAX_HP := 10.0
-const FARMER_MAX_HP := 8.0
+const FARMER_MAX_HP := 2.0     # 統一規則：小兵啄一下就倒
+## 先攻規則：家豪先打到農夫 → 農夫一下就倒、家豪不受傷；
+## 農夫先踢到家豪 → 家豪掉一顆心，但這個農夫踢完就沒力氣了、不會再踢，家豪回頭一定打得贏他。
+## 家豪的心 = 這關農夫總數 − 1（自爆農夫也算）：全部正面硬碰會輸，至少要靠神蹟（偷襲、香蕉皮…）搶到一次先手。
+const FIRST_STRIKE_DMG := 2.0  # 農夫先手踢中扣的血（= 一顆心）
+## 自爆農夫：背著火藥桶，走到家豪身邊就點引信，炸到家豪扣一顆心，旁邊的農夫也會一起被炸倒。
+## 家豪搶先啄倒他 → 引信被啄掉、不會爆；被巨石、砲彈、大砲砸倒 → 當場爆炸（可以拿來炸別的農夫）。
+const BOMB_FUSE := 0.45        # 點引信到爆炸的時間（跟一般農夫出腳一樣快）
+const BOMB_RADIUS := 2.3       # 爆炸範圍
 const KICK_DAMAGE := 2.0
 const HEAVY_DAMAGE := 4.0
 const PECK_DAMAGE := 2.5
@@ -47,6 +55,8 @@ const FENCE_CLEAR := 1.0
 
 ## 神蹟設定
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術（手帳風格）
+const HeartBar := preload("res://scripts/ui/heart_bar.gd")
+const HEART_HP := 2.0          # 一顆愛心 = 幾點血（家豪 10 點血 = 5 顆心）
 const Progress := preload("res://scripts/progress.gd")          # 共用存檔：哪些小關過了
 const FortProgress := preload("res://levels/fort/fort_progress.gd")   # 要塞自己的存檔：教學看過了沒
 const PauseMenu := preload("res://scripts/ui/pause_menu.gd")    # 共用的暫停選單（Esc）
@@ -70,6 +80,7 @@ const ROLL_MAX_SPEED := 9.0
 const ROCK_DAMAGE_FARMER := 999.0   # 巨石撞到農夫一次就倒
 const ROCK_DAMAGE_BIRD := 4.0       # 撞到家豪會扣血，但不會一下撞死（最少留 1 滴）
 const FEED_SENSE := 10.0
+const FEED_GIVE_UP := 6.0       # 往飼料走這麼久還吃不到（被東西擋住）就放棄
 const FEED_EAT_TIME := 0.9
 const FEED_LINGER := 3.0       # 吃完飼料後，家豪會在原地意猶未盡地東張西望這麼久才繼續衝
 const LIGHT_TIME := 5.0
@@ -180,6 +191,8 @@ var _enemy_col: VBoxContainer
 var _crew_label: Label
 var _tower_label: Label
 var _bird_bar: PaperBar
+var _hearts: HeartBar          # 統一介面：家豪的血改用愛心顯示
+var _start_btn: Control        # 右下角「開始 ▶ Enter」
 var _edge_arrow: EdgeArrow
 var _first_hint: PanelContainer
 var _phase_retry_key: Control
@@ -193,10 +206,14 @@ var _napoleon_tex: Texture2D
 # 新手教學：第一次進關卡時跳出教學彈窗（左邊播示範動畫、右邊說明），H 可以再叫出來
 const TUT_PAGES := [
 	{"title": "操作方式", "controls": [["W／A／S／D", "飄移"], ["Space", "上升"], ["Shift", "下降"], ["MOUSE", "轉視角"],
-		["1／2／3", "選神蹟"], ["LMB", "施放"], ["Enter", "開打"], ["R", "重試"], ["M", "回地圖"], ["H", "再看一次說明"]],
+		["1／2／3", "選神蹟"], ["LMB", "施放"], ["Enter", "開打"], ["R", "重試"], ["M", "回地圖"], ["Tab", "俯看全場／回到家豪旁邊"], ["H", "再看一次說明"]],
 		"body": "你是一個飄在空中的幽靈，只能從旁觀察、偷偷降下神蹟幫家豪。
 
 準備階段先把神蹟佈置好，再按 Enter 開打。"},
+	{"title": "家豪會自己行動", "icon": preload("res://assets/ui/jiahao_portrait.png"),
+		"body": "不用畫路線，家豪會自己往最近的目標衝過去。
+
+其他的，玩玩看就知道了。"},
 	{"title": "飼料", "clip": "feed", "keys": [["1", "選擇"], ["LMB", "對準地面撒下"]],
 		"body": "撒在地上，家豪會忍不住跑過去吃，吃一把回一點血。
 
@@ -225,6 +242,16 @@ const DEFEAT_ORIGIN := Vector3(600.0, 0.0, 600.0)
 var defeat_room: Node3D
 var defeat_shown := false
 var _defeat_delay := -1.0
+# 過關後開門、走進下一小關（2-1、2-2）：見 _tick_exit()
+const EXIT_WAIT := 2.4         # 過關後先歡呼這麼久，再開始開門
+var _exit_delay := -1.0
+var _exit_t := -1.0            # -1 = 沒在播
+var _exit_cam: Camera3D
+var _exit_fade: ColorRect
+var _exit_from := Vector3.ZERO
+var _exit_air := 0.0            # 開始飛向門口時離地多高（在塔頂過關就是塔頂的高度）
+var _exit_fly := 1.0           # 飛到門口要幾秒
+var _exit_cam_from := Vector3.ZERO
 var _defeat_layer: CanvasLayer
 var _defeat_label: Label
 var _defeat_detail: Label
@@ -282,6 +309,11 @@ class Fighter:
 	var feed_target := -1
 	var bar: Control        # 頭上的血條（現在不畫了，留著給舊的檢查用，一直是 null）
 	var chip := 1.0         # 血條淺色那段（扣血後慢慢追上）
+	var kind := "farmer"    # "farmer" 一般農夫、"bomber" 自爆農夫
+	var struck := false     # 已經先手踢中過家豪（之後不會再踢）
+	var dud := false        # 自爆農夫被家豪啄倒或淹死：引信熄了，不會爆
+	var exploded := false
+	var bomb: Node3D        # 自爆農夫背上的火藥桶
 
 	func set_state(s: String) -> void:
 		state = s
@@ -652,7 +684,10 @@ func _ready() -> void:
 	_build_defeat()
 	add_child(preload("res://levels/fort/closeup_cam.gd").new())   # 搞笑特寫鏡頭（射出去、落水）
 	_build_pause_menu()
+	_build_view_toggle()
 	reset()
+	if view:
+		view.snap_to_hero()   # 開場就在家豪旁邊（進場鏡頭播完會飛回這裡）
 	if _want_intro():
 		_start_intro()
 	elif not _auto_run():
@@ -749,6 +784,11 @@ func _build_fighters() -> void:
 			f.start_pos = f.route[0]
 			f.start_yaw = _yaw_to(f.route[0], f.route[1])
 			f.cone = _make_cone()
+			f.kind = routes[i].get("kind", "farmer")
+			if f.kind == "bomber":
+				f.name = "自爆農夫"
+				f.speed = 2.0
+				f.bomb = _make_bomb(f.node)
 		var aps: Array = f.node.find_children("*", "AnimationPlayer", true, false)
 		if not aps.is_empty():
 			f.anim = aps[0]
@@ -759,6 +799,10 @@ func _build_fighters() -> void:
 				if f.anim.has_animation(a):
 					f.anim.get_animation(a).loop_mode = Animation.LOOP_NONE
 		farmers.append(f)
+	# 先攻規則：家豪的心 = 農夫總數 − 1（至少一顆）；這關沒有農夫就照原本的血量
+	var crew := farmers.filter(func(f): return not f.is_boss).size()
+	if crew > 0:
+		bird.max_hp = maxf(crew - 1, 1) * FIRST_STRIKE_DMG
 	# 骨牌
 	for t in world.towers:
 		var td := {"node": t.node, "pos": t.pos, "radius": t.radius, "height": t.height,
@@ -790,20 +834,11 @@ func _build_fighters() -> void:
 	world.add_child(demo_rock)
 
 func _build_preview() -> void:
-	_preview = MeshInstance3D.new()
-	var tm := TorusMesh.new()
-	tm.inner_radius = 0.9
-	tm.outer_radius = 1.0
-	tm.rings = 40
-	tm.ring_segments = 6
-	_preview.mesh = tm
-	var m := StandardMaterial3D.new()
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	m.no_depth_test = true
-	m.albedo_color = Color(1, 1, 1, 0.8)
-	_preview.material_override = m
-	_preview.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# 地上的瞄準圈：每一幀沿著地形長出來的細線圈＋淡底色＋中心小十字，被東西擋住時淡淡透出（scripts/ui/aim_ring.gd）
+	_preview = preload("res://scripts/ui/aim_ring.gd").new()
+	_preview.set("world", world)
+	_preview.material_override = StandardMaterial3D.new()
+	(_preview.material_override as StandardMaterial3D).albedo_color = Color(1, 1, 1, 0.9)
 	_preview.visible = false
 	world.add_child(_preview)
 	var dot_mesh := SphereMesh.new()
@@ -909,6 +944,11 @@ func reset() -> void:
 		f.wp_dir = 1
 		f.target = null
 		f.feed_target = -1
+		f.struck = false
+		f.dud = false
+		f.exploded = false
+		if f.bomb:
+			f.bomb.visible = true
 		f.set_state("idle")
 		_anim(f, "Idle")
 	_apply_visuals()
@@ -945,9 +985,13 @@ func _end(result: String) -> void:
 			if st != null:
 				Progress.mark_cleared("fort/%d" % int(st))   # 選關地圖：這一小關過了（旗子變綠、下一小關解鎖）
 				FortProgress.mark_fort_stage(int(st))
-				_toast("第 %d 小關過關！按 M 回地圖，下一關開放了" % st if st < 3 else "第 3 小關過關！要塞攻下了", 3.0)
+				_toast("第 %d 小關過關！通往下一關的門打開了" % st if st < 3 else "第 3 小關過關！要塞攻下了", 3.0)
 		bird.set_state("cheer")
-		bird.air = 0.0
+		if climb_k < 0:
+			bird.air = 0.0   # 站在塔頂上過關就留在塔頂歡呼（不然會掉進塔裡面）
+		# 2-1、2-2：歡呼一下之後開門，家豪走進下一小關（自動驗收不播，除非帶 --doortest）
+		if world.get("next_door") != null and (not _auto_run() or "--doortest" in OS.get_cmdline_user_args()):
+			_exit_delay = EXIT_WAIT
 	else:
 		for f in farmers:
 			if f.alive():
@@ -963,6 +1007,99 @@ func _end(result: String) -> void:
 		_defeat_delay = 1.6   # 先看家豪倒下，再切到晚餐畫面
 	_update_phase_label()
 	phase_changed.emit("ended")
+
+# ------------------------------------------------------------------ 過關後走進下一小關
+
+## 時間軸（秒）：0 鏡頭轉到門前、門開始開 → 0.7 家豪飛到門口 → 落地後走進門 → 轉黑 → 載入下一小關
+const EXIT_OPEN := 1.1
+const EXIT_FLY_AT := 0.7
+const EXIT_WALK := 1.0
+const EXIT_FADE := 0.6
+var EXIT_FADE_AT: float:
+	get:
+		return EXIT_FLY_AT + _exit_fly + EXIT_WALK * 0.5
+
+func _start_exit() -> void:
+	var door: Node3D = world.next_door
+	_exit_t = 0.0
+	_summary_panel.visible = false
+	if _hud_layer:
+		_hud_layer.visible = false
+	var hud := get_node_or_null("../HUD")   # 準心、操作提示也收起來
+	if hud and "visible" in hud:
+		hud.visible = false
+	_exit_from = bird.pos
+	_exit_air = bird.air   # 在塔頂過關的話，從塔頂飛下來
+	climb_k = -1
+	var front: Vector3 = door.front_point()
+	_exit_fly = clampf(Vector2(front.x - bird.pos.x, front.z - bird.pos.z).length() / 9.0, 0.8, 1.8)
+	# 鏡頭：站在院子裡、斜對著門，慢慢往前推
+	var side: Vector3 = (door.inward as Vector3).cross(Vector3.UP).normalized()
+	_exit_cam_from = door.front_point(10.0) + side * 3.5 + Vector3(0, 4.5, 0)
+	_exit_cam = Camera3D.new()
+	_exit_cam.fov = camera.fov
+	_exit_cam.far = camera.far
+	add_child(_exit_cam)
+	_exit_cam.global_position = _exit_cam_from
+	_exit_cam.look_at(door.global_position + Vector3(0, 1.6, 0), Vector3.UP)
+	_exit_cam.make_current()
+	# 轉場用的黑幕
+	var layer := CanvasLayer.new()
+	layer.layer = 30
+	add_child(layer)
+	_exit_fade = ColorRect.new()
+	_exit_fade.color = Color(0, 0, 0, 0)
+	_exit_fade.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_exit_fade.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(_exit_fade)
+	bird.set_state("cheer")
+
+func _tick_exit(dt: float) -> void:
+	var door: Node3D = world.next_door
+	_exit_t += dt
+	var e := _exit_t
+	door.set_open(e / EXIT_OPEN)
+	var look_at_pt: Vector3 = door.global_position + Vector3(0, 1.6, 0)
+	var push := clampf(e / 4.0, 0.0, 1.0)
+	_exit_cam.global_position = _exit_cam_from.lerp(door.front_point(6.0) + Vector3(0, 3.2, 0), push * push * (3.0 - 2.0 * push))
+	_exit_cam.look_at(look_at_pt, Vector3.UP)
+	var front: Vector3 = door.front_point()
+	if e >= EXIT_FLY_AT and e < EXIT_FLY_AT + _exit_fly:
+		# 飛到門口：拋物線，越遠飛越高
+		var k := (e - EXIT_FLY_AT) / _exit_fly
+		var dist := Vector2(front.x - _exit_from.x, front.z - _exit_from.z).length()
+		if bird.state != "fly":
+			bird.set_state("fly")
+			bird.fly_from = _exit_from
+			bird.fly_to = front
+			bird.fly_dur = _exit_fly
+		bird.pos = _ground(_exit_from.lerp(front, k))
+		bird.air = _exit_air * (1.0 - k) + sin(k * PI) * clampf(dist * 0.22, 1.5, 4.0)
+		bird.yaw = atan2(front.x - _exit_from.x, front.z - _exit_from.z)
+	elif e >= EXIT_FLY_AT + _exit_fly:
+		# 落地後走進門裡
+		var k := clampf((e - EXIT_FLY_AT - _exit_fly) / EXIT_WALK, 0.0, 1.0)
+		if bird.state != "charge":
+			bird.set_state("charge")
+			_anim(bird, "Run")
+		var inside: Vector3 = door.inside_point()
+		bird.pos = front.lerp(inside, k)
+		bird.pos.y = front.y
+		bird.air = 0.0
+		bird.yaw = atan2(inside.x - front.x, inside.z - front.z)
+	var fade := clampf((e - EXIT_FADE_AT) / EXIT_FADE, 0.0, 1.0)
+	_exit_fade.color.a = fade
+	if fade >= 1.0:
+		_go_next_stage()
+
+func _go_next_stage() -> void:
+	var n: int = int(world.get("stage")) + 1
+	_exit_t = -1.0
+	Engine.set_meta("fort_stage", n)
+	Engine.set_meta("stage_id", "fort/%d" % n)
+	Engine.set_meta("fort_from_door", true)   # 下一小關可以知道是從門走進來的
+	get_tree().paused = false
+	get_tree().change_scene_to_file("res://levels/fort/stage_%d/stage.tscn" % n)
 
 # ------------------------------------------------------------------ 輸入與神蹟
 
@@ -981,6 +1118,19 @@ func _unhandled_input(event: InputEvent) -> void:
 			_end_intro()
 		get_viewport().set_input_as_handled()
 		return
+	# 正在（或準備）走進下一關：空白／Enter／點一下 直接跳到轉場；R 不接（要重玩就回地圖）
+	if _exit_t >= 0.0 or _exit_delay > 0.0:
+		var skip: bool = (event is InputEventKey and event.pressed and not event.echo and event.keycode in [KEY_SPACE, KEY_ENTER, KEY_KP_ENTER]) 			or (event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT)
+		if skip:
+			if _exit_t < 0.0:
+				_exit_delay = -1.0
+				_start_exit()
+			_exit_t = maxf(_exit_t, EXIT_FADE_AT)
+			get_viewport().set_input_as_handled()
+			return
+		if event.is_action_pressed("battle_reset"):
+			get_viewport().set_input_as_handled()
+			return
 	if event.is_action_pressed("battle_start"):
 		start()
 	elif event.is_action_pressed("battle_reset"):
@@ -1030,7 +1180,34 @@ func select_skill(i: int) -> void:
 	_refresh_slots()
 
 func _update_aim() -> void:
+	if view and view.overview:
+		var ray: Array = view.mouse_ray()   # 俯看時用滑鼠指的位置瞄準
+		aim_point = world.ray_ground(ray[0], ray[1], 160.0)
+		return
 	aim_point = world.ray_ground(camera.global_position, -camera.global_basis.z, 70.0)
+
+# ------------------------------------------------------------------ 兩種視角（Tab）：家豪旁邊 ↔ 俯看全場（共用的 scripts/battle/view_toggle.gd）
+
+var view: Node
+
+func _build_view_toggle() -> void:
+	view = preload("res://scripts/battle/view_toggle.gd").new()
+	view.name = "ViewToggle"
+	view.setup(player, camera, func() -> Vector3: return bird.pos, _view_area)
+	view.on_click = func() -> void: try_cast()
+	view.changed.connect(func(on: bool) -> void:
+		if crosshair:
+			crosshair.visible = not on)
+	add_child(view)
+
+## 俯看要裝進畫面的範圍：要塞的橢圓院子（2-3 再加上東邊的院子）
+func _view_area() -> Rect2:
+	var c: Vector2 = world.FORT_C
+	var r := Rect2(c.x - world.FORT_RX, c.y - world.FORT_RZ, world.FORT_RX * 2.0, world.FORT_RZ * 2.0)
+	if world.get("east"):
+		var c2: Vector2 = world.R2_C
+		r = r.merge(Rect2(c2.x - world.R2_RX, c2.y - world.R2_RZ, world.R2_RX * 2.0, world.R2_RZ * 2.0))
+	return r
 
 ## 在準心指到的地面施放目前選的神蹟
 func try_cast() -> bool:
@@ -1043,7 +1220,10 @@ func try_cast() -> bool:
 ## 這裡能不能放這個神蹟；可以回傳空字串，不行回傳原因
 func placement_error(i: int, p: Vector3) -> String:
 	var id: String = SKILLS[i].id
-	if _ground_normal(p).y < 0.72:
+	var ny := _ground_normal(p).y
+	# 巨石本來就是「斜坡上放了會自己滾下去」，所以斜坡都可以放，只有接近垂直的崖面不行（約 65° 以上）；
+	# 飼料、香蕉皮放在太陡的地方會滑走，維持原本的限制（約 44°）
+	if ny < (0.42 if id == "rock" else 0.72):
 		return "這裡太陡了，放不住"
 	if id == "rock":
 		if not world.rock_ground(p.x, p.z):
@@ -1147,6 +1327,10 @@ func _hits_obstacle(p: Vector2) -> bool:
 	return false
 
 func _spawn_feed(p: Vector3) -> void:
+	# 撒在寶箱、石頭、建築旁邊（貼著它們）：往外挪到走得到的地方，免得家豪一直往障礙物裡鑽、永遠吃不到
+	for k in 3:   # 夾在兩個障礙物之間時，推一次可能又推進另一個，多推幾次
+		p = _avoid(p, p, 0.75)
+	p = _ground(p)   # 0.75：比繞路判斷（_blocked_at 的 +0.6）再外面一點，才不會一靠近就被轉開
 	var node := Node3D.new()
 	node.position = p
 	node.quaternion = Quaternion(Vector3.UP, _ground_normal(p))
@@ -1455,6 +1639,10 @@ func _step(dt: float) -> void:
 				_tick_boss(f, dt)
 			else:
 				_tick_farmer(f, dt)
+		# 自爆農夫被巨石／砲彈／大砲砸倒：當場爆炸（被炸倒的自爆農夫下一格也會跟著爆）
+		for f in farmers:
+			if f.kind == "bomber" and not f.alive() and not f.exploded and not f.dud:
+				_bomb_explode(f)
 		_tick_towers(dt)
 		_tick_turrets(dt)
 		_tick_shells(dt)
@@ -1472,9 +1660,18 @@ func _step(dt: float) -> void:
 		_tick_towers(dt)   # 勝負已分，但正在倒的水塔和穀倉要照樣倒完
 
 func _process(dt: float) -> void:
+	if view:
+		view.enabled = _intro_i < 0 and _exit_t < 0.0 and _exit_delay <= 0.0
 	if _intro_i >= 0:
 		_tick_intro(dt)
 		_fade_near_camera(dt)
+		return
+	if _exit_delay > 0.0:
+		_exit_delay -= dt
+		if _exit_delay <= 0.0:
+			_start_exit()
+	if _exit_t >= 0.0:
+		_tick_exit(dt)
 		return
 	for r in rocks:
 		if r.done and not r.get("rested", false):
@@ -1506,8 +1703,24 @@ func _process(dt: float) -> void:
 
 ## 家豪卡在砲管裡：砲口跟著準心轉，畫出拋物線和落點
 func _update_cannon_aim() -> void:
-	if aim_point != null:
-		cannon_target = _snap_cannon_target(_clamp_cannon_target(aim_point))
+	# 準心（或俯看時的滑鼠）直接指著敵方炮塔的塔身：射線只會打到地面、會穿過塔落在塔後面，
+	# 所以先檢查射線有沒有碰到塔，碰到就當作瞄準那座塔（下面的吸附會鎖到塔頂）
+	var ray := _aim_ray()
+	var hit_tower := _ray_hits_tower(ray[0], ray[1])
+	var raw = aim_point
+	if hit_tower >= 0:
+		var tp: Vector2 = towers[hit_tower].pos
+		raw = _ground(Vector3(tp.x, 0, tp.y))
+	_out_of_range = false
+	if raw != null:
+		var m0: Vector3 = world.cannon_muzzle()
+		_out_of_range = Vector2(raw.x - m0.x, raw.z - m0.z).length() > CANNON_RANGE + 0.3
+		cannon_target = _snap_cannon_target(_clamp_cannon_target(raw))
+		if cannon_locked:
+			_out_of_range = false
+		if _out_of_range and not _range_warned:
+			_toast("太遠了，射不到那裡（會落在紅圈）", 1.4)
+		_range_warned = _out_of_range
 	world.aim_cannon(cannon_target)
 	var m: Vector3 = world.cannon_muzzle()
 	var dist := Vector2(cannon_target.x - m.x, cannon_target.z - m.z).length()
@@ -1528,12 +1741,57 @@ func _update_cannon_aim() -> void:
 	_preview.quaternion = Quaternion(Vector3.UP, cn)
 	_preview.scale = Vector3(1.2, 1, 1.2)
 	var on_boss: bool = world.has_method("on_boss_platform") and world.on_boss_platform(cannon_target)
-	(_preview.material_override as StandardMaterial3D).albedo_color = Color(0.4, 1.0, 0.4, 0.9) if on_boss else Color(1, 0.6, 0.2, 0.85)
+	var ring_col := Color(0.4, 1.0, 0.4, 0.9) if (on_boss or cannon_locked) else Color(1, 0.6, 0.2, 0.85)
+	if _out_of_range:
+		ring_col = Color(1.0, 0.25, 0.2, 0.9)   # 超出射程：落點圈變紅（落點已經被拉回最遠的地方）
+	(_preview.material_override as StandardMaterial3D).albedo_color = ring_col
 	if cannon_locked:
 		var pulse := 1.0 + 0.12 * sin(Time.get_ticks_msec() * 0.012)
 		_preview.scale = Vector3(2.2 * pulse, 1, 2.2 * pulse)
 	if crosshair and "highlight" in crosshair:
-		crosshair.highlight = true
+		crosshair.highlight = not _out_of_range
+
+var _out_of_range := false
+var _range_warned := false
+
+## 現在瞄準用的射線 [起點, 方向]：平常是準心，俯看（Tab）時是滑鼠
+func _aim_ray() -> Array:
+	if view and view.overview:
+		return view.mouse_ray()
+	return [camera.global_position, -camera.global_basis.z]
+
+## 射線有沒有碰到還站著的敵方炮塔（把塔當成一根圓柱）；碰到回傳塔的編號，沒有回傳 -1
+func _ray_hits_tower(o: Vector3, d: Vector3) -> int:
+	var best := -1
+	var best_t := INF
+	for k in towers.size():
+		var t: Dictionary = towers[k]
+		if t.state != "stand" or t.side != "enemy" or t.gun == null:
+			continue
+		var c: Vector2 = t.pos
+		var r: float = float(t.radius) + 0.35
+		var base_y: float = (t.node as Node3D).global_position.y
+		var top_y: float = base_y + float(t.height) + 0.6
+		# 水平面上：|o.xz + s*d.xz - c| = r
+		var ox := o.x - c.x
+		var oz := o.z - c.y
+		var a := d.x * d.x + d.z * d.z
+		if a < 0.000001:
+			continue
+		var b := 2.0 * (ox * d.x + oz * d.z)
+		var cc := ox * ox + oz * oz - r * r
+		var disc := b * b - 4.0 * a * cc
+		if disc < 0.0:
+			continue
+		var sq := sqrt(disc)
+		for s in [(-b - sq) / (2.0 * a), (-b + sq) / (2.0 * a)]:
+			if s > 0.0 and s < best_t:
+				var y: float = o.y + d.y * s
+				if y >= base_y - 0.5 and y <= top_y:
+					best_t = s
+					best = k
+					break
+	return best
 
 func _tick_hud_misc(dt: float) -> void:
 	if _toast_t > 0.0:
@@ -1578,6 +1836,10 @@ func _tick_hud_misc(dt: float) -> void:
 		_tower_label.text = "敵方炮塔 %d/%d" % [towers_left(), towers_total()]
 	if _bird_bar:
 		_bird_bar.set_values(bird.ratio() if bird.alive() else 0.0, bird.chip)
+	if _hearts:
+		_hearts.hp = maxf(bird.hp, 0.0)
+	if _start_btn:
+		_start_btn.visible = phase == Phase.PREPARE and _intro_i < 0
 	_update_edge_arrow()
 
 # ------------------------------------------------------------------ 農夫
@@ -1618,6 +1880,7 @@ func _tick_farmer(f: Fighter, dt: float) -> void:
 		return
 	if f.alive() and world.in_water(f.pos.x, f.pos.z):
 		f.hp = 0.0
+		f.dud = true   # 火藥泡水，不會爆
 		f.set_state("drown")
 		_anim(f, "Death")
 		_spawn_splash(f.pos)
@@ -1676,18 +1939,24 @@ func _tick_farmer(f: Fighter, dt: float) -> void:
 				_log("%s繞了一大圈，停下來喘氣" % f.name)
 				return
 			_anim(f, "Walk")
-			if dist <= f.reach and _bird_targetable():
+			if dist <= f.reach and _bird_targetable() and not f.struck:
 				_farmer_attack(f)
 		"windup":
 			_face(f, bird.pos)
-			if f.t >= (0.8 if f.heavy else f.windup):
+			if f.t >= f.windup:
 				if dist <= f.reach + 0.35 and _bird_targetable():
-					_hit_bird(HEAVY_DAMAGE if f.heavy else KICK_DAMAGE, f.heavy, f.pos, f)
+					_hit_bird(FIRST_STRIKE_DMG, false, f.pos, f)
+					f.struck = true   # 先手只有一次：踢完就沒力氣了
 				f.set_state("recover")
+		"fuse":
+			# 自爆農夫點了引信，抱著火藥桶衝過來
+			_face(f, bird.pos)
+			if f.t >= BOMB_FUSE:
+				_bomb_explode(f)
 		"recover":
-			if f.t >= (1.7 if f.heavy else f.recover):
+			if f.t >= f.recover:
 				f.heavy = false
-				if dist <= f.reach and _bird_targetable():
+				if dist <= f.reach and _bird_targetable() and not f.struck:
 					_farmer_attack(f)
 				else:
 					f.set_state("walk")
@@ -2030,13 +2299,87 @@ func towers_total() -> int:
 	return towers.filter(func(t): return t.gun != null).size()
 
 func _farmer_attack(f: Fighter) -> void:
-	f.heavy = f.attack_n % 3 == 2
+	# 先攻規則：沒有重踢，每個農夫只有一次先手
+	f.heavy = false
 	f.attack_n += 1
+	if f.kind == "bomber":
+		f.set_state("fuse")
+		_anim(f, "Run", 1.2)
+		_log("%s點燃了引信" % f.name)
+		_toast("自爆農夫點燃引信！", 1.0)
+		return
 	f.set_state("windup")
-	if f.heavy:
-		_anim(f, "Kick_Left", 0.75)
-	else:
-		_anim(f, "Kick_Right", 1.3)
+	_anim(f, "Kick_Right", 1.3)
+
+## 自爆農夫背上的火藥桶（紅色木桶＋頂上的引信火花）
+func _make_bomb(parent: Node3D) -> Node3D:
+	var root := Node3D.new()
+	root.name = "Bomb"
+	parent.add_child(root)
+	root.position = Vector3(0, 1.3, -0.42)
+	var barrel := MeshInstance3D.new()
+	var cm := CylinderMesh.new()
+	cm.top_radius = 0.3
+	cm.bottom_radius = 0.3
+	cm.height = 0.62
+	barrel.mesh = cm
+	barrel.material_override = _toon_mat(Color(0.78, 0.16, 0.12))
+	barrel.name = "Barrel"
+	root.add_child(barrel)
+	for y in [-0.2, 0.2]:
+		var ring := MeshInstance3D.new()
+		var rm := CylinderMesh.new()
+		rm.top_radius = 0.315
+		rm.bottom_radius = 0.315
+		rm.height = 0.07
+		ring.mesh = rm
+		ring.material_override = _toon_mat(Color(0.22, 0.18, 0.16))
+		ring.position.y = y
+		root.add_child(ring)
+	var spark := MeshInstance3D.new()
+	var sm := SphereMesh.new()
+	sm.radius = 0.09
+	sm.height = 0.18
+	spark.mesh = sm
+	var mat := StandardMaterial3D.new()
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat.albedo_color = Color(1.0, 0.85, 0.25)
+	spark.material_override = mat
+	spark.position.y = 0.45
+	spark.name = "Spark"
+	root.add_child(spark)
+	return root
+
+## 自爆農夫爆炸：炸到家豪扣一顆心，範圍內的農夫一起倒
+func _bomb_explode(f: Fighter) -> void:
+	f.exploded = true
+	f.hp = 0.0
+	if f.state != "dead":
+		f.set_state("dead")
+		_anim(f, "Death")
+	if f.bomb:
+		f.bomb.visible = false
+	var p := f.pos
+	_puff(p + Vector3.UP * 0.4, Color(1.0, 0.55, 0.15, 0.85), 9, 0.7)
+	_puff(p + Vector3.UP * 0.9, Color(0.3, 0.27, 0.25, 0.7), 7, 0.9)
+	_noise_at(p)
+	_toast("轟！", 0.9)
+	_log("%s爆炸了" % f.name)
+	for o in farmers:
+		if o == f or o.is_boss or not o.alive() or o.air >= 1.0:
+			continue
+		if _flat_dist(o.pos, p) < BOMB_RADIUS:
+			o.hp = 0.0
+			var away: Vector3 = o.pos - p
+			away.y = 0.0
+			o.kb_vel = (away.normalized() if away.length() > 0.01 else Vector3.BACK) * 4.0
+			o.set_state("dead")
+			_anim(o, "Death")
+			_log("爆炸把%s炸倒了" % o.name)
+	var b := bird
+	if _bird_targetable() and b.air < 1.5 and not b.state in ["launch", "cannon"] and _flat_dist(b.pos, p) < BOMB_RADIUS:
+		_log("爆炸炸到家豪")
+		_hit_bird(FIRST_STRIKE_DMG, false, p)
 
 # ------------------------------------------------------------------ 家豪
 
@@ -2093,6 +2436,9 @@ func _tick_bird(dt: float) -> void:
 		if fi >= 0:
 			if b.state != "feed":
 				_log("家豪看到飼料，跑去吃")
+				b.t = 0.0   # 放棄的計時從開始走向飼料算起
+			elif fi != b.feed_target:
+				b.t = 0.0
 			b.feed_target = fi
 			b.state = "feed"
 	match b.state:
@@ -2108,10 +2454,19 @@ func _tick_bird(dt: float) -> void:
 		"feed":
 			if b.feed_target < 0 or b.feed_target >= feeds.size():
 				b.set_state("charge")
+			elif b.t > FEED_GIVE_UP:
+				# 走了好一陣子還是吃不到（被擋住）：放棄這一把，回去做原本的事
+				_log("家豪吃不到那把飼料，放棄了")
+				(feeds[b.feed_target].node as Node3D).queue_free()
+				feeds.remove_at(b.feed_target)
+				b.feed_target = -1
+				b.set_state("charge")
 			else:
 				var fp: Vector3 = feeds[b.feed_target].pos
 				_bird_walk(fp, b.speed * 0.85, dt, "feed")
-				if _flat_dist(b.pos, fp) < 0.35:
+				# 飼料貼著障礙物時家豪走不到正上方：靠得夠近（1.1 公尺內）就算到了
+				var fd := _flat_dist(b.pos, fp)
+				if fd < 0.35 or (fd < 1.1 and _blocked_at(fp)):
 					if has_cannon and _cannon_at(fp) >= 0:
 						world.select_cannon(_cannon_at(fp))
 						cannon_target = _default_cannon_target()
@@ -2126,7 +2481,7 @@ func _tick_bird(dt: float) -> void:
 						b.set_state("eat")
 		"eat":
 			if b.t >= FEED_EAT_TIME:
-				var fi := _nearest_feed(b.pos, 0.8)
+				var fi := _nearest_feed(b.pos, 1.2)
 				if fi >= 0:
 					(feeds[fi].node as Node3D).queue_free()
 					feeds.remove_at(fi)
@@ -2219,7 +2574,8 @@ func _tower_goal(from: Vector3) -> Fighter:
 	_goal.name = "炮塔" + _tower_name(best)
 	_goal.hp = 1.0
 	_goal.state = "idle"
-	_goal.pos = _ground(world.clamp_play(Vector3(spot.x, 0, spot.y)))
+	# 叫囂的位置剛好落在寶箱、石頭上的話往外挪（不然家豪會一直往裡面鑽）
+	_goal.pos = _ground(world.clamp_play(_avoid(Vector3(spot.x, 0, spot.y), Vector3(spot.x, 0, spot.y), 0.4)))
 	return _goal
 
 ## 寶箱：家豪走過去就打開，補滿血、神蹟冷卻清空
@@ -2775,7 +3131,6 @@ func _start_fly(to: Vector3, dur: float, peak: float, after: String) -> void:
 
 func _hit_bird(dmg: float, heavy: bool, from: Vector3, by: Fighter = null) -> void:
 	var b := bird
-	var before := b.hp
 	b.hp = maxf(b.hp - dmg, 0.0)
 	hit_spots.append(b.pos)
 	_noise_at(b.pos)
@@ -2788,7 +3143,8 @@ func _hit_bird(dmg: float, heavy: bool, from: Vector3, by: Fighter = null) -> vo
 		b.set_state("dead")
 		b.kb_vel = away * 3.0
 		return
-	var first_half := not b.fled_half and before > b.max_hp * 0.5 and b.hp <= b.max_hp * 0.5
+	# 先攻規則：被農夫踢中只是小跳一下、馬上回頭反擊；只有重擊（巨石之類）才會飛開撤退
+	var first_half := false
 	if heavy or first_half:
 		if first_half:
 			b.fled_half = true
@@ -2826,11 +3182,24 @@ func _sneak(f: Fighter) -> void:
 		f.set_state("dead")
 		_anim(f, "Death")
 		_log("%s倒下了" % f.name)
+		_defuse(f)
 		return
 	f.heavy = false
 	f.set_state("startled")
 	f.yaw = _yaw_to(f.pos, bird.pos)
 	_anim(f, "HitRecieve", 0.8)
+
+## 家豪搶先啄倒自爆農夫：引信被啄掉，不會爆
+func _defuse(f: Fighter) -> void:
+	if f.kind != "bomber" or f.exploded:
+		return
+	f.dud = true
+	if f.bomb:
+		var sp := f.bomb.get_node_or_null("Spark")
+		if sp:
+			sp.visible = false
+	_log("家豪啄掉了%s的引信" % f.name)
+	_toast("引信啄掉了！", 1.2)
 
 func _hit_farmer(f: Fighter, dmg: float, from: Vector3) -> void:
 	if f.is_boss:
@@ -2849,6 +3218,7 @@ func _hit_farmer(f: Fighter, dmg: float, from: Vector3) -> void:
 		f.kb_vel = away * 2.0
 		_anim(f, "Death")
 		_log("%s倒下了" % f.name)
+		_defuse(f)
 		return
 	if f.state == "down":
 		return
@@ -2968,13 +3338,25 @@ func _detour(from: Vector3, to: Vector3, seg: Array) -> Vector3:
 
 ## 避開建築和樹：要走進去時沿著邊緣滑開
 func _avoid(from: Vector3, to: Vector3, pad: float) -> Vector3:
+	# 要走進障礙物（建築、樹、停下來的巨石）時：推回邊緣，再往「繞過去」的方向滑一點。
+	# 只推回邊緣的話，正面撞上去會一直卡在原地抖（推出去、又走進來）
 	var p := Vector2(to.x, to.z)
+	var f2 := Vector2(from.x, from.z)
+	var mv := p - f2
 	for o in world.obstacles:
 		var c: Vector2 = o[0]
 		var r: float = o[1] + pad
 		var d := p - c
 		if d.length() < r:
-			p = c + d.normalized() * r
+			var n := d.normalized() if d.length() > 0.001 else (f2 - c).normalized()
+			var t := Vector2(-n.y, n.x)
+			# 往比較順的那一邊繞：跟原本前進方向同側；幾乎正面撞上時固定往同一側（用相對位置決定，不會左右搖擺）
+			var side := signf(t.dot(mv))
+			if absf(t.dot(mv.normalized())) < 0.2:
+				side = 1.0 if (f2 - c).cross(mv) >= 0.0 else -1.0
+			if side == 0.0:
+				side = 1.0
+			p = c + n * r + t * side * maxf(mv.length(), 0.02)
 	return Vector3(p.x, to.y, p.y)
 
 func _clamp_play(p: Vector3) -> Vector3:
@@ -3035,7 +3417,8 @@ func _steer_dir(f: Fighter, dir: Vector3, step: float, dist := INF) -> Vector3:
 		var held := dir.rotated(Vector3.UP, f.steer_angle)
 		if not _blocked_at(f.pos + held * (step + STEER_LOOK)):
 			return held
-	if not _blocked_at(f.pos + dir * (step + STEER_LOOK)):
+	# 往前看的距離不要超過目標本身：目標就在障礙物旁邊（例如寶箱旁的飼料）時，看過頭會一直被轉開、在原地打轉
+	if not _blocked_at(f.pos + dir * minf(step + STEER_LOOK, dist)):
 		f.steer_t = -1.0
 		return dir
 	for a in [0.4, 0.8, 1.2, 1.6, 2.0, 2.5]:
@@ -3092,6 +3475,14 @@ func _apply_visuals() -> void:
 	for f in [bird] + farmers:
 		f.node.global_position = f.pos + Vector3(0, f.air, 0)
 		f.node.rotation = Vector3(0, f.yaw, 0)
+		if f.bomb and f.bomb.visible:
+			var sp := f.bomb.get_node_or_null("Spark") as Node3D
+			if sp and not f.dud:
+				var fast: bool = f.state == "fuse"
+				sp.scale = Vector3.ONE * ((1.6 + sin(time * 60.0) * 0.6) if fast else (1.0 + sin(time * 18.0) * 0.25))
+			var barrel := f.bomb.get_node_or_null("Barrel") as Node3D
+			if barrel:
+				barrel.scale = Vector3.ONE * ((1.0 + absf(sin(time * 25.0)) * 0.15) if f.state == "fuse" else 1.0)
 	_boss_pose()
 	_bird_pose()
 
@@ -3230,11 +3621,12 @@ func _build_hud() -> void:
 	_hotbar.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var hb := _hotbar.bar_size()
 	_hotbar.custom_minimum_size = hb
-	_hotbar.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_hotbar.offset_left = -hb.x * 0.5
-	_hotbar.offset_right = hb.x * 0.5
-	_hotbar.offset_top = -hb.y - 22
-	_hotbar.offset_bottom = -22
+	# 統一介面：神蹟欄放左下（跟冰雪大關一樣），家豪的愛心在它上方
+	_hotbar.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_hotbar.offset_left = 28
+	_hotbar.offset_right = 28 + hb.x
+	_hotbar.offset_top = -hb.y - 30
+	_hotbar.offset_bottom = -30
 	layer.add_child(_hotbar)
 	# 對話框：放在快捷欄上方
 	_dialog = DialogBox.new()
@@ -3248,7 +3640,10 @@ func _build_hud() -> void:
 	layer.add_child(_dialog)
 	_napoleon_tex = _load_tex("res://assets/ui/napoleon.png")
 	_dialog.portrait = _load_tex("res://assets/ui/jiahao_portrait.png")
-	_tut = preload("res://levels/fort/tutorial_popup.gd").new()
+	# 教學彈窗改用共用版（scripts/ui/tutorial_popup.gd，從這裡的版本搬過去的），示範動畫還是讀要塞的影格表
+	_tut = preload("res://scripts/ui/tutorial_popup.gd").new()
+	_tut.clip_dir = "res://levels/fort/assets/tutorial"
+	_tut.kicker_text = "新手教學"
 	add_child(_tut)
 	_tut.set_pages(TUT_PAGES)
 	_tut.closed.connect(_on_tut_closed)
@@ -3291,6 +3686,7 @@ func _build_hud() -> void:
 		var bar := PaperBar.new()
 		bar.fill = Color("e2483d")
 		bar.custom_minimum_size = Vector2(170, 16)
+		bar.visible = false   # 統一介面：不顯示敵人血量
 		info.add_child(bar)
 		_enemy_rows.append({"fighter": f, "face": face, "bar": bar})
 	var crew: Array = farmers.filter(func(f): return not f.is_boss)
@@ -3328,8 +3724,8 @@ func _build_hud() -> void:
 	UIStyle.slip(me, Vector2(12, 8))
 	me.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	me.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
-	me.offset_left = 20
-	me.offset_bottom = -22
+	me.offset_left = 28 + hb.x + 18   # 神蹟欄右邊同一排（上方留給浮出的神蹟名稱）
+	me.offset_bottom = -30 - (hb.y - 56.0) * 0.5
 	me.grow_vertical = Control.GROW_DIRECTION_BEGIN
 	layer.add_child(me)
 	var mrow := HBoxContainer.new()
@@ -3338,7 +3734,7 @@ func _build_hud() -> void:
 	me.add_child(mrow)
 	var pic := Portrait.new()
 	pic.tex = _load_tex("res://assets/ui/jiahao_portrait.png")
-	pic.custom_minimum_size = Vector2(52, 52)
+	pic.custom_minimum_size = Vector2(40, 40)
 	pic.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	mrow.add_child(pic)
 	var minfo := VBoxContainer.new()
@@ -3352,7 +3748,15 @@ func _build_hud() -> void:
 	_bird_bar = PaperBar.new()
 	_bird_bar.fill = Color("58b85a")
 	_bird_bar.custom_minimum_size = Vector2(170, 16)
+	_bird_bar.visible = false
 	minfo.add_child(_bird_bar)
+	mn.visible = false
+	_hearts = HeartBar.new()
+	_hearts.max_hp = bird.max_hp
+	_hearts.per_heart = HEART_HP
+	_hearts.hp = bird.max_hp
+	_hearts.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	minfo.add_child(_hearts)
 	# 家豪跑出畫面時，畫面邊緣的箭頭指著他
 	_edge_arrow = EdgeArrow.new()
 	_edge_arrow.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -3395,6 +3799,8 @@ func _build_hud() -> void:
 	crow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	corner.add_child(crow)
 	crow.add_child(UIStyle.key_hint("H", "操作說明", 13))
+	_start_btn = _make_start_button()
+	layer.add_child(_start_btn)
 	crow.add_child(UIStyle.key_hint("R", "重試", 13))
 	crow.add_child(UIStyle.key_hint("M", "地圖", 13))
 	# 第一次玩：教學關掉後，在神蹟欄上方提示一次「先試著放一個」，放成功就收起來
@@ -3543,6 +3949,34 @@ func _update_phase_label() -> void:
 			_phase_label.text = "勝利！" if outcome == "win" else "落敗…"
 	_phase_start_key.visible = phase == Phase.PREPARE
 	_phase_retry_key.visible = phase == Phase.ENDED
+
+## 右下角「開始 ▶ [Enter]」（跟其他大關同一個樣子；點它也能開打）
+func _make_start_button() -> Control:
+	var p := PanelContainer.new()
+	var sb := UIStyle._box(UIStyle.GO, UIStyle.GO_EDGE, 22, 3)
+	sb.content_margin_left = 20
+	sb.content_margin_right = 14
+	sb.content_margin_top = 6
+	sb.content_margin_bottom = 8
+	p.add_theme_stylebox_override("panel", sb)
+	var h := HBoxContainer.new()
+	h.add_theme_constant_override("separation", 10)
+	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	p.add_child(h)
+	var t := Label.new()
+	t.text = "開始 ▶"
+	t.label_settings = UIStyle.ls(30, Color(1, 1, 1))
+	h.add_child(t)
+	h.add_child(UIStyle.keycap("Enter", 18))
+	p.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
+	p.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	p.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	p.offset_right = -36
+	p.offset_bottom = -76
+	p.gui_input.connect(func(ev):
+		if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT and phase == Phase.PREPARE:
+			start())
+	return p
 
 func _build_notice(layer: CanvasLayer) -> void:
 	_notice = PanelContainer.new()

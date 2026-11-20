@@ -39,7 +39,7 @@ func _enemy_specs() -> Array:
 		{"name": "抽菸1", "hud_name": "抽菸1", "kind": "smoker", "route": [Vector3(-6.5, 0, 7.5)], "yaw": 0.6,
 			"speed": 1.35, "hears_noise": false, "vision_range": 6.0, "vision_deg": 55},
 		{"name": "狼外婆", "hud_name": "狼外婆", "kind": "wolf",
-			"route": [Vector3(0.2, 0, -0.9)], "yaw": 0.0, "hp": 12.0, "speed": 1.15, "reach": 1.65,
+			"route": [Vector3(0.2, 0, -0.9)], "yaw": 0.0, "hp": 5.0, "speed": 1.15, "reach": 1.65,
 			"hears_noise": false, "vision_range": 3.2, "vision_deg": 65, "bar_y": 2.9},
 	]
 

@@ -1,0 +1,26 @@
+仙境丹穴山（levels/heaven）使用的素材
+======================================
+
+blender/          全部是本組用 Blender 4.5 腳本建模，自製（blender/src/build_heaven_props.py）：
+                  機關：畫門 picture_gate、陸吾 luwu（頭、眼睛、九條尾巴是獨立節點）、香爐 censer（爐蓋可以拿下來）、石柱 pillar、
+                        落葉堆 leaf_pile、洞口 hole_rim_stone（石頭砌的水潭）／hole_rim_gold（星洞的金邊）、欄杆柱 rail_post
+                  終點：南天門 sky_gate、唱盤 turntable、圓門 ring_gate、金環 gold_ring、結局的鳳凰金光 phoenix_light
+                  場景：水墨松 pine_a／b、花樹 blossom、銀杏 ginkgo_a／b、山石 scholar_rock、亭子 pavilion、迴廊 corridor、
+                        木樓 house、樓閣 tower、宮燈 palace_lantern、石碑 stele、小拱橋 bridge
+                  第二批（山海畫卷）：紅梅 plum_a／b（枝上有積雪）、小吃攤 stall、幌子 banner、小燈籠 mini_lantern、
+                        星碑 star_stele、紋章盤 medallion；畫門 picture_gate 改成掛在木架上的立軸
+                  第三批（仙境的氛圍）：浮在半空的仙山 float_peak（松、小亭、瀑布）、仙鶴 crane（兩片翅膀是獨立節點）；
+                        星碑 star_stele 改成圓拱頂的碑、鳳凰金光 phoenix_light 改成有頭冠和三條長尾的剪影
+                  重新產生：Blender --background --factory-startup --python blender/src/build_heaven_props.py -- <輸出資料夾> [只重做的名字，例如 plum stall astral]
+
+（地面——白玉地、四周的地面、步道、雲階——是 heaven_world.gd 在遊戲裡算出來的網格，質感靠 levels/heaven/shaders/ 的著色器；
+  遠山、畫門裡的山水、紅綢帶、小河也都是著色器畫的。這些不是外部素材。）
+
+跟冰雪島共用的（放在 levels/ice/assets/，來源和授權見那裡的 CREDITS.txt）：
+  工人和守衛的模型（Kenney Mini Characters，CC0）、表情貼圖、香蕉皮、飼料袋、落點圈等小道具、雲朵 cloud_puff、
+  質感貼圖 snow_soft.png／ice_cracks.png／shadow_blob.png。仙境的戰局和場地繼承冰雪島的腳本，所以直接讀那邊的檔案。
+
+美術方向參考了使用者提供的三張參考圖（水墨霧景、金黃樓閣、星空金環）的「感覺」；構圖、建築、紋章、神獸都是自己設計的，沒有使用該遊戲的素材。
+
+textures/emblems/ 山海轉盤上十二個異獸的紋章（鳳凰、燭龍、九尾、陸吾、畢方、精衛、帝江、夔牛、旋龜、應龍、英招、鹿蜀）：
+                  本組自己設計的線條圖，用 textures/src/make_emblems.py 算成 PNG（python3 make_emblems.py <輸出資料夾>）。不是外部素材。

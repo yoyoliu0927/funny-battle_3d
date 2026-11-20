@@ -57,6 +57,7 @@ var _ran := false
 ## 預告完整度：true＝畫出滑到哪、結果是什麼（教學關）；false＝只畫方向箭頭（後面的關卡自己想）
 var preview_full := true
 var _new_stars: Array = []
+var _help_gated := false        # 已經把「結算時不開教學彈窗」接到共用的教學彈窗上了
 var _guard_labels := {}        # 守衛 -> 「撲」字
 var _stars := {}               # 暈倒的人 -> 頭上轉圈的星星 [Label3D x3]
 var _vb: Array = []            # 要畫的三角形：[顏色, 頂點, 顏色, 頂點…]（沒有頂點就不開 surface）
@@ -145,11 +146,101 @@ func _how_to() -> String:
 func _tutorial_texts() -> Array:
 	return []
 
+# ---------------------------------------------------------------- 新手教學（前三關；格式見 ice_tutorial.gd）
+
+const IceTutorial := preload("res://levels/ice/ice_tutorial.gd")
+var tut: IceTutorial
+static var _ice_tut_seen := {}       # 這次開遊戲已經看完（或跳過）教學的關卡
+
+## 這一關的新手教學步驟；空陣列＝沒有教學（第 4 關以後）
+func _tutorial_steps() -> Array:
+	return []
+
+func tut_on() -> bool:
+	return tut != null and tut.active()
+
+func _start_tut() -> void:
+	var key := String(get_parent().scene_file_path)
+	if _ice_tut_seen.has(key):
+		return
+	if _automated_run() and not Engine.has_meta("ice_tut_force"):   # 自動測試不跑教學（截圖腳本會設 ice_tut_force）
+		return
+	var list := _tutorial_steps()
+	if list.is_empty():
+		return
+	tut = IceTutorial.new()
+	tut.name = "IceTutorial"
+	add_child(tut)
+	tut.finished.connect(func(): _ice_tut_seen[key] = true)
+	tut.begin(self, list)
+
+## 給教學步驟用的小工具
+func tut_enemy(n: String) -> Fighter:
+	for f in enemies:
+		if f.name == n:
+			return f
+	return null
+
+## 某個人頭頂上方一點（箭頭指人時用）
+func tut_head(n: String) -> Callable:
+	return func():
+		var f := tut_enemy(n)
+		return null if f == null else f.pos + Vector3(0, 2.9, 0)
+
+## 某個人紅線的第 k 段的中點（k 從 0 開始）
+func tut_seg(n: String, k: int) -> Callable:
+	return func():
+		var f := tut_enemy(n)
+		if f == null:
+			return null
+		var pts := _raw_route(f)
+		if k + 1 >= pts.size():
+			return null
+		return ground(((pts[k] as Vector3) + (pts[k + 1] as Vector3)) * 0.5)
+
+## 家豪黃線的第 k 段的中點
+func tut_bird_seg(k: int) -> Callable:
+	return func():
+		var pts: Array = [bird.start_pos]
+		for p in path:
+			pts.append(ground(p))
+		pts.append(world.cage)
+		if k + 1 >= pts.size():
+			return null
+		return ground(((pts[k] as Vector3) + (pts[k + 1] as Vector3)) * 0.5)
+
+## 準心正對著紅線（手上拿香蕉皮）
+func tut_aiming_route() -> bool:
+	return _aim_on_route
+
+## 準心對著紅線、而且預告的結果是 text（例如 "冰洞"、"咚"、"守衛"）
+func tut_aim_says(text: String) -> bool:
+	return _aim_on_route and _aim_results.any(func(r): return String(r.get("text", "")) == text)
+
+## 準心對著紅線、而且白色箭頭的終點停在某個人身上（第 2 關起預告的字都寫「停」，所以看終點的位置）
+func tut_aim_hits(n: String) -> bool:
+	var o := tut_enemy(n)
+	if o == null or not _aim_on_route:
+		return false
+	return _aim_results.any(func(r): return r.has("end") and flat_dist(r.end as Vector3, o.pos) < HIT_R + 0.6)
+
+## 這一輪放了幾個某種道具
+func tut_used(id: String) -> int:
+	return casts.filter(func(c): return String(c.id) == id).size()
+
+## 按 H 的說明彈窗：換成冰雪島的規則（共用的預設寫的是別的玩法）
+func _hero_logic_text() -> String:
+	return "家豪會沿著地上的黃色虛線，自己走去開籠子。\n\n工人沿紅色虛線衝過來，碰到家豪就把他抓走。\n雞在冰上不會滑，人會。"
+
 # ---------------------------------------------------------------- 建立、重置
 
 func _level_setup() -> void:
 	super()
 	show_tutorial = false
+	show_start_button = false  # 這一系列自己畫了右下角的開始鈕
+	show_corner_keys = false   # 也自己畫了右上角的「R 重來」
+	use_view_toggle = false    # 這一系列自己有「準備時按住 Tab 從正上方看」
+	auto_next = false          # 這一系列過關後自己有「下一關」的按鈕
 	avoid_thin = true
 	thin_auto = false          # 薄冰在 _step_thin() 處理：踩到的人先定住 0.3 秒
 	path = _build_path(null)
@@ -179,11 +270,15 @@ func _level_setup() -> void:
 		head.scale = Vector3.ONE * 1.35           # 頭放大（跟工人一樣的大頭比例，表情才看得到）
 		head.position.y += 0.03
 		# 原本的眼睛是兩顆小黑球（畫面上只有幾個像素）：換成跟工人同一套手繪的眼睛（半閉的厭世眼）
-		for c in head.get_children():
-			if c is Node3D and not (c is MeshInstance3D) and c.get_child_count() > 0:
-				(c as Node3D).visible = false
+		# 眼睛現在由商店的設定決定（小黑眼就不換；手繪大眼共用的 characters.gd 已經換好了）。
+		# 只有共用模型沒換成功（頭上沒有 drawn_eyes 記號）而設定又是手繪大眼時，才用這裡自己的貼圖補上
+		var own_eyes: bool = load("res://scripts/wardrobe.gd").eyes() == "drawn" and not head.has_meta("drawn_eyes")
+		if own_eyes:
+			for c in head.get_children():
+				if String(c.name).begins_with("Eye"):      # 只收眼睛：頭上還可能有商店買的紙袋、帽子
+					(c as Node3D).visible = false
 		var eye_tex := load("res://levels/ice/assets/faces/face_bird.png") as Texture2D
-		for k in 2:
+		for k in (2 if own_eyes else 0):
 			var eye := MeshInstance3D.new()
 			var qm := QuadMesh.new()
 			qm.size = Vector2(0.088, 0.088)
@@ -337,6 +432,7 @@ func _level_setup() -> void:
 		UISkin.pill(hint, Color(0.1, 0.13, 0.2, 0.75), Color(1, 1, 1, 0.35), Color(1, 1, 1))
 	_skin_hud()
 	_hint_until = Time.get_ticks_msec() + 3000
+	_start_tut.call_deferred()      # 前三關的新手教學（HUD 都建好之後才開始）
 
 func _mesh_node(m: Material) -> MeshInstance3D:
 	var n := MeshInstance3D.new()
@@ -605,6 +701,11 @@ func _update_buttons(cut: bool) -> void:
 	_retry_box.visible = phase == Phase.RUNNING and not cut
 	if _star_box and (_clock >= _star_until or cut and phase == Phase.ENDED or defeat_shown):
 		_star_box.visible = false
+	# 結算卡上 H 是「按住看沒拿到的星星的提示」：這時候不要同時打開共用的教學彈窗（兩個都用 H 會撞在一起）
+	if help_popup and not _help_gated:
+		_help_gated = true
+		var base_ok: Callable = help_popup.can_open
+		help_popup.can_open = func() -> bool: return phase != Phase.ENDED and (not base_ok.is_valid() or base_ok.call())
 	var hint_on := Input.is_physical_key_pressed(KEY_H)
 	for l in _hint_rows:
 		if is_instance_valid(l):
@@ -1841,9 +1942,8 @@ func _process(dt: float) -> void:
 	for f in all_fighters():
 		if f.bar:
 			f.bar.visible = false
-	if not _enemy_rows.is_empty():
-		var col: Control = (_enemy_rows[0].face as Control).get_parent().get_parent()
-		col.visible = false
+	if _enemy_col:
+		_enemy_col.visible = false
 	var hint := get_node_or_null("../HUD/Hint") as Label
 	if hint:
 		hint.visible = not cut and Input.is_physical_key_pressed(KEY_H)   # 操作說明只在按住 H 時出現
@@ -1911,12 +2011,13 @@ func _process(dt: float) -> void:
 		var first_time: bool = attempts.is_empty()     # 說明、大標題、示範都只在第一次進這一關時出現
 		# 示範播放時先不貼說明（畫面上只留示範的一行字）；示範播完再貼幾秒
 		var show_how: bool = (first_time and not _demo_playing and t_in < (15.0 if _aid("demo") else 5.0)) or Input.is_physical_key_pressed(KEY_H)
+		show_how = show_how and not tut_on()      # 新手教學進行中：畫面上只留教學的便利貼
 		_how_panel.visible = show_how and not (_top_cam != null and _top_cam.current)
 		if _goal_label:
 			# 紅色大標題只在第一關、第一次進來時出現一下
 			_goal_label.visible = false
 		if _how_tab:
-			_how_tab.visible = not show_how and not _demo_playing
+			_how_tab.visible = not show_how and not _demo_playing and not tut_on()
 	elif _how_tab:
 		_how_tab.visible = false
 	if _list_label:

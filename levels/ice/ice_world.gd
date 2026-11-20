@@ -616,7 +616,7 @@ func _hide_base() -> void:
 ## 共用場地最後才蓋的草叢、森林也收起來（這個函式是 _ready 的最後一步）
 func _place_player() -> void:
 	super()
-	for nm in ["Grass", "ForestTrunks", "ForestCrowns"]:
+	for nm in ["Grass", "Forest"]:        # 共用場地的森林都放在 "Forest" 底下（切成很多區塊）
 		var n := find_child(nm, true, false) as Node3D
 		if n:
 			n.visible = false

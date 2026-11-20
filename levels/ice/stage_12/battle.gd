@@ -46,3 +46,24 @@ func _level_setup() -> void:
 	timing_crosser = "阿水"
 	win_line = "唉……一次兩個"
 	caught_line = "……他不是不會動嗎"
+
+## 新手教學（圖解）：守衛不會滑 → 走進紅圈他會撲 → 讓工人的白箭頭指到守衛 → 開始
+func _tutorial_steps() -> Array:
+	return [
+		{"pic": ["who:守衛", "plus", "banana+no"], "say": "守衛站著不動，香蕉皮對他沒用",
+			"spot": [tut_head("守衛")], "r": 1.8, "wait": "next"},
+		{"pic": ["hero", "to", "ring", "to", "who:守衛"], "say": "家豪走進紅圈，守衛就撲過來",
+			"spot": [_guard_feet], "r": 2.8, "wait": "next"},
+		{"pic": ["who:阿土", "slide", "who:守衛+ok"], "say": "讓阿土的白箭頭指到守衛",
+			"spot": [tut_head("阿土"), tut_head("守衛")], "r": 1.8, "wait": func(): return tut_aim_hits("守衛"),
+			"help_after": 8.0, "help_say": "把綠圈移到阿土的紅線上", "help_spot": [tut_seg("阿土", 0), tut_seg("阿土", 1)],
+			"help2_after": 18.0, "help2_say": "試試阿土紅線的第一段", "help2_spot": [tut_seg("阿土", 0)]},
+		{"pic": ["lmb", "to", "banana"], "say": "按左鍵，丟下香蕉皮",
+			"spot": ["center"], "wait": func(): return tut_used("banana") >= 1},
+		{"pic": [], "say": "還有一片，放好就按開始（放錯按 R 重來）",
+			"spot": ["start"], "wait": "start"},
+	]
+
+func _guard_feet():
+	var g := tut_enemy("守衛")
+	return null if g == null else g.pos + Vector3(0, 0.3, 0)
