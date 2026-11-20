@@ -16,6 +16,7 @@ extends "res://levels/heaven/heaven_battle.gd"
 ##           阿水第二段（被陸吾吹走：第 2 關的做法，這一關沒有人去撞守衛，大老闆也沒人管）。
 
 const RescueFeed := preload("res://levels/ice/items/rescue_feed_item.gd")
+const ENDING_SCENE := "res://levels/heaven/ending/ending.tscn"     # 全破之後的結局動畫
 
 var _blow_checked := false     # 陸吾吹完之後，檢查過「有沒有人被撞歪、沒吹到」了沒
 
@@ -37,6 +38,27 @@ func _enemy_specs() -> Array:
 		rusher("阿土", Vector3(-8.6, 0, 2.6), [Vector3(-5.18, 0, 2.6), Vector3(-2.06, 0, 0.8)]),
 		rusher("阿金", Vector3(-2.4, 0, 6.7), [Vector3(-2.4, 0, 0.0)]),
 	]
+
+## 最後一關：過關卡片按 Enter 之後不是直接回地圖，先播結局動畫（播完自己回地圖）
+func _finale_leave() -> void:
+	if not ResourceLoader.exists(ENDING_SCENE):
+		super()
+		return
+	Engine.time_scale = 1.0
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	get_tree().change_scene_to_file(ENDING_SCENE)
+
+## 過關卡片：後面還有結局動畫，按鈕寫「看結局」
+func _make_finale_card() -> Control:
+	var panel := super()
+	if ResourceLoader.exists(ENDING_SCENE):
+		for l in panel.find_children("*", "Label", true, false):
+			var lb := l as Label
+			if lb.text.contains("回地圖"):
+				lb.text = "看結局 ▶"
+			elif lb.text.contains("感謝遊玩"):
+				lb.text = "還有最後一段。"
+	return panel
 
 func _checklist() -> Array:
 	return [
