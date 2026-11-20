@@ -2,7 +2,6 @@ extends "res://levels/forest/forest_battle.gd"
 ## 林道：兩個伐木的人，砍倒超過 10 棵就輸。
 
 const DecoyItem := preload("res://levels/forest/items/decoy_item.gd")
-const FeedItem := preload("res://levels/forest/items/feed_item.gd")
 const GuideItem := preload("res://levels/forest/items/guide_item.gd")
 
 func _want_trees() -> bool:
@@ -14,7 +13,6 @@ func _tree_cap() -> int:
 func _make_items() -> Array:
 	return [
 		DecoyItem.new().uses_shared(2),
-		FeedItem.new().uses_shared(2),
 		GuideItem.new().uses_shared(4),
 	]
 

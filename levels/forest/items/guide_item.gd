@@ -1,12 +1,14 @@
 extends "res://scripts/items/item.gd"
-## 引路點：家豪會先去離她最近的點，再到下一個最近的，沿路遇到人就打。
+## 引路點：家豪照放下的順序一個一個走過去，沿路遇到人就打。
+const Models := preload("res://levels/forest/items/models.gd")
 
 func _init() -> void:
 	id = "guide"
 	name = "引路點"
-	tutorial = "點在地上。家豪會依「離她現在多近」的順序走過去，近的先走。\n路上遇到人會停下來打。點上的數字就是她接下來的順序。"
+	tutorial = "點在地上。家豪會照你放下的順序一個一個走過去。\n路上遇到人會停下來打、踩到菸蒂會踩熄。點上的數字就是她的順序。"
 	color = Color(0.95, 0.86, 0.25)
 	radius = 0.55
+	icon_tex = Models.icon("guide")      # 道具欄畫場上那個模型的樣子
 	cooldown = 0.15
 
 func placement_error(bt, p: Vector3) -> String:
