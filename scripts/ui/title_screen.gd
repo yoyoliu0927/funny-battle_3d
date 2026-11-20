@@ -4,7 +4,7 @@ extends Node
 ##
 ## 流程：
 ##   1. 開場動畫（約 9 秒）：一根金色的羽毛從雲上飄下來，鏡頭跟著它穿過雲層、掠過北方的島、飛過海，
-##      最後落在農莊裡家豪的頭上。
+##      最後落在農莊裡家豪的頭上，敲他一下就化成光點消失。
 ##   2. 標題：四個大字一個一個蹦出來，後面張開五根羽毛，下面一條紙帶寫「按 空白鍵 開始」。
 ##      鏡頭繞著農莊慢慢晃，天上有綁著氣球的母雞飄過去。
 ##   3. 按下去：第一次玩（還沒看過開場劇情）→ 接開場劇情（scenes/intro.tscn）；看過了 → 鏡頭滑下去，直接到農莊。
@@ -47,6 +47,7 @@ var _leave_t := 0.0
 var _first := false           # 這次按下去要接開場劇情
 var _landed := false
 var _done_t := 0.0
+var _shots := false           # 正在自動截圖：不收真的按鍵和滑鼠（視窗在背景被點到也不會亂掉）
 
 var _world: Node3D
 var _feather: Node3D
@@ -103,7 +104,13 @@ static func mark_intro_seen() -> void:
 	cf.set_value("story", "intro_seen", true)
 	cf.save(SETTINGS_PATH)
 
-## 這次開遊戲要不要先放標題畫面（測試、從關卡回來、剛看完開場劇情都不用）
+## 現在是不是「遊戲剛啟動」：程式才跑了沒幾個畫面，而且還沒放過標題。
+## 從關卡、商店、過場回到地圖時早就過了這個時間，所以不會再播一次
+## （就算這次是直接從編輯器開某一關、沒經過標題也一樣）
+static func at_boot() -> bool:
+	return Engine.get_process_frames() <= 10 and not Engine.has_meta("title_done") and not Engine.has_meta("map_last")
+
+## 要不要放標題畫面：只有剛開遊戲，或是在世界地圖按兩次 Esc 自己要回標題（測試時不放）
 static func wanted() -> bool:
 	var args := OS.get_cmdline_user_args()
 	for a in args:
@@ -111,7 +118,7 @@ static func wanted() -> bool:
 			return true
 		if a == "--autotest" or a.begins_with("--mapshots="):
 			return false
-	return not Engine.has_meta("title_done") and not Engine.has_meta("map_last")
+	return at_boot() or Engine.has_meta("title_skip_open")
 
 # ================================================================== 啟動
 
@@ -134,6 +141,7 @@ func _ready() -> void:
 		Engine.remove_meta("title_skip_open")       # 從世界地圖按 Esc 回來：不用再播一次開場動畫
 		_t = LOGO - 0.2
 		_landed = true
+		_feather.visible = false
 	else:
 		map._play("fly", 0.7)
 	for a in OS.get_cmdline_user_args():
@@ -701,6 +709,8 @@ func _paint_band(c: Control) -> void:
 # ================================================================== 操作
 
 func _unhandled_input(ev: InputEvent) -> void:
+	if _shots:
+		return
 	var go := false
 	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
 		go = true
@@ -716,6 +726,7 @@ func press(force_seen := false) -> void:
 	if _state == "open" and _t < LOGO:
 		_t = LOGO - 0.15
 		_landed = true
+		_feather.visible = false
 		for s in _trail:
 			(s as Node3D).visible = false
 		_fade.color = Color(1, 1, 1, 0.85)
@@ -732,13 +743,7 @@ func press(force_seen := false) -> void:
 func _finish() -> void:
 	_state = "done"
 	_layer.visible = false
-	# 羽毛就留在家豪頭上（這次開遊戲都戴著）
-	_feather.get_parent().remove_child(_feather)
-	map._hero_body.add_child(_feather)
-	_feather.position = Vector3(0.55, 1.75, 0.0)
-	_feather.rotation = Vector3(0.0, 0.0, -1.2)
-	_feather.scale = Vector3.ONE * 0.56
-	_halo.visible = false
+	_feather.visible = false
 	_deck.visible = false
 	_pop.visible = false
 	for bit in _bits:
@@ -868,15 +873,10 @@ func _tick_feather(dt: float) -> void:
 		# 落在家豪頭上：光點炸開、家豪嚇一跳
 		_landed = true
 		_burst_t = 0.0
+		_feather.visible = false         # 敲到頭就化成光點不見了
 		_bang.visible = true
 		map._play("land", 1.3)
 		map._play("arrive")
-	if _landed and _feather.visible:
-		# 羽毛插在家豪頭上，跟著風晃
-		_feather.position = map._hero.position + Vector3(0.55, 1.75, 0.0).rotated(Vector3.UP, FACE)
-		_feather.rotation = Vector3(0.0, FACE, -1.2 + sin(_t * 2.2) * 0.1)
-		_feather.scale = Vector3.ONE * 0.56
-		_halo.scale = Vector3.ONE * (1.2 + 0.2 * sin(_t * 3.0))
 	if _burst_t >= 0.0:
 		_burst_t += dt
 		var k := clampf(_burst_t / 0.9, 0.0, 1.0)
@@ -1183,6 +1183,7 @@ func _tick_sky(dt: float, leaving: bool) -> void:
 # ================================================================== 開發用：截圖
 
 func _titleshots(dir: String) -> void:
+	_shots = true
 	DirAccess.make_dir_recursive_absolute(dir)
 	for at in [0.3, 0.9, 1.5, 2.3, 3.3, 4.6, 5.8, 7.0, 7.9, 8.35, 8.8, 9.5, 9.9, 10.8, 12.5, 13.9, 14.3, 15.2, 16.5, 18.5, 24.0]:
 		while _t < float(at):

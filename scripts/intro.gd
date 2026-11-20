@@ -58,7 +58,7 @@ func _ready() -> void:
 	var testing := "--autotest" in args
 	for a in args:
 		testing = testing or a.begins_with("--cutshots=")
-	if not testing and not Engine.has_meta("title_done") and not Engine.has_meta("map_last") and ResourceLoader.exists(NEXT_SCENE):
+	if not testing and TitleScreen.at_boot() and ResourceLoader.exists(NEXT_SCENE):
 		set_process(false)
 		set_process_unhandled_input(false)
 		get_tree().change_scene_to_file.call_deferred(NEXT_SCENE)
