@@ -53,6 +53,7 @@ const TitleScreen := preload("res://scripts/ui/title_screen.gd")   # 一開遊�
 const ENDING_SCENE := "res://levels/heaven/ending/ending.tscn"   # 結局動畫（隱藏按鍵 Shift＋E 直接播，展示用）
 const HubLife := preload("res://scripts/hub/hub_life.gd")         # 主島的戳戳樂（母雞、樹、風車、穀倉……）
 const HubFishing := preload("res://scripts/hub/hub_fishing.gd")   # 農莊池塘和釣魚小遊戲
+const HubDj := preload("res://scripts/hub/hub_dj.gd")             # 家豪的 DJ 台（節奏演出＋自由混音）
 const HubJournal := preload("res://scripts/hub/hub_journal.gd")   # 冒險手帳（旅程、貼紙、魚圖鑑）
 const HubGrowth := preload("res://scripts/hub/hub_growth.gd")     # 破關後農莊長出小地標和居民
 const HubUI := preload("res://scripts/hub/hub_ui.gd")            # 手帳和釣魚共用的畫圖工具
@@ -93,6 +94,8 @@ const HUB_RZ := 21.0          # 主島南北的半徑
 const HUB_CZ := -3.5          # 主島的中心在路的北邊多遠（北邊比較深：田和林子）
 const POND_R := Vector2(6.4, 4.6)   # 農莊池塘的半徑（東西、南北）
 const FISH_COLOR := Color("3fa0d8")
+const DJ_COLOR := Color("a04fd0")
+const RANKS_TEST := ["", "D", "C", "B", "A", "S"]
 const SPOT_BACK := 5.0        # 地標在站點北邊多遠
 const ROW := 48.0             # 大關和大關的間隔（南北向；下一個大關在北邊、畫面上方）
 const ISLE_R := 4.6           # 還沒做好的大關那座小島的半徑
@@ -246,6 +249,7 @@ var _shallow_tint := Color(0.56, 0.95, 0.88)   # 淺水現在的顏色（跟著�
 var _small: Array = []       # 只有島上視角才顯示的小東西（柵欄：從世界地圖的高度看只是一條鋸齒線）
 var _hens: Array = []        # 主島上的母雞（就是 _life.hens，每筆有 node；標題畫面的開場動畫要用，不要拿掉）
 var _life: Node3D            # 主島的戳戳樂（hub_life.gd）：母雞、樹、風車、穀倉、蛋
+var _dj: Node3D              # 家豪的 DJ 台（hub_dj.gd）
 var _fishing: Node3D         # 農莊池塘和釣魚小遊戲（hub_fishing.gd）
 var _growth: Node3D          # 農莊跟著旅程長大（hub_growth.gd）
 var _journal: CanvasLayer    # 冒險手帳（hub_journal.gd）
@@ -335,6 +339,9 @@ func _ready() -> void:
 	_fishing = HubFishing.new()
 	_fishing.map = self
 	add_child(_fishing)
+	_dj = HubDj.new()
+	_dj.map = self
+	add_child(_dj)
 	for e in entries.size():
 		worlds.append(_build_world(e))
 	_hub_build = false
@@ -1015,6 +1022,10 @@ func _build_farm(root: Node3D, ctx: Dictionary) -> void:
 	var solid: Array = []
 	var pond_c := Vector2(float((spots[fk] as Vector3).x), float((spots[fk] as Vector3).z) - 2.0)
 	solid.append(Vector3(pond_c.x, pond_c.y, maxf(POND_R.x, POND_R.y) * 1.3 + 2.0))
+	# DJ 台：在池塘和碼頭東北邊的空地上（不是站點；走近按 E 或點混音台）
+	var dj_c := Vector3(float((spots[fk] as Vector3).x) + 9.0, y, -9.5)
+	_dj.build_stage(root, dj_c)
+	solid.append(Vector3(dj_c.x, dj_c.z, 7.5))
 	# 雞圈：家的正南邊
 	var yard := Rect2(Vector2(float((pads[2] as Vector3).x) - 8.5, 7.6), Vector2(17.0, 5.8))
 	_hub_yard = yard
@@ -1977,7 +1988,7 @@ func _free_input() -> Vector2:
 
 ## 有東西蓋住畫面（釣魚、手帳、操作說明）：不能走
 func _free_locked() -> bool:
-	return _fishing.active or _journal.is_open() or (_guide != null and _guide.is_open()) or _starting or not _yard.is_empty() or _tod_open
+	return _fishing.active or _dj.active or _journal.is_open() or (_guide != null and _guide.is_open()) or _starting or not _yard.is_empty() or _tod_open
 
 ## 按數字鍵：衝到第 k 個站點（沿直線跳過去，不管中間有沒有東西）
 func _free_dash_to(k: int) -> void:
@@ -3603,7 +3614,7 @@ func _paint_keys(c: Control, u: float) -> void:
 		if _is_hub(selected):
 			items.append([["E"], "戳一戳"])
 		items.append([["M"], "世界地圖"])
-		if _fishing.active or _journal.is_open():
+		if _fishing.active or _dj.active or _journal.is_open():
 			return                     # 釣魚和手帳有自己的按鍵提示
 	var ks := 16.0 * u
 	var ts := 20.0 * u
@@ -3641,7 +3652,7 @@ func _unlocked_ch(ch: Dictionary, n: int) -> bool:
 	return Progress.unlocked(ch.id, n)
 
 func _busy() -> bool:
-	return not _walk.is_empty() or not _jump.is_empty() or not _free_dash.is_empty() or not _sail.is_empty() or not _yard.is_empty() or _tod_open or (_fishing != null and _fishing.active) or (_journal != null and _journal.is_open())
+	return not _walk.is_empty() or not _jump.is_empty() or not _free_dash.is_empty() or not _sail.is_empty() or not _yard.is_empty() or _tod_open or (_fishing != null and _fishing.active) or (_dj != null and _dj.active) or (_journal != null and _journal.is_open())
 
 ## 一登島先站在哪一格：主島是家；主題島是「第一個還沒過、可以玩的小關」
 func _first_open_stage_of(e: int) -> int:
@@ -3918,7 +3929,7 @@ func _isle_at(pos: Vector2) -> int:
 func _unhandled_input(ev: InputEvent) -> void:
 	if _title != null:
 		return                       # 標題畫面還開著：按鍵都給它
-	if _fishing.active or _journal.is_open():
+	if _fishing.active or _dj.active or _journal.is_open():
 		if ev is InputEventKey and ev.pressed and not ev.echo and ev.keycode == KEY_V:
 			_toggle_sound()          # 釣魚和手帳開著：其他按鍵它們自己處理，只有 V（聲音）放行
 		return
@@ -4112,6 +4123,7 @@ func _process(dt: float) -> void:
 	_life.tick(dt, _t)
 	_growth.tick(dt, _t)
 	_fishing.tick(dt, _t)
+	_dj.tick(dt, _t)
 	# 世界地圖上地標放大（玩具地圖的感覺）、飽和度收一點（海才不會搶島的顏色）
 	var big := Vector3.ONE * lerpf(1.0, SPOT_BIG, z)
 	for w2 in worlds:
@@ -4308,6 +4320,34 @@ func _hubshots(dir: String) -> void:
 	for k in int(worlds[0].n):
 		select_stage(k)
 		await _shot(dir.path_join("hub_%d.png" % k))
+	# DJ 台：選單、演出中（打到 FEVER）、結算、自由混音
+	for id in HubGrowth.ids():
+		_growth.grow(String(id), false)
+	_dj.begin()
+	await get_tree().create_timer(0.8).timeout
+	await _shot(dir.path_join("dj_menu.png"))
+	_dj.start_song(1)
+	var nl: Array = _dj._notes
+	for i in 22:
+		_dj._clock = float((nl[i] as Dictionary).t)
+		_dj._first = i
+		_dj.press_lane(int((nl[i] as Dictionary).lane))
+		_dj.tick(0.016, _t)
+	_dj._clock = float((nl[22] as Dictionary).t) - 0.9
+	for i in 30:
+		_dj.tick(0.016, _t)
+	await get_tree().create_timer(1.2).timeout
+	await _shot(dir.path_join("dj_play.png"))
+	_dj.sim_song(0, 1.0)
+	await get_tree().create_timer(1.0).timeout
+	await _shot(dir.path_join("dj_result.png"))
+	_dj.key_down(KEY_ESCAPE)
+	_dj.start_jam()
+	for l in [1, 2, 3]:
+		_dj.toggle_layer(l)
+	await get_tree().create_timer(1.5).timeout
+	await _shot(dir.path_join("dj_jam.png"))
+	_dj.end()
 	# 世界地圖上的主島
 	_map = true
 	select(0)
@@ -4542,6 +4582,47 @@ func _autotest_hub(checks: Array) -> void:
 		_life._poke(res_th)
 		talked = Journal.n("poke", "resident") == 1
 	checks.append(["農莊長大：%d 個小地標和居民都長出來了，居民可以戳" % _growth.count(), _growth.count() == HubGrowth.ids().size() and talked])
+	# DJ 台：選單、演一首歌（全打準 = S 加全連擊、完全不按 = D）、FEVER 請居民來看、自由混音
+	var free_was := _free_enabled
+	_free_enabled = true                  # 自由走：走近混音台按 E 開演、家豪被帶到混音台後面
+	_place_hero()
+	await get_tree().create_timer(0.3).timeout
+	var dj_p: Vector3 = _dj.booth_pos() + Vector3(2.0, 0, 1.5)
+	dj_p.y = _hero.position.y
+	_free.pos = dj_p
+	_hero.position = dj_p
+	var dj_near: bool = _dj.near(_hero.global_position)
+	_life.poke_near()
+	await get_tree().create_timer(0.3).timeout
+	var dj_snap: bool = _dj.active and Vector2(_hero.global_position.x - _dj.booth_pos().x, _hero.global_position.z - _dj.booth_pos().z).length() < 0.5
+	_dj.end()
+	_free_enabled = free_was
+	_place_hero()
+	_dj.begin()
+	await get_tree().create_timer(0.2).timeout
+	var dj0: bool = dj_near and dj_snap and _dj.active and _dj.state == "menu" and _busy() and _dj.make_chart(0).size() >= 30 and _dj.make_chart(2).size() > _dj.make_chart(0).size()
+	var rA: Dictionary = _dj.sim_song(1, 1.0)
+	var dj1: bool = int(rA.rank) == 5 and bool(rA.fc) and Journal.n("dj", "plays") == 1 and _dj.state == "result"
+	var dj2: bool = Journal.n("dj", "fever") >= 1 and Journal.n("dj", "guest") >= 1 and _dj._guests.size() == HubGrowth.ids().size()
+	var rB: Dictionary = _dj.sim_song(1, 0.0)
+	var dj3: bool = int(rB.rank) == 1 and not bool(rB.fc) and Journal.n("dj", "rank_1") == 5
+	_press(KEY_ESCAPE)
+	await get_tree().create_timer(0.2).timeout
+	var dj4: bool = _dj.state == "menu"
+	_dj.sel = 3
+	_press(KEY_ENTER)
+	await get_tree().create_timer(0.2).timeout
+	var dj5: bool = _dj.state == "jam"
+	for l in [1, 2, 3]:
+		_dj.toggle_layer(l)
+	for i in 660:
+		_dj.tick(1.0 / 60.0, _t)
+	var dj6: bool = Journal.has("flag", "dj_jam")
+	_press(KEY_ESCAPE)
+	_press(KEY_ESCAPE)
+	await get_tree().create_timer(0.3).timeout
+	checks.append(["DJ 台：選單、演一首歌（全準 %s、全連擊；不按 %s）、FEVER 請 %d 位居民來看、自由混音全開 10 秒、Esc 離開" % [RANKS_TEST[int(rA.rank)], RANKS_TEST[int(rB.rank)], _dj._guests.size()],
+		dj0 and dj1 and dj2 and dj3 and dj4 and dj5 and dj6 and not _dj.active and not _busy()])
 	# 貼紙：戳和釣的紀錄會解鎖貼紙
 	var got := 0
 	for st in Journal.stickers(_journal_ctx()):

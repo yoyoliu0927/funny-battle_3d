@@ -175,7 +175,7 @@ static func biggest() -> int:
 # ---------------------------------------------------------------- 貼紙（成就）
 
 ## 貼紙的種類：journey 旅程（金色）、poke 戳戳樂（綠色）、fish 釣魚（藍色）
-const CAT_COLORS := {"journey": Color("e8b04a"), "poke": Color("6dbb55"), "fish": Color("4a9fe0"), "sea": Color("2fb5c9")}
+const CAT_COLORS := {"journey": Color("e8b04a"), "poke": Color("6dbb55"), "fish": Color("4a9fe0"), "sea": Color("2fb5c9"), "dj": Color("a04fd0")}
 
 ## 全部貼紙。ctx 是主島傳進來的旅程進度：
 ##   {"stars": 已拿星星, "stars_max": 全部星星, "feathers": 已拿羽毛, "feathers_max": 羽毛總數, "cleared": 過了幾個小關, "owned": 買了幾件衣服}
@@ -217,7 +217,22 @@ static func stickers(ctx: Dictionary) -> Array:
 	d.call("edge", "天涯海角", "開到世界的盡頭", "涯", "sea", 1 if has("flag", "world_edge") else 0, 1)
 	d.call("boats3", "船東", "擁有 3 艘船", "船", "sea", int(ctx.get("boats", 1)), 3)
 	d.call("talk10", "話癆", "跟居民聊 10 次（戳他們）", "聊", "poke", n("poke", "resident"), 10)
+	d.call("dj_first", "開張大吉", "在 DJ 台完成第一場演出", "演", "dj", n("dj", "plays"), 1)
+	d.call("dj_b", "三曲連發", "三首歌都拿到 B 以上", "曲", "dj", _dj_ranked(3), 3)
+	d.call("dj_s", "全場安可", "任何一首歌拿到 S", "安", "dj", _dj_ranked(5), 1)
+	d.call("dj_fc", "完美無瑕", "任何一首歌全連擊（一個 Miss 都沒有）", "瑕", "dj", n("dj", "fc"), 1)
+	d.call("dj_fever", "嗨起來", "進入 FEVER 5 次", "嗨", "dj", n("dj", "fever"), 5)
+	d.call("dj_guest", "貴賓蒞臨", "FEVER 的時候，破關搬進農莊的居民跑來看演出", "賓", "dj", n("dj", "guest"), 1)
+	d.call("dj_jam", "混音大師", "自由混音：四個樂器全開撐 10 秒", "混", "dj", 1 if has("flag", "dj_jam") else 0, 1)
 	return out
+
+## DJ 台：有幾首歌的評價達到 min_rank（1=D … 5=S）
+static func _dj_ranked(min_rank: int) -> int:
+	var k := 0
+	for i in 3:
+		if n("dj", "rank_%d" % i) >= min_rank:
+			k += 1
+	return k
 
 ## 找出這次新解鎖的貼紙（並記起來，下次不再通知）
 static func unlock_new(ctx: Dictionary) -> Array:
