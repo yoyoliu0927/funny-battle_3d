@@ -64,6 +64,17 @@ static func _save() -> void:
 static func reset_memory() -> void:
 	_cf = ConfigFile.new()
 
+## 存一個字串（現在開哪艘船）和數有幾個 key（靠過幾座島）
+static func get_s(section: String, key: String, default := "") -> String:
+	return String(_c().get_value(section, key, default))
+
+static func set_s(section: String, key: String, v: String) -> void:
+	_c().set_value(section, key, v)
+	_save()
+
+static func count_keys(section: String) -> int:
+	return _c().get_section_keys(section).size() if _c().has_section(section) else 0
+
 static func n(section: String, key: String) -> int:
 	return int(_c().get_value(section, key, 0))
 
@@ -164,7 +175,7 @@ static func biggest() -> int:
 # ---------------------------------------------------------------- 貼紙（成就）
 
 ## 貼紙的種類：journey 旅程（金色）、poke 戳戳樂（綠色）、fish 釣魚（藍色）
-const CAT_COLORS := {"journey": Color("e8b04a"), "poke": Color("6dbb55"), "fish": Color("4a9fe0")}
+const CAT_COLORS := {"journey": Color("e8b04a"), "poke": Color("6dbb55"), "fish": Color("4a9fe0"), "sea": Color("2fb5c9")}
 
 ## 全部貼紙。ctx 是主島傳進來的旅程進度：
 ##   {"stars": 已拿星星, "stars_max": 全部星星, "feathers": 已拿羽毛, "feathers_max": 羽毛總數, "cleared": 過了幾個小關, "owned": 買了幾件衣服}
@@ -196,6 +207,15 @@ static func stickers(ctx: Dictionary) -> Array:
 	d.call("goldcarp", "鯉躍龍門", "釣到黃金錦鯉", "鯉", "fish", n("fish", "caught_goldcarp"), 1)
 	d.call("neighbor1", "新鄰居", "有第一位居民搬進農莊（破一個大關）", "鄰", "journey", int(ctx.get("residents", 0)), 1)
 	d.call("neighbors", "熱鬧農莊", "全部的居民都搬進農莊", "村", "journey", int(ctx.get("residents", 0)), maxi(int(ctx.get("residents_max", 5)), 1))
+	d.call("sail1", "出海！", "第一次開船出航", "航", "sea", n("sail", "trips"), 1)
+	d.call("sail1000", "遠洋漁船", "一共開了 1000 公尺", "洋", "sea", int(n("sail", "meters")), 1000)
+	d.call("docks", "環島旅行", "每座島都靠過岸（%d 座）" % int(ctx.get("isles_max", 5)), "靠", "sea", count_keys("dock"), maxi(int(ctx.get("isles_max", 5)), 1))
+	d.call("chest3", "寶藏獵人", "在海上撈到 3 個漂流寶箱", "寶", "sea", n("sea", "chest"), 3)
+	d.call("fishjump", "魚躍龍門", "看到大魚跳出海面 8 次", "躍", "sea", n("sea", "jump"), 8)
+	d.call("horn10", "汽笛達人", "按 10 次汽笛", "笛", "sea", n("sail", "horn"), 10)
+	d.call("penguin", "企鵝聯合會", "用汽笛叫醒游泳的企鵝 3 次", "企", "sea", n("sea", "penguin"), 3)
+	d.call("edge", "天涯海角", "開到世界的盡頭", "涯", "sea", 1 if has("flag", "world_edge") else 0, 1)
+	d.call("boats3", "船東", "擁有 3 艘船", "船", "sea", int(ctx.get("boats", 1)), 3)
 	d.call("talk10", "話癆", "跟居民聊 10 次（戳他們）", "聊", "poke", n("poke", "resident"), 10)
 	return out
 

@@ -205,6 +205,15 @@ static func buy(id: String) -> bool:
 	cf.save(save_path())
 	return true
 
+## 花掉幾顆星（買船用，跟買衣服共用同一個錢包）；星星不夠回傳 false
+static func spend(cost: int) -> bool:
+	if cost < 0 or wallet() < cost:
+		return false
+	var cf := _load()
+	cf.set_value("meta", "spent", int(cf.get_value("meta", "spent", 0)) + cost)
+	cf.save(save_path())
+	return true
+
 ## 存檔裡的穿著（部位 -> 服裝 id；沒穿的部位不在裡面，身體至少是原本的帽 T）
 static func saved_look() -> Dictionary:
 	var cf := _load()

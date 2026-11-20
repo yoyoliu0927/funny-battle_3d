@@ -13,6 +13,7 @@ static func make() -> Dictionary:
 			"cluck": _cluck(), "boing": _boing(), "rustle": _rustle(), "pop": _pop(), "gold": _gold(),
 			"splash": _splash(), "bite": _bite(), "tick": _tick(), "catch": _catch(), "miss": _miss(),
 			"page": _page(), "knock": _knock(), "whoosh": _whoosh(), "flare": _flare(), "sticker": _sticker(),
+			"horn": _horn(), "quack": _quack(), "chime": _chime(), "wave": _wave(),
 		}
 	return _cache
 
@@ -185,6 +186,44 @@ static func _whoosh() -> AudioStreamWAV:
 		var k := float(i) / s.size()
 		y += (rng.randf_range(-1.0, 1.0) - y) * lerpf(0.08, 0.3, sin(k * PI))
 		s[i] = y * sin(k * PI) * 0.9
+	return _wav(s)
+
+## 船的汽笛：低低的「嗚——」（兩個音疊在一起）
+static func _horn() -> AudioStreamWAV:
+	var s := _buf(0.95)
+	for i in s.size():
+		var t := float(i) / RATE
+		var env := minf(t / 0.06, 1.0) * exp(-maxf(t - 0.55, 0.0) * 7.0)
+		var f := 196.0 * (1.0 + 0.012 * sin(t * 30.0))
+		s[i] = (sin(TAU * f * t) + 0.6 * sin(TAU * f * 1.5 * t) + 0.25 * sin(TAU * f * 3.0 * t)) * env * 0.42
+	return _wav(s)
+
+## 企鵝的叫聲：短短的「呱」
+static func _quack() -> AudioStreamWAV:
+	var s := _buf(0.22)
+	_sweep(s, 0.0, 0.2, 520.0, 330.0, 0.5, 0.05)
+	for i in s.size():
+		s[i] += sin(TAU * 1040.0 * float(i) / RATE) * 0.12 * exp(-float(i) / RATE * 22.0)
+	return _wav(s)
+
+## 撈到寶箱：叮叮咚
+static func _chime() -> AudioStreamWAV:
+	var s := _buf(0.9)
+	_bell(s, 0.0, 79, 0.5, 0.35)
+	_bell(s, 0.12, 83, 0.5, 0.3)
+	_bell(s, 0.26, 86, 0.6, 0.3)
+	return _wav(s)
+
+## 海浪：一陣沙沙聲（開船時當背景，音量跟速度走）
+static func _wave() -> AudioStreamWAV:
+	var s := _buf(2.4)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 5
+	var y := 0.0
+	for i in s.size():
+		var k := float(i) / s.size()
+		y += (rng.randf_range(-1.0, 1.0) - y) * 0.12
+		s[i] = y * (0.55 + 0.45 * sin(k * TAU)) * 0.55
 	return _wav(s)
 
 ## 火苗竄起來：「啪嘰」

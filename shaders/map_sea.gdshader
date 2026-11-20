@@ -27,7 +27,17 @@ uniform vec3 south_near : source_color = vec3(0.28, 0.80, 0.64);
 uniform vec3 sand_c : source_color = vec3(1.0, 0.85, 0.52);
 uniform float calm_z = -100000.0;  // 比這更北（z 更小）的海不長浮冰：地圖最上面留一條平靜的海
 
+// 海浪（開船的時候才有，wave_amp = 0 就是原本平平的海）：三道疊起來的長浪；level_select.gd 用一模一樣的公式算船的高度
+uniform float wave_amp = 0.0;
+uniform float wave_t = 0.0;
 varying vec3 wpos;
+varying float wave_h;
+
+float sea_wave(vec2 p, float t) {
+	return 0.55 * sin(dot(p, vec2(0.071, 0.052)) + t * 0.9)
+		+ 0.30 * sin(dot(p, vec2(-0.043, 0.093)) + t * 1.25 + 1.7)
+		+ 0.16 * sin(dot(p, vec2(0.13, -0.08)) + t * 1.8 + 4.0);
+}
 
 vec2 cell_pt(vec2 g) {
 	vec2 q = vec2(dot(g, vec2(127.1, 311.7)), dot(g, vec2(269.5, 183.3)));
@@ -65,6 +75,9 @@ vec2 voro(vec2 x) {
 
 void vertex() {
 	wpos = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	wave_h = sea_wave(wpos.xz, wave_t);
+	VERTEX.y += wave_h * wave_amp;
+	wpos.y += wave_h * wave_amp;
 }
 
 void fragment() {
@@ -123,6 +136,11 @@ void fragment() {
 	float sandb = (1.0 - smoothstep(1.7, 3.0, gap)) * (1.0 - north) * region_k * near_i;
 	c = mix(c, sand_c, sandb * 0.95);
 	c = mix(c, foam_c, clamp(foam, 0.0, 1.0) * 0.92 * (1.0 - sandb * 0.6));
+	// 浪頭：開船時浪尖一圈亮亮的線、浪谷深一點，一道一道往前推
+	float crest = smoothstep(0.55, 0.95, wave_h) * clamp(wave_amp * 3.0, 0.0, 1.0);
+	float trough = smoothstep(-0.35, -0.95, wave_h) * clamp(wave_amp * 3.0, 0.0, 1.0);
+	c = mix(c, stroke_c, crest * 0.65);
+	c = mix(c, d0 * 0.9, trough * 0.35);
 	c = mix(c, horizon_c, smoothstep(fade_near, fade_far, dist) * 0.95);
 	ALBEDO = c;
 }
