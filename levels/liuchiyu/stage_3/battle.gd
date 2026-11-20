@@ -8,7 +8,7 @@ extends "res://levels/liuchiyu/island_battle.gd"
 ## 場地東邊有一個小湖，中間的小島上放著第三顆星星。岩漿球掉進湖水裡會凝固成一堆鵝卵石；
 ## 鵝卵石從岸邊一路接到小島，家豪就能踩著過去拿星星。
 ##
-## 最終 Boss「盔甲騎士」：家豪啄不動他（也不會去啄他），只有岩漿燒得到。
+## 最終 Boss「盔甲騎士」：家豪啄不動他（也不會去啄他），岩漿燒得到、站在湖水裡被雷劈也會倒。
 ## 他一開始不在場上：一般敵人都倒下之後，一架飛機飛過來，他從飛機上跳下來。
 ## 騎士落地後會一直朝家豪走過去。家豪會衝上去啄他一下（沒用），被他打到扣一點血、往後飛，
 ## 逃開一陣子之後又回去啄；玩家要趁這段時間把岩漿球引到騎士身上。
@@ -108,7 +108,7 @@ func _enemy_specs() -> Array:
 		{"name": "農夫1", "route": [Vector3(2, 0, 6), Vector3(6, 0, 10)], "loop": false, "pause": 1.2},
 		{"name": "農夫2", "route": [Vector3(-2, 0, 5), Vector3(-6, 0, 9)], "loop": false, "pause": 1.0},
 		# 最終 Boss：穿盔甲的騎士。一開始不在場上，農夫都倒下之後才從飛機上跳下來（route 是他的落點：場地南邊、離石階最遠的那塊空地）。
-		# 走得慢、打得重，啄他完全沒用，只有岩漿燒得到
+		# 走得慢、打得重，啄他完全沒用，要用岩漿砸，或是等他走進湖裡用雷劈湖
 		{"name": "豪王", "kind": "knight", "route": [Vector3(-1.0, 0, 9.5)], "yaw": PI,
 			"hp": 16.0, "speed": 1.5, "immune_peck": true, "bar_y": 3.5, "hears_noise": false},
 	]
@@ -302,7 +302,7 @@ func _knight_strike(f: Fighter) -> void:
 
 ## 開場只有一句（每個道具的說明在切換道具時會出現在技能欄上面）
 func _tutorial_texts() -> Array:
-	return ["用雷劈火山口，岩漿球飛出來之後按住風，把它吹到敵人身上或湖裡。雷和風都不能直接對人用；對著沙地吹風，沙子會讓下風處的敵人看不見。"]
+	return ["用雷劈火山口，岩漿球飛出來之後按住風，把它吹到敵人身上或湖裡。雷和風都不能直接對人用；對著沙地吹風，沙子會讓下風處的敵人看不見。敵人站在湖水裡的時候用雷劈湖，也能把他電倒。"]
 
 ## 最後一關過了：整個大關拿到幾顆星星
 func _win_line() -> String:
@@ -519,7 +519,7 @@ func on_thunder(p: Vector3) -> void:
 		_bombs.append({"pos": vt + Vector3(0.0, 0.6, 0.0), "vel": Vector3(0.0, float(up), 0.0), "t": 0.0, "node": node, "mark": mark})
 	log_event("雷劈進火山口，噴出岩漿塊")
 
-## 雷劈在湖上：水會導電，站在湖水裡的農夫直接被電倒；盔甲騎士電不死，但會被電得倒在地上一下子
+## 雷劈在湖上：水會導電，站在湖水裡的人直接被電倒，盔甲騎士也一樣
 func _shock_lake(p: Vector3) -> void:
 	if not world.in_pool(3, p.x, p.z, 0.8, true):
 		return
@@ -532,14 +532,12 @@ func _shock_lake(p: Vector3) -> void:
 		f.data.erase("blind_t")
 		f.kb_vel = Vector3.ZERO
 		anim(f, "Death")
-		if f.kind == "knight":
-			f.heavy = false
-			f.set_state("down")
-			log_event("%s在湖裡被電倒，一時爬不起來" % f.name)
-		else:
-			f.hp = 0.0
-			f.set_state("dead")
-			log_event("%s在湖裡被電倒了" % f.name)
+		# 水會導電：站在湖水裡的人直接被電倒。盔甲騎士也一樣（盔甲是鐵的，電得更兇）——
+		# 所以打倒他有兩種方法：用岩漿球砸，或是把他引進湖裡再用雷劈湖
+		f.hp = 0.0
+		f.heavy = false
+		f.set_state("dead")
+		log_event("%s在湖裡被電倒了" % f.name)
 	if n == 0:
 		log_event("雷劈在湖上，水裡沒有人")
 

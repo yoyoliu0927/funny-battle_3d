@@ -472,7 +472,7 @@ var _follow_look := Vector3.ZERO  # 跟拍時鏡頭看的點（慢慢跟上）
 
 ## 有人被沙子吹得睜不開眼睛（blow_sand() 會叫這個）：下面的對話框跳一句，頭像是說話的那個人
 func on_blinded(f: Fighter) -> void:
-	say_as(f, "啊！我的眼睛！")
+	say_as(f, "啊，沙子進到眼睛裡了！")
 	if f.is_bird:
 		_bird_dazed = 3.0        # 家豪大約東張西望這麼久
 
@@ -829,7 +829,7 @@ func _level_step(dt: float) -> void:
 const DIRECT_MSG := "神不能直接干預凡人"
 const PERSON_R := 0.55           # 視線離人的身體多近算「直接指著他」
 
-## 準心現在是不是直接指著某個敵人（視線穿過他的身體，而且他比地面近）。沒有就回傳 null。
+## 準心現在是不是直接指著某個人——敵人或家豪（視線穿過他的身體，而且他比地面近）。沒有就回傳 null。
 ## 道具裡寫 var no_direct := true 的（雷、風），指著人的時候不能施放；
 ## 玩家真的按下去的那一下，畫面中間才跳一行提示（平常指著人不會一直顯示，免得擋畫面）。
 func _aimed_person() -> Fighter:
@@ -841,7 +841,11 @@ func _aimed_person() -> Fighter:
 	var ground_t: float = (aim_point - o).length() if aim_point != null else INF
 	var best: Fighter = null
 	var best_t := INF
-	for f in enemies:
+	# 敵人和家豪都算：神也不能直接對家豪出手
+	var people: Array = enemies.duplicate()
+	if bird:
+		people.append(bird)
+	for f in people:
 		if not f.alive() or f.data.get("hidden", false):
 			continue
 		var h: float = maxf(1.9, float(f.data.get("bar_y", 0.0)) * 0.85)
