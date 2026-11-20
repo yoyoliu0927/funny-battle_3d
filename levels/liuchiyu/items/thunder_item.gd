@@ -13,6 +13,7 @@ const CLOUD_HEIGHT := 13.0     # 烏雲在準心上面多高
 const CLOUD_TIME := 1.1        # 烏雲停多久才散掉
 
 var hint := ""                 # 切到這個道具時，技能欄上面那一行小字
+var no_direct := true          # 準心直接指著人的時候不能用（神不能直接干預凡人；見 island_battle.gd）
 var _ch := CLOUD_HEIGHT        # 這一次的烏雲多高
 
 func _init() -> void:

@@ -69,10 +69,10 @@ func _enemy_specs() -> Array:
 
 ## 開場只有一句（每個道具的說明在切換道具時會出現在技能欄上面）
 func _tutorial_texts() -> Array:
-	return ["按住左鍵吹風：吹農夫的臉、吹滾石、吹風車。"]
+	return ["按住左鍵吹風：風不能直接吹人，要吹沙地、吹滾石、吹風車。"]
 
 func _prepare_hint() -> String:
-	return "準備中：開打後按住左鍵吹風——吹臉、吹滾石、吹風車　按 Enter 開始"
+	return "準備中：開打後按住左鍵吹風——吹沙地（沙子會飛向下風處的人）、吹滾石、吹風車　按 Enter 開始"
 
 func _win_line() -> String:
 	return "把河邊的枯樹吹倒當橋。"

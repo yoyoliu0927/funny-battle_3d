@@ -188,9 +188,11 @@ func _apply_look() -> void:
 
 ## 整個畫面最後都會過油畫濾鏡（邊緣本來就糊成一筆一筆的），不需要 4 倍的多重取樣反鋸齒：
 ## 在這個大關裡改用便宜的 FXAA，離開關卡時還原成專案原本的設定（不影響別人的大關）
-## 3D 畫面也只用 85% 的解析度算（濾鏡跟著少算三成的像素），再放大到全螢幕；
-## 濾鏡的筆觸間距跟著縮成 85%，放大回來之後筆觸大小跟原本一樣。介面文字不受影響，還是全解析度。
-const RENDER_SCALE := 0.85
+## 3D 畫面用 100% 的解析度算：之前降到 85% 再放大，疊上濾鏡之後整個畫面會霧霧的。
+## 想省效能可以把 RENDER_SCALE 調低（濾鏡的筆觸間距會跟著縮，放大回來之後筆觸大小不變）。
+const RENDER_SCALE := 1.0
+## 油畫濾鏡的筆觸間距（螢幕像素）。越大筆觸越粗、畫面越糊；原本是 2.0，降到 1.3 讓細節清楚一點。
+const FILTER_SPREAD := 1.3
 var _vp_saved := {}
 
 func _lighten_viewport() -> void:
@@ -227,7 +229,7 @@ func _build_filter() -> void:
 	quad.mesh = qm
 	var m := ShaderMaterial.new()
 	m.shader = FILTER_SHADER
-	m.set_shader_parameter("spread", 2.0 * RENDER_SCALE)     # 3D 解析度降到 85%，筆觸間距跟著縮，放大回來大小不變
+	m.set_shader_parameter("spread", FILTER_SPREAD * RENDER_SCALE)     # 3D 解析度降低時筆觸間距跟著縮，放大回來大小不變
 	m.render_priority = -100        # 最先畫，血條、視野扇形這些半透明的東西才會蓋在上面
 	quad.material_override = m
 	quad.extra_cull_margin = 16000.0
