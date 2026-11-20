@@ -23,6 +23,7 @@ var _ctx := {}
 var _ui: HubUI.Canvas
 var _tab_rects: Array = []
 var _cell_rects: Array = []
+var _scroll := 0              # 貼紙頁：從第幾列開始顯示（貼紙多的時候上下捲）
 var _close_rect := Rect2()
 var _snd := {}
 
@@ -110,6 +111,9 @@ func _unhandled_input(ev: InputEvent) -> void:
 				return
 		get_viewport().set_input_as_handled()
 	elif ev is InputEventMouseButton:
+		if ev.pressed and tab == 1 and (ev.button_index == MOUSE_BUTTON_WHEEL_UP or ev.button_index == MOUSE_BUTTON_WHEEL_DOWN):
+			var step := -5 if ev.button_index == MOUSE_BUTTON_WHEEL_UP else 5       # 滾輪：一次一列（一列 5 張）
+			sel = clampi(sel + step, 0, maxi(_count() - 1, 0))
 		get_viewport().set_input_as_handled()
 
 func _hover(pos: Vector2) -> void:
@@ -257,12 +261,23 @@ func _paint_stickers(c: Control, u: float, body: Rect2) -> void:
 	var list := Journal.stickers(_ctx)
 	var cols := 5
 	var cw := body.size.x / cols
+	var chh := 104.0 * u
 	var rows := int(ceil(float(list.size()) / cols))
-	var chh := minf(104.0 * u, (body.size.y - 70.0 * u) / maxf(rows, 1))      # 貼紙多了就把每一列縮小一點，才放得下
+	var vis := maxi(int((body.size.y - 70.0 * u) / chh), 3)               # 放得下幾列；貼紙更多就上下捲，不要把每一列擠扁
 	sel = clampi(sel, 0, list.size() - 1)
+	var srow := sel / cols
+	_scroll = clampi(_scroll, 0, maxi(rows - vis, 0))
+	if srow < _scroll:
+		_scroll = srow
+	elif srow >= _scroll + vis:
+		_scroll = srow - vis + 1
 	for i in list.size():
+		var row := i / cols
+		if row < _scroll or row >= _scroll + vis:
+			_cell_rects.append(Rect2())                                  # 捲出畫面的：佔個位置（滑鼠找格子是照順序找的）
+			continue
 		var s: Dictionary = list[i]
-		var cr := Rect2(body.position + Vector2((i % cols) * cw, (i / cols) * chh), Vector2(cw - 8 * u, chh - 8 * u))
+		var cr := Rect2(body.position + Vector2((i % cols) * cw, (row - _scroll) * chh), Vector2(cw - 8 * u, chh - 8 * u))
 		_cell_rects.append(cr)
 		if i == sel:
 			c.draw_style_box(HubUI.box(Color(UIStyle.STICKY, 0.9), UIStyle.STICKY_EDGE, 18 * u, 3.0, false), cr)
@@ -273,6 +288,16 @@ func _paint_stickers(c: Control, u: float, body: Rect2) -> void:
 		HubUI.text(c, cr.position + Vector2(94, 46) * u, nm, HubUI.fit(nm, 24 * u, cr.size.x - 100 * u), HubUI.INK if got else Color("9c968a"))
 		var prog := "已解鎖" if got else "%d/%d" % [int(s.cur), int(s.need)]
 		HubUI.text(c, cr.position + Vector2(94, 78) * u, prog, 20 * u, Color("3c7d3c") if got else Color("8a847a"))
+	# 還有沒看到的：右邊的上下小三角和「第幾列／共幾列」
+	if rows > vis:
+		var ax := body.end.x - 14.0 * u
+		var tri := Color("c9a95a")
+		if _scroll > 0:
+			c.draw_colored_polygon(PackedVector2Array([Vector2(ax, body.position.y - 14 * u), Vector2(ax - 11 * u, body.position.y + 4 * u), Vector2(ax + 11 * u, body.position.y + 4 * u)]), tri)
+		if _scroll + vis < rows:
+			var by := body.position.y + vis * chh
+			c.draw_colored_polygon(PackedVector2Array([Vector2(ax, by + 2 * u), Vector2(ax - 11 * u, by - 16 * u), Vector2(ax + 11 * u, by - 16 * u)]), tri)
+		HubUI.text(c, Vector2(body.end.x - 150 * u, body.position.y + vis * chh + 24 * u), "第 %d–%d 列／共 %d 列" % [_scroll + 1, mini(_scroll + vis, rows), rows], 18 * u, Color("8a847a"))
 	var cur: Dictionary = list[sel]
 	var dr := Rect2(Vector2(body.position.x, body.end.y - 60 * u), Vector2(body.size.x, 52 * u))
 	c.draw_style_box(HubUI.box(Color("fff1bf"), Color("d9b84a"), 20 * u, 2.0, false), dr)
