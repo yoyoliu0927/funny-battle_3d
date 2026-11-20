@@ -51,6 +51,12 @@ const TEX := "res://assets/textures/"
 const INTRO_SCENE := "res://scenes/intro.tscn"
 const TitleScreen := preload("res://scripts/ui/title_screen.gd")   # 一開遊戲的標題畫面（掛在這個場景上，拿世界地圖當背景）
 const ENDING_SCENE := "res://levels/heaven/ending/ending.tscn"   # 結局動畫（隱藏按鍵 Shift＋E 直接播，展示用）
+const HubLife := preload("res://scripts/hub/hub_life.gd")         # 主島的戳戳樂（母雞、樹、風車、穀倉……）
+const HubFishing := preload("res://scripts/hub/hub_fishing.gd")   # 農莊池塘和釣魚小遊戲
+const HubJournal := preload("res://scripts/hub/hub_journal.gd")   # 冒險手帳（旅程、貼紙、魚圖鑑）
+const HubGrowth := preload("res://scripts/hub/hub_growth.gd")     # 破關後農莊長出小地標和居民
+const HubUI := preload("res://scripts/hub/hub_ui.gd")            # 手帳和釣魚共用的畫圖工具
+const Journal := preload("res://scripts/hub/journal.gd")          # 手帳的存檔和資料
 
 ## 正式的「島」一共幾座（四個組員各一座）；不夠的用「建造中」補滿
 const ISLAND_SLOTS := 4
@@ -60,6 +66,11 @@ const SHAKE_TIME := 0.5
 
 # ---- 地圖的尺寸（公尺）
 const STEP := 11.5            # 同一個大關裡，站點和站點的間隔（東西向）
+const HUB_STEP := 13.5        # 主島的站點間隔（主島比較大：中間有田、穀倉、池塘）
+const HUB_RZ := 21.0          # 主島南北的半徑
+const HUB_CZ := -3.5          # 主島的中心在路的北邊多遠（北邊比較深：田和林子）
+const POND_R := Vector2(6.4, 4.6)   # 農莊池塘的半徑（東西、南北）
+const FISH_COLOR := Color("3fa0d8")
 const SPOT_BACK := 5.0        # 地標在站點北邊多遠
 const ROW := 48.0             # 大關和大關的間隔（南北向；下一個大關在北邊、畫面上方）
 const ISLE_R := 4.6           # 還沒做好的大關那座小島的半徑
@@ -210,7 +221,15 @@ var _routes: Array = []      # 航線 {pts: 每顆浮球的位置 Vector2(x, z),
 var _route_z := -1.0         # 浮球現在是照哪個 z 算的大小
 var _shallow_tint := Color(0.56, 0.95, 0.88)   # 淺水現在的顏色（跟著時段變）
 var _small: Array = []       # 只有島上視角才顯示的小東西（柵欄：從世界地圖的高度看只是一條鋸齒線）
-var _hens: Array = []        # 主島上的母雞 {node, base, phase}
+var _hens: Array = []        # 主島上的母雞（就是 _life.hens，每筆有 node；標題畫面的開場動畫要用，不要拿掉）
+var _life: Node3D            # 主島的戳戳樂（hub_life.gd）：母雞、樹、風車、穀倉、蛋
+var _fishing: Node3D         # 農莊池塘和釣魚小遊戲（hub_fishing.gd）
+var _growth: Node3D          # 農莊跟著旅程長大（hub_growth.gd）
+var _journal: CanvasLayer    # 冒險手帳（hub_journal.gd）
+var _cam_bias := Vector3.ZERO      # 鏡頭多看向哪邊（釣魚時偏向池塘）
+var _cam_bias_to := Vector3.ZERO
+var _face_yaw := 0.0         # 家豪待機時朝哪個方向（0 = 面對鏡頭；釣魚時朝池塘）
+var _hub_yard := Rect2()     # 主島雞圈的範圍（島自己的座標：x, z, 寬, 深）
 var _hero_tilt: Node3D       # 家豪（中間那層：世界地圖上往後仰，從上面看得到臉）
 var _hero_base: Node3D       # 世界地圖上家豪腳下的棋子底座
 var _shadow: MeshInstance3D  # 飛行時海面上的影子
@@ -226,6 +245,9 @@ var _floats: Array = []      # 海上漂的東西（北方的浮冰、南方的�
 # ================================================================== 啟動
 
 func _ready() -> void:
+	for a in OS.get_cmdline_user_args():
+		if a == "--autotest" or a.begins_with("--mapshots=") or a.begins_with("--hubshots=") or a.begins_with("--titleshots="):
+			Journal.persist = false          # 測試不寫玩家的手帳存檔
 	_load_chapters()
 	_sync_stars()
 	_cam = get_node("../Camera3D")
@@ -235,6 +257,12 @@ func _ready() -> void:
 	_sky_mat = _sky_default
 	_build_sea()
 	_layout()
+	_life = HubLife.new()
+	_life.map = self
+	add_child(_life)
+	_fishing = HubFishing.new()
+	_fishing.map = self
+	add_child(_fishing)
 	for e in entries.size():
 		worlds.append(_build_world(e))
 	_fit_map_camera()
@@ -256,14 +284,31 @@ func _ready() -> void:
 	_build_sea_props()
 	_build_halo()
 	_build_hero()
+	_spawn_hub_hens()
+	_life.register("hero", _hero, 1.0, 0.9)
+	_growth = HubGrowth.new()
+	_growth.map = self
+	add_child(_growth)
+	_growth.sync(false)                  # 已經長過的先直接站好；新破關的在「回到農莊」時再演（_growth_check）
 	_build_ui()
+	_journal = HubJournal.new()
+	_journal.map = self
+	add_child(_journal)
 	_build_audio()
 	var args := OS.get_cmdline_user_args()
 	var testing := "--autotest" in args
 	var shots := ""
+	var hub_shots := ""
+	var hub_test := false
 	for a in args:
 		if a.begins_with("--mapshots="):
 			shots = a.substr(11)
+			testing = true
+		if a.begins_with("--hubshots="):
+			hub_shots = a.substr(11)
+			testing = true
+		if a == "--hubtest":
+			hub_test = true
 			testing = true
 	selected = -1
 	select(0)
@@ -272,7 +317,7 @@ func _ready() -> void:
 	elif not testing:
 		_zoom = 1.0                      # 剛開遊戲：先看一眼整張世界地圖，再拉近到主島
 	_place_hero(true)
-	if TitleScreen.wanted():
+	if TitleScreen.wanted() and hub_shots == "" and not hub_test:
 		# 剛開遊戲：先放標題畫面。按下開始之後鏡頭直接滑到主島（第一次玩會先接開場劇情）
 		_zoom = 0.0
 		_layer.visible = false
@@ -283,11 +328,20 @@ func _ready() -> void:
 		_autotest.call_deferred()
 	if shots != "":
 		_mapshots.call_deferred(shots)
+	if hub_shots != "":
+		_hubshots.call_deferred(hub_shots)
+	if hub_test:
+		_hubtest.call_deferred()
+	if _title == null and not testing:
+		_growth_check.call_deferred()
+		_journal_check.call_deferred()
 
 ## 標題畫面收掉了：介面拿出來，開始收按鍵
 func _title_end() -> void:
 	_title = null
 	_layer.visible = true
+	_growth_check()
+	_journal_check()
 
 ## 讀大關清單：第 0 座是主島（農莊：商店、冒險紀錄、家、告示牌、碼頭），接著是主題島（不夠 ISLAND_SLOTS 座的用「還沒開放」補滿）
 func _load_chapters() -> void:
@@ -300,7 +354,7 @@ func _load_chapters() -> void:
 		drafts.clear()
 	entries.clear()
 	_stations.clear()
-	var hub: Array = [{"kind": "shop"}, {"kind": "board"}, {"kind": "home"}, {"kind": "guide"}, {"kind": "dock"}]
+	var hub: Array = [{"kind": "shop"}, {"kind": "board"}, {"kind": "home"}, {"kind": "guide"}, {"kind": "fish"}, {"kind": "dock"}]
 	entries.append({"ch": {}, "slot": -1, "hub": true})
 	_stations.append(hub)
 	for k in maxi(ISLAND_SLOTS, islands.size()):
@@ -416,6 +470,8 @@ func _st_color(e: int, k: int) -> Color:
 			return GUIDE_COLOR
 		"dock":
 			return DOCK_COLOR
+		"fish":
+			return FISH_COLOR
 		"stage":
 			if CARD_COLORS.has(s.ch.id):
 				return CARD_COLORS[s.ch.id]
@@ -475,6 +531,8 @@ func _dev() -> bool:
 ## 第 e 排第 k 個站點在島自己的座標裡的位置（y 之後再貼到島面上）：一條左右蜿蜒的路。
 ## 每座島先照「第幾排」蓋在自己的座標裡，再整座搬到世界地圖上的位置（_ring_pos）。
 func _pad_xz(e: int, k: int) -> Vector3:
+	if e == 0:
+		return Vector3(k * HUB_STEP, 0.0, sin(k * 1.9) * 4.0)       # 主島
 	return Vector3(k * STEP, 0.0, -e * ROW + sin(k * 1.9 + e * 2.3) * 3.5)
 
 ## 那一小關的地標放在哪（站點北邊）
@@ -492,6 +550,9 @@ func _island_ctx(e: int, n: int) -> Dictionary:
 		spots.append(_spot_xz(e, k))
 		zmin = minf(zmin, spots[k].z - 5.0)
 		zmax = maxf(zmax, pads[k].z + 5.5)
+	if e == 0:
+		var hh := (n - 1) * HUB_STEP * 0.5
+		return {"center": Vector2(hh, HUB_CZ), "rx": hh + 11.0, "rz": HUB_RZ, "top_y": TOP_Y, "pads": pads, "spots": spots, "index": e}
 	var half := (n - 1) * STEP * 0.5
 	return {"center": Vector2(half, (zmin + zmax) * 0.5), "rx": half + 9.5, "rz": (zmax - zmin) * 0.5,
 		"top_y": TOP_Y, "pads": pads, "spots": spots, "index": e}
@@ -599,7 +660,7 @@ func _layout() -> void:
 		if String(_st(e, 0).kind) == "locked":
 			sizes[e] = Vector2(ISLE_R + 2.0, ISLE_R + 2.0)
 		else:
-			sizes[e] = Vector2((n - 1) * STEP * 0.5 + 9.5, 13.5 if e == 0 else 11.0) * _isle_scale(e)
+			sizes[e] = (Vector2((n - 1) * HUB_STEP * 0.5 + 11.0, HUB_RZ) if e == 0 else Vector2((n - 1) * STEP * 0.5 + 9.5, 11.0)) * _isle_scale(e)
 	_ring_pos.resize(entries.size())
 	_ring_pos[0] = Vector2.ZERO
 	var hub: Vector2 = sizes[0]
@@ -711,8 +772,6 @@ func _build_world(e: int) -> Dictionary:
 	var ctx := {}
 	if playable:
 		ctx = _island_ctx(le, n)
-		if hub:
-			ctx.rz = maxf(float(ctx.rz), 13.5)
 		var c: Vector2 = ctx.center
 		off = Vector3(at.x - c.x * sc, 0, at.y - c.y * sc)
 		w.rx = float(ctx.rx) * sc
@@ -793,7 +852,8 @@ func _build_world(e: int) -> Dictionary:
 
 # ---------------------------------------------------------------- 主島：家豪的農莊
 
-## 主島：一座綠油油的農莊。地標後面（北邊）是一塊一塊的田、風車、筒倉、乾草堆，岸邊一圈樹；靠鏡頭這一側留空。
+## 主島：一座大農莊。路蜿蜒在中間；北邊是田、穀倉、風車和一片林子；南邊是母雞的雞圈；東邊是池塘和碼頭。
+## 農莊裡的東西大多可以戳（見 scripts/hub/hub_life.gd），蓋的時候順便登記。
 func _build_farm(root: Node3D, ctx: Dictionary) -> void:
 	var c: Vector2 = ctx.center
 	var rx: float = ctx.rx
@@ -809,74 +869,177 @@ func _build_farm(root: Node3D, ctx: Dictionary) -> void:
 	var y := TOP_Y - 0.05
 	var pads: Array = ctx.pads
 	var spots: Array = ctx.spots
-	# 田：兩個地標中間、往北一點；一塊翻過的土＋一排一排的作物
+	var fk := _hub_index("fish")
+	# 已經放了大東西的地方 Vector3(x, z, 半徑)：樹和雜物要避開
+	var solid: Array = []
+	var pond_c := Vector2(float((spots[fk] as Vector3).x), float((spots[fk] as Vector3).z) - 2.0)
+	solid.append(Vector3(pond_c.x, pond_c.y, maxf(POND_R.x, POND_R.y) * 1.3 + 2.0))
+	# 雞圈：家的正南邊
+	var yard := Rect2(Vector2(float((pads[2] as Vector3).x) - 8.5, 7.6), Vector2(17.0, 5.8))
+	_hub_yard = yard
+	solid.append(Vector3(yard.get_center().x, yard.get_center().y, 9.5))
+	for gid in HubGrowth.ids():
+		var gs := HubGrowth.slot(String(gid))
+		solid.append(Vector3(gs.x, gs.y + 1.2, 4.6))                  # 破關後會長小地標的地方：樹不要種在這裡
 	var soil := _tex_mat("forest_ground_04_diff_1k.jpg", Color(1.05, 0.74, 0.50), 0.32)
+	# 兩個地標中間、往北一點：田、穀倉、南瓜園
 	for k in spots.size() - 1:
 		var m: Vector3 = ((spots[k] as Vector3) + (spots[k + 1] as Vector3)) * 0.5 + Vector3(0, 0, -1.4)
 		if k == 2:
-			# 家的東邊：大穀倉＋筒倉（布景，不是站點）
-			_spawn_fit(root, "res://assets/farm/BigBarn.glb", Vector3(m.x - 0.6, y, m.z - 1.2), 5.6, 0.25)
-			_spawn_fit(root, "res://assets/farm/Silo.glb", Vector3(m.x + 3.0, y, m.z - 1.8), 4.8, 0.0)
-			continue
-		var plot := PlaneMesh.new()
-		plot.size = Vector2(4.6, 4.0)
-		var pm := MeshInstance3D.new()
-		pm.mesh = plot
-		pm.material_override = soil
-		pm.position = Vector3(m.x, TOP_Y + 0.03, m.z)
-		pm.rotation.y = 0.12 * sin(k * 2.1)
-		pm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		root.add_child(pm)
-		for i in 4:
-			for j in 5:
-				var q := Vector3((i - 1.5) * 1.1, 0, (j - 2.0) * 0.78).rotated(Vector3.UP, pm.rotation.y)
-				_spawn_fit(root, "res://assets/nature/BushBerries.glb", Vector3(m.x + q.x, y, m.z + q.z), 0.62, (i * 5 + j) * 1.7)
-		_spawn_fit(root, "res://assets/farm/Hay.glb", Vector3(m.x + 3.0, y, m.z + 1.2), 1.0, k * 1.3 + 0.4)
-		for j in 3:
-			_spawn_fit(root, "res://levels/liuchiyu/assets/kaykit_halloween/pumpkin_orange.gltf", Vector3(m.x - 2.9 + j * 0.25, y, m.z + 1.4 + j * 0.62), 0.55 - 0.08 * j, j * 1.1)
-	# 兩頭：西邊風車、東邊筒倉
+			# 家的東邊：大穀倉（門可以敲開）＋筒倉
+			var barn := _spawn_fit(root, "res://assets/farm/BigBarn.glb", Vector3(m.x - 0.6, y, m.z - 1.2), 5.6, 0.25)
+			var silo := _spawn_fit(root, "res://assets/farm/Silo.glb", Vector3(m.x + 3.0, y, m.z - 1.8), 4.8, 0.0)
+			if barn:
+				_life.register_barn(barn)
+			if silo:
+				_life.register("silo", silo, 2.0, 2.4)
+			solid.append(Vector3(m.x - 0.6, m.z - 1.2, 5.0))
+			solid.append(Vector3(m.x + 3.0, m.z - 1.8, 2.8))
+		elif k == fk - 1:
+			_pumpkin_patch(root, Vector3(m.x - 1.0, y, m.z - 3.5), y, solid)
+		elif k == fk:
+			continue                                   # 池塘和碼頭中間不種東西
+		else:
+			_farm_plot(root, soil, m, k, y, solid, k == 1)
+			_farm_plot(root, soil, m + Vector3(0, 0, -8.5), k + 7, y, solid, false)
+	# 兩頭：西邊風車、東邊筒倉小屋
 	var west: Vector3 = spots[0]
 	var east: Vector3 = spots[spots.size() - 1]
-	_spawn_fit(root, "res://assets/farm/Windmill.glb", Vector3(west.x - 6.6, y, west.z + 1.0), 6.4, 0.5)
-	_spawn_fit(root, "res://assets/farm/SiloHouse.glb", Vector3(east.x + 4.6, y, east.z - 2.6), 5.2, -0.4)
-	# 岸邊的樹：北半圈密一點，南邊（靠鏡頭）只在兩個角落各一兩棵
+	var wm := _spawn_fit(root, "res://assets/farm/Windmill.glb", Vector3(west.x - 6.6, y, west.z + 1.0), 6.4, 0.5)
+	if wm:
+		_life.register("windmill", wm, 3.0, 3.2)
+	solid.append(Vector3(west.x - 6.6, west.z + 1.0, 3.6))
+	var sh := _spawn_fit(root, "res://assets/farm/SiloHouse.glb", Vector3(east.x + 4.6, y, east.z - 2.6), 5.2, -0.4)
+	if sh:
+		_life.register("silo", sh, 2.4, 2.6)
+	solid.append(Vector3(east.x + 4.6, east.z - 2.6, 3.4))
+	# 雞圈的柵欄（北邊中間留一個門）、水桶和乾草
+	var fence := "res://levels/ice/assets/kenney_platformer/fence-rope.glb"
+	var gate_x := yard.get_center().x
+	_fence_line(root, fence, Vector2(yard.position.x, yard.position.y), Vector2(yard.end.x, yard.position.y), y, gate_x - 1.9, gate_x + 1.9)
+	_fence_line(root, fence, Vector2(yard.position.x, yard.end.y), Vector2(yard.end.x, yard.end.y), y)
+	_fence_line(root, fence, Vector2(yard.position.x, yard.position.y), Vector2(yard.position.x, yard.end.y), y)
+	_fence_line(root, fence, Vector2(yard.end.x, yard.position.y), Vector2(yard.end.x, yard.end.y), y)
+	_spawn_fit(root, "res://levels/ice/assets/kenney_survival/barrel.glb", Vector3(yard.end.x - 1.0, y, yard.end.y - 1.0), 0.95, 0.3)
+	var yh := _spawn_fit(root, "res://assets/farm/Hay.glb", Vector3(yard.position.x + 1.4, y, yard.end.y - 1.0), 1.1, 0.6)
+	if yh:
+		_life.register("hay", yh, 1.1, 0.5, {"special": false})
+	# 岸邊的樹：北半圈密一點（還往裡面種成一片林子），南邊（靠鏡頭）只在兩個角落種
 	var rng := RandomNumberGenerator.new()
 	rng.seed = 4242
 	var placed: Array[Vector2] = []
-	for i in 400:
+	for i in 1600:
 		var a := rng.randf() * TAU
-		var d := _outline(rx, rz, a, s) - rng.randf_range(1.4, 2.6)
+		var edge := _outline(rx, rz, a, s)
+		var inner := sin(a) < -0.1 and rng.randf() < 0.5
+		var d := edge * rng.randf_range(0.42, 0.88) if inner else edge - rng.randf_range(1.4, 2.6)
 		var x := c.x + cos(a) * d
 		var z := c.y + sin(a) * d
 		if sin(a) > -0.15 and absf(cos(a)) < 0.82:
 			continue                              # 南邊中間不種
-		if not spot_free(ctx, x, z, 2.2) or absf(x - (west.x - 6.6)) < 3.4 or absf(x - (east.x + 4.6)) < 3.2 or (cos(a) > 0.6 and sin(a) > -0.5):
+		if not spot_free(ctx, x, z, 2.2) or (cos(a) > 0.6 and sin(a) > -0.5):
+			continue
+		if solid.any(func(q): return Vector2(x, z).distance_to(Vector2(q.x, q.y)) < float(q.z) + 1.2):
 			continue
 		var p := Vector2(x, z)
 		if placed.any(func(o): return (o as Vector2).distance_to(p) < 2.7):
 			continue
 		placed.append(p)
-		var tree := "res://assets/nature/BirchTree.glb" if placed.size() % 3 != 0 else "res://assets/nature/AutumnTree.glb"
-		_spawn_fit(root, tree, Vector3(x, y, z), rng.randf_range(2.6, 3.8), rng.randf() * TAU)
-	# 路邊的莓果叢；南岸（靠鏡頭）沿著岸邊一排矮柵欄，中間留一個缺口，柵欄邊幾叢莓果、幾顆南瓜
+		var autumn := placed.size() % 3 == 0
+		var tree := "res://assets/nature/AutumnTree.glb" if autumn else "res://assets/nature/BirchTree.glb"
+		var th := rng.randf_range(2.6, 3.8)
+		var tn := _spawn_fit(root, tree, Vector3(x, y, z), th, rng.randf() * TAU)
+		if tn:
+			_life.register("tree", tn, 1.5, th * 0.5, {"leaf": Color("e0902f") if autumn else Color("7cb84a")})
+	# 路邊的莓果叢和路燈
 	for k in pads.size():
 		var p: Vector3 = pads[k]
 		_spawn_fit(root, "res://assets/nature/BushBerries.glb", Vector3(p.x - 3.4, y, p.z - 2.2), 1.1, k * 2.0)
-	var fence := "res://levels/ice/assets/kenney_platformer/fence-rope.glb"
-	for i in 15:
-		var a := PI * 0.5 + (i - 7) * 0.105
-		if i == 7:
-			continue
+		_spawn_fit(root, "res://levels/liuchiyu/assets/kaykit_halloween/post_lantern.gltf", Vector3(p.x + 2.6, y, p.z + 0.4), 2.6, 0.0)
+	# 南岸（靠鏡頭）沿著岸邊一排矮柵欄，中間留一個缺口，柵欄邊幾叢莓果、幾顆南瓜
+	var last := Vector2(INF, INF)
+	var n_fence := 0
+	for i in 400:
+		var a := PI * 0.5 - 0.95 + i * (1.9 / 399.0)
 		var d := _outline(rx, rz, a, s) - 1.5
 		var fx := c.x + cos(a) * d
 		var fz := c.y + sin(a) * d
+		if absf(fx - c.x) < 2.2 or Vector2(fx, fz).distance_to(last) < 2.0:
+			continue
+		last = Vector2(fx, fz)
+		n_fence += 1
 		var fn := _spawn_fit(root, fence, Vector3(fx, y, fz), 2.0, -a + PI * 0.5)
 		if fn:
 			_small.append(fn)
-		if i % 4 == 1:
-			_spawn_fit(root, "res://assets/nature/BushBerries.glb", Vector3(fx + 0.4, y, fz - 1.3), 1.0, i * 1.3)
-		elif i % 4 == 3:
-			_spawn_fit(root, "res://levels/liuchiyu/assets/kaykit_halloween/pumpkin_orange.gltf", Vector3(fx - 0.3, y, fz - 1.1), 0.6, i * 0.9)
+		if n_fence % 4 == 1:
+			_spawn_fit(root, "res://assets/nature/BushBerries.glb", Vector3(fx + 0.4, y, fz - 1.3), 1.0, n_fence * 1.3)
+		elif n_fence % 4 == 3:
+			var pk := _spawn_fit(root, "res://levels/liuchiyu/assets/kaykit_halloween/pumpkin_orange.gltf", Vector3(fx - 0.3, y, fz - 1.1), 0.6, n_fence * 0.9)
+			if pk:
+				_life.register("pumpkin", pk, 0.55, 0.25)
+
+## 一塊田：翻過的土＋一排一排的作物，旁邊乾草和南瓜（乾草堆和南瓜可以戳；special 那一堆藏著金蛋）
+func _farm_plot(root: Node3D, soil: Material, m: Vector3, k: int, y: float, solid: Array, special_hay: bool) -> void:
+	var plot := PlaneMesh.new()
+	plot.size = Vector2(4.6, 4.0)
+	var pm := MeshInstance3D.new()
+	pm.mesh = plot
+	pm.material_override = soil
+	pm.position = Vector3(m.x, TOP_Y + 0.03, m.z)
+	pm.rotation.y = 0.12 * sin(k * 2.1)
+	pm.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(pm)
+	for i in 4:
+		for j in 5:
+			var q := Vector3((i - 1.5) * 1.1, 0, (j - 2.0) * 0.78).rotated(Vector3.UP, pm.rotation.y)
+			_spawn_fit(root, "res://assets/nature/BushBerries.glb", Vector3(m.x + q.x, y, m.z + q.z), 0.62, (i * 5 + j) * 1.7)
+	var hay := _spawn_fit(root, "res://assets/farm/Hay.glb", Vector3(m.x + 3.0, y, m.z + 1.2), 1.0, k * 1.3 + 0.4)
+	if hay:
+		_life.register("hay", hay, 1.1, 0.5, {"special": special_hay})
+	for j in 3:
+		var pk := _spawn_fit(root, "res://levels/liuchiyu/assets/kaykit_halloween/pumpkin_orange.gltf", Vector3(m.x - 2.9 + j * 0.25, y, m.z + 1.4 + j * 0.62), 0.55 - 0.08 * j, j * 1.1)
+		if pk:
+			_life.register("pumpkin", pk, 0.55, 0.25)
+	solid.append(Vector3(m.x, m.z, 3.4))
+
+## 南瓜園：一堆南瓜、幾捆乾草
+func _pumpkin_patch(root: Node3D, c: Vector3, y: float, solid: Array) -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 77
+	for i in 11:
+		var a := rng.randf() * TAU
+		var r := sqrt(rng.randf()) * 3.0
+		var sz := rng.randf_range(0.5, 0.9)
+		var pk := _spawn_fit(root, "res://levels/liuchiyu/assets/kaykit_halloween/pumpkin_orange.gltf", Vector3(c.x + cos(a) * r, y, c.z + sin(a) * r * 0.8), sz, rng.randf() * TAU)
+		if pk:
+			_life.register("pumpkin", pk, maxf(sz * 0.7, 0.5), sz * 0.45)
+	for i in 2:
+		var hy := _spawn_fit(root, "res://assets/farm/Hay.glb", Vector3(c.x + 3.4 - i * 6.6, y, c.z + 1.4 - i), 1.1, i * 1.7)
+		if hy:
+			_life.register("hay", hy, 1.1, 0.5, {"special": false})
+	solid.append(Vector3(c.x, c.z, 4.4))
+
+## 沿著 a→b 一段一段放柵欄；skip_from～skip_to（x 座標）之間留空當門
+func _fence_line(root: Node3D, path: String, a: Vector2, b: Vector2, y: float, skip_from := 1.0e9, skip_to := -1.0e9) -> void:
+	var d := b - a
+	var len := d.length()
+	var n := maxi(int(round(len / 2.0)), 1)
+	var yaw := atan2(-d.y, d.x)
+	for i in n:
+		var p := a + d * ((i + 0.5) / n)
+		if p.x > skip_from and p.x < skip_to:
+			continue
+		var fn := _spawn_fit(root, path, Vector3(p.x, y, p.y), len / n, yaw)
+		if fn:
+			_small.append(fn)
+
+## 主島第幾個站點是這種功能（找不到回傳 0）
+func _hub_index(kind: String) -> int:
+	var sts: Array = _stations[0]
+	for k in sts.size():
+		if String(sts[k].kind) == kind:
+			return k
+	return 0
 
 ## 把模型上偏紅的面（穀倉的紅牆）換成另一種顏色，其他顏色不動。材質先複製一份，不會改到別的穀倉
 func _recolor(node: Node, to: Color, roof := Color(0, 0, 0, 0)) -> void:
@@ -930,6 +1093,9 @@ func _farm_spot(root: Node3D, s: Dictionary, ctx: Dictionary, at: Vector3) -> vo
 			_spawn_fit(root, "res://levels/ice/assets/kenney_survival/signpost-single.glb", Vector3(-0.2, -0.05, 0.6), 3.0, 0.15)
 			_spawn_fit(root, "res://levels/ice/assets/kenney_survival/tent.glb", Vector3(2.2, -0.05, -1.0), 2.8, -0.5)
 			_spawn_fit(root, "res://levels/ice/assets/kenney_survival/campfire-pit.glb", Vector3(-2.2, -0.05, 1.0), 1.2, 0.0)
+			var flame := _spawn_fit(root, "res://levels/ice/assets/blender/flame.glb", Vector3(-2.2, 0.0, 1.0), 0.95, 0.0)
+			if flame:
+				_life.register_flame(flame)
 			_spawn_fit(root, "res://levels/ice/assets/kenney_survival/tree-log.glb", Vector3(-2.6, -0.05, -0.6), 1.5, 0.8)
 			root.set_meta("bubble_y", 4.4)
 		"dock":
@@ -947,7 +1113,9 @@ func _farm_spot(root: Node3D, s: Dictionary, ctx: Dictionary, at: Vector3) -> vo
 					shore = c.x + cos(a) * d
 			var dx := shore - at.x
 			_spawn_fit(root, "res://levels/ice/assets/blender/pier.glb", Vector3(dx + 2.4, -TOP_Y + 0.25, 4.2), 7.0, PI * 0.5)
-			_spawn_fit(root, "res://levels/ice/assets/blender/rowboat.glb", Vector3(dx + 3.6, -TOP_Y - 0.1, 6.6), 2.8, 1.2)
+			var boat := _spawn_fit(root, "res://levels/ice/assets/blender/rowboat.glb", Vector3(dx + 3.6, -TOP_Y - 0.1, 6.6), 2.8, 1.2)
+			if boat:
+				_life.register("boat", boat, 1.7, 0.5)
 			_spawn_fit(root, "res://levels/ice/assets/kenney_survival/barrel.glb", Vector3(dx - 2.0, -0.05, 2.6), 1.0, 0.0)
 			_spawn_fit(root, "res://levels/ice/assets/kenney_platformer/crate-strong.glb", Vector3(dx - 2.8, -0.05, 3.6), 1.0, 0.4)
 			_spawn_fit(root, "res://levels/fort/assets/pirate/flag-pennant.glb", Vector3(dx - 1.6, -0.05, 5.6), 3.4, 0.0)
@@ -955,6 +1123,17 @@ func _farm_spot(root: Node3D, s: Dictionary, ctx: Dictionary, at: Vector3) -> vo
 			_spawn_fit(root, "res://levels/ice/assets/kenney_survival/fish-large.glb", Vector3(-1.6, 0.0, 1.0), 0.9, 0.6)
 			_spawn_fit(root, "res://levels/ice/assets/kenney_survival/bucket.glb", Vector3(-2.2, -0.05, 0.4), 0.7, 0.0)
 			root.set_meta("bubble_y", 4.2)
+		"fish":
+			# 池塘（水、魚影、睡蓮、石頭）在 hub_fishing.gd 蓋；這裡擺岸邊的東西：木板平台、釣竿架、魚網、木桶、長椅
+			_fishing.build_pond(root, Vector3(0, 0.05, -2.0), POND_R.x, POND_R.y)
+			_spawn_fit(root, "res://levels/fort/assets/pirate/platform-planks.glb", Vector3(0.2, -0.05, 3.6), 3.0, 0.0)
+			_spawn_fit(root, "res://levels/ice/assets/kenney_survival/campfire-fishing-stand.glb", Vector3(7.6, -0.05, 0.6), 2.4, -0.6)
+			_spawn_fit(root, "res://levels/ice/assets/blender/fish_net.glb", Vector3(-7.6, -0.05, 1.0), 1.8, 0.8)
+			_spawn_fit(root, "res://levels/ice/assets/kenney_survival/bucket.glb", Vector3(-2.6, -0.05, 4.2), 0.7, 0.0)
+			_spawn_fit(root, "res://levels/ice/assets/kenney_survival/barrel.glb", Vector3(3.8, -0.05, 4.6), 0.95, 0.5)
+			_spawn_fit(root, "res://levels/ice/assets/kenney_survival/tree-log.glb", Vector3(-9.0, -0.05, 2.4), 1.8, 0.9)
+			_spawn_fit(root, "res://levels/ice/assets/kenney_survival/signpost-single.glb", Vector3(-3.6, -0.05, 4.6), 2.2, 0.3)
+			root.set_meta("bubble_y", 4.6)
 
 # ---------------------------------------------------------------- 世界地圖：航線、光圈
 
@@ -1592,25 +1771,23 @@ func _build_hero() -> void:
 		mi.scale = Vector3(0.24, 0.82, 0.05)
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		arm.add_child(mi)
-	# 主島上的幾隻母雞（白色、沒穿帽 T）：在家門口和田邊啄來啄去
-	if not worlds.is_empty() and int(worlds[0].n) >= 2:
-		var home: Vector3 = worlds[0].pads[_first_open_stage_of(0)]
-		var hens := [Vector3(-3.6, 0, 2.6), Vector3(3.3, 0, 2.2), Vector3(-5.6, 0, -0.6), Vector3(5.4, 0, 3.4), Vector3(1.6, 0, 4.6)]
-		for i in hens.size():
-			var hc := Node3D.new()
-			hc.set_script(load("res://scripts/characters.gd"))
-			hc.set_process(false)
-			add_child(hc)
-			var hen: Node3D = hc._make_round_chicken(false)
-			hc.add_child(hen)
-			var hb := _aabb(hen, Transform3D.IDENTITY)
-			if hb.size.y > 0.01:
-				var hs := (1.25 + 0.15 * sin(i * 2.3)) / hb.size.y
-				hen.scale = Vector3.ONE * hs
-				hen.position.y = -hb.position.y * hs
-			var base: Vector3 = home + hens[i] + Vector3(0, 0.02, 0)
-			hc.position = base
-			_hens.append({"node": hc, "base": base, "phase": i * 1.37})
+
+## 主島上的母雞（白色、沒穿帽 T）：雞圈裡七隻、家門口和田邊幾隻，各自逛來逛去，可以戳（hub_life.gd）
+func _spawn_hub_hens() -> void:
+	if worlds.is_empty() or _life == null or _hub_yard.size == Vector2.ZERO:
+		return
+	var off: Vector3 = worlds[0].origin
+	var y := TOP_Y + 0.02
+	var specs: Array = []
+	for i in 7:
+		var fx := _hub_yard.position.x + 1.6 + fposmod(i * 2.9, _hub_yard.size.x - 3.2)
+		var fz := _hub_yard.position.y + 1.3 + fposmod(i * 1.9, _hub_yard.size.y - 2.6)
+		specs.append({"pos": Vector3(fx, y, fz) + off, "rad": 2.4})
+	var pads: Array = worlds[0].pads
+	for sp in [[2, Vector3(-3.6, 0, 2.6)], [2, Vector3(3.4, 0, 3.2)], [1, Vector3(-2.2, 0, 3.4)], [0, Vector3(3.0, 0, 3.0)], [3, Vector3(-3.6, 0, 3.0)]]:
+		specs.append({"pos": (pads[int(sp[0])] as Vector3) + (sp[1] as Vector3) + Vector3(0, 0.02, 0), "rad": 2.0})
+	_life.spawn_hens(specs)
+	_hens = _life.hens
 
 ## 家豪站在站點上的位置
 func _stand(e: int, k: int) -> Vector3:
@@ -2160,6 +2337,70 @@ func _star_all() -> Array:
 			out[1] += int(t[1])
 	return out
 
+## 手帳用的旅程進度（journal.gd 算貼紙要用）：星星、羽毛、過了幾個小關、買了幾件衣服
+func _journal_ctx() -> Dictionary:
+	var all := _star_all()
+	var fs := _feathers()
+	var feathers := 0
+	for f in fs:
+		if bool(f.have):
+			feathers += 1
+	var cleared := 0
+	for ent in entries:
+		if _playable(ent.ch) and not _is_example(ent.ch):
+			for st in ent.ch.stages:
+				if _cleared(st.id):
+					cleared += 1
+	var owned := 0
+	for it in Wardrobe.ITEMS:
+		if Wardrobe.owned(String(it.id)):
+			owned += 1
+	return {"stars": int(all[0]), "stars_max": int(all[1]), "feathers": feathers, "feathers_max": fs.size(), "cleared": cleared, "owned": owned,
+		"residents": _growth.count() if _growth else 0, "residents_max": HubGrowth.ids().size()}
+
+## 手帳「旅程」頁的每一張卡（照旅程順序）：{locked} 或 {locked, title, icon, col, stars, stars_max, stages, done, feather, cleared}
+func _journal_rows() -> Array:
+	var idx: Array = []
+	for e in range(1, entries.size()):
+		if entries[e].ch.is_empty() or not _is_example(entries[e].ch):
+			idx.append(e)
+	idx.sort_custom(func(a, b): return _trip_rank(a) < _trip_rank(b) if _trip_rank(a) != _trip_rank(b) else a < b)
+	var out: Array = []
+	for e in idx:
+		var ent: Dictionary = entries[e]
+		var ch: Dictionary = ent.ch
+		if not _playable(ch):
+			out.append({"locked": true})
+			continue
+		var t := _star_total(ch)
+		var done := 0
+		for st in ch.stages:
+			if _cleared(st.id):
+				done += 1
+		out.append({"locked": false, "title": String(ch.title), "icon": String(_chapter_consts(ch).get("ICON", String(ch.title).substr(0, 1))),
+			"col": _color_of(ent), "stars": int(t[0]), "stars_max": int(t[1]), "stages": ch.stages.size(), "done": done,
+			"feather": _feather_col(ch), "cleared": _ch_cleared(ch)})
+	return out
+
+## 新破關的大關：農莊長出它的小地標、居民搬來（只演一次）
+func _growth_check() -> void:
+	if _growth == null:
+		return
+	var n: int = _growth.sync(true)
+	if n > 0:
+		_show_toast("農莊長大了！去看看新鄰居" if n > 1 else "農莊多了一位新鄰居")
+
+## 有新貼紙就響一聲、跳一行字（戳、釣魚、回到農莊的時候都會檢查）
+func _journal_check() -> void:
+	var fresh := Journal.unlock_new(_journal_ctx())
+	if fresh.is_empty():
+		return
+	_journal.chime()
+	if fresh.size() == 1:
+		_show_toast("貼紙解鎖：%s" % String(fresh[0].name))
+	else:
+		_show_toast("手帳多了 %d 張貼紙" % fresh.size())
+
 ## 左上角的羽毛列：「羽毛」兩個字＋每個大關一根（拿到的上色、沒拿到的是空框）。回傳它的框
 func _feather_chip(c: Control, u: float, pos: Vector2) -> Rect2:
 	var fs := _feathers()
@@ -2345,6 +2586,8 @@ func _icon_badge(c: Control, center: Vector2, r: float, kind: String) -> void:
 			col = GUIDE_COLOR
 		"dock":
 			col = DOCK_COLOR
+		"fish":
+			col = FISH_COLOR
 	c.draw_circle(center + Vector2(0, r * 0.14), r + r * 0.1, Color(0, 0, 0, 0.22))
 	c.draw_circle(center, r + maxf(r * 0.12, 3.0), Color(1, 1, 1, 0.95))
 	c.draw_circle(center, r, col)
@@ -2357,6 +2600,8 @@ func _icon_badge(c: Control, center: Vector2, r: float, kind: String) -> void:
 			_star(c, center + Vector2(0, r * 0.03), r * 0.62, white)
 		"guide":
 			_text(c, center + Vector2(-r, r * 0.42), "?", r * 1.25, white, r * 2.0, HORIZONTAL_ALIGNMENT_CENTER)
+		"fish":
+			HubUI.fish_icon(c, center + Vector2(0, r * 0.04), r * 1.55, white)
 		"dock":
 			# 帆船：一根桅、一面三角帆、一個船身
 			c.draw_colored_polygon(PackedVector2Array([center + Vector2(-1, -19) * k, center + Vector2(14, 3) * k, center + Vector2(-1, 3) * k]), white)
@@ -2371,9 +2616,10 @@ func _paint_nodes(c: Control, u: float) -> void:
 	var e := selected
 	var w: Dictionary = worlds[e]
 	var next_k := _next_station(e)
+	var moving := not _walk.is_empty() or not _jump.is_empty()
 	for k in int(w.n):
-		if k == stage_sel and not busy:
-			continue
+		if k == stage_sel and not moving:
+			continue                  # 家豪站的那一格不畫徽章（那一格有泡泡；釣魚、翻手帳的時候也不擋住家豪）
 		var wp: Vector3 = (w.pads[k] as Vector3) + Vector3(0, 1.5, 0)
 		if _cam.is_position_behind(wp):
 			continue
@@ -2478,20 +2724,20 @@ func _paint_bubble(c: Control, u0: float) -> void:
 			_text(c, Vector2(text_x + 36 * u, row_y + 9 * u), str(_wallet), 24 * u, INK)
 			_bubble_button(c, u, r, "進去", SHOP_RED, Color("8f231c"))
 		"board":
-			# 冒險紀錄：全部的星星和過關數（只是看的，沒有按鈕）
+			# 冒險手帳：這趟旅程帶回的羽毛，Enter 翻開
 			_icon_badge(c, bc, 29 * u, "board")
-			_text(c, Vector2(text_x, o.y + 58 * u), "冒險紀錄", 32 * u, INK)
-			var all := _star_all()
-			var x := text_x + 14 * u
-			if int(all[1]) > 0:
-				_star(c, Vector2(x, row_y), 14 * u, GOLD, Color("8a6410"))
-				var t1 := "%d/%d" % [all[0], all[1]]
-				_text(c, Vector2(x + 22 * u, row_y + 9 * u), t1, 24 * u, INK)
-				x += 22 * u + _font().get_string_size(t1, HORIZONTAL_ALIGNMENT_LEFT, -1, int(24 * u)).x + 30 * u
-			# 羽毛：一個大關一根
+			_text(c, Vector2(text_x, o.y + 58 * u), "冒險手帳", 32 * u, INK)
 			var fs := _feathers()
 			for i in fs.size():
-				_feather(c, Vector2(x - 6 * u + 17 * u * i, row_y + 15 * u), 26 * u, 0.32, fs[i].col, bool(fs[i].have))
+				_feather(c, Vector2(text_x + 8 * u + 17 * u * i, row_y + 15 * u), 26 * u, 0.32, fs[i].col, bool(fs[i].have))
+			_bubble_button(c, u, r, "翻開", Color("e3a31c"), Color("8a6410"))
+		"fish":
+			# 釣魚：圖鑑收了幾種，Enter 甩竿
+			_icon_badge(c, bc, 29 * u, "fish")
+			_text(c, Vector2(text_x, o.y + 58 * u), "釣魚", 32 * u, INK)
+			HubUI.fish_icon(c, Vector2(text_x + 20 * u, row_y), 38 * u, Color("5aa6d6"))
+			_text(c, Vector2(text_x + 50 * u, row_y + 9 * u), "%d/%d" % [Journal.book_count(), Journal.FISH.size()], 24 * u, INK)
+			_bubble_button(c, u, r, "甩竿", FISH_COLOR, Color("1f6a9a"))
 		"guide":
 			_icon_badge(c, bc, 29 * u, "guide")
 			_text(c, Vector2(text_x, o.y + 58 * u), "告示牌", 32 * u, INK)
@@ -3022,7 +3268,11 @@ func _paint_keys(c: Control, u: float) -> void:
 		items = [[["←", "→"], "走路" if n > 1 else "離島"]]
 		if n >= 4:
 			items.append([["1~%d" % n], "直達"])
+		if _is_hub(selected):
+			items.append([["E"], "戳一戳"])
 		items.append([["M"], "世界地圖"])
+		if _fishing.active or _journal.is_open():
+			return                     # 釣魚和手帳有自己的按鍵提示
 	var ks := 16.0 * u
 	var ts := 20.0 * u
 	var gap := 4.0 * u
@@ -3059,7 +3309,7 @@ func _unlocked_ch(ch: Dictionary, n: int) -> bool:
 	return Progress.unlocked(ch.id, n)
 
 func _busy() -> bool:
-	return not _walk.is_empty() or not _jump.is_empty()
+	return not _walk.is_empty() or not _jump.is_empty() or (_fishing != null and _fishing.active) or (_journal != null and _journal.is_open())
 
 ## 一登島先站在哪一格：主島是家；主題島是「第一個還沒過、可以玩的小關」
 func _first_open_stage_of(e: int) -> int:
@@ -3230,7 +3480,13 @@ func start_selected() -> bool:
 			_play("bump")
 			return false
 		"board":
-			return false                    # 冒險紀錄只是看的
+			_play("click")
+			_journal.open()                 # 冒險手帳：翻開
+			return false
+		"fish":
+			if _fishing.begin():
+				_play("click")
+			return false
 		"dock":
 			set_map(true)                   # 出航：拉遠看世界地圖
 			return false
@@ -3271,6 +3527,8 @@ func _open_guide() -> void:
 				"controls": [["←／→", "走到隔壁一格"], ["Enter", "開始／進去"], ["1～9", "直接走到那一格"], ["M", "世界地圖"]]},
 			{"title": "世界地圖", "body": "每座島的第一關一開始就能玩，想先去哪座島都可以。星星拿去商店換衣服。",
 				"controls": [["↑／←／↓／→", "飛到那個方向的島"], ["Enter", "登島"], ["B", "商店"], ["V", "聲音開關"]]},
+			{"title": "農莊", "body": "神可以戳農莊裡的任何東西：母雞、樹、風車、穀倉都有反應。池塘可以釣魚，手帳記著你的一切。",
+				"controls": [["E", "戳離家豪最近的東西（滑鼠點也行）"], ["Enter", "在池塘甩竿、翻開手帳"], ["Space", "釣魚時甩竿、拉線"], ["Esc", "收竿、合上手帳"]]},
 		])
 	_play("click")
 	_guide.open()
@@ -3316,6 +3574,10 @@ func _isle_at(pos: Vector2) -> int:
 func _unhandled_input(ev: InputEvent) -> void:
 	if _title != null:
 		return                       # 標題畫面還開著：按鍵都給它
+	if _fishing.active or _journal.is_open():
+		if ev is InputEventKey and ev.pressed and not ev.echo and ev.keycode == KEY_V:
+			_toggle_sound()          # 釣魚和手帳開著：其他按鍵它們自己處理，只有 V（聲音）放行
+		return
 	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
 		if _snd_rect.has_point(ev.position):
 			_toggle_sound()
@@ -3335,7 +3597,9 @@ func _unhandled_input(ev: InputEvent) -> void:
 			start_selected()
 		else:
 			var k := _node_at(ev.position)
-			if k == stage_sel:
+			if _life.poke_at(ev.position, k >= 0):
+				pass                         # 戳到農莊裡的東西（站點旁邊只有母雞、蛋、家豪比站點優先）
+			elif k == stage_sel:
 				start_selected()
 			elif k >= 0:
 				walk_to(k)
@@ -3362,10 +3626,13 @@ func _unhandled_input(ev: InputEvent) -> void:
 				open_shop()
 			KEY_E:
 				# 隱藏按鍵（展示用，畫面上不提示）：Shift＋E 不用全破就直接播結局，播完回到這裡
-				if ev.shift_pressed and not _starting and not _busy() and ResourceLoader.exists(ENDING_SCENE):
-					_starting = true
-					_remember()
-					get_tree().change_scene_to_file(ENDING_SCENE)
+				if ev.shift_pressed:
+					if not _starting and not _busy() and ResourceLoader.exists(ENDING_SCENE):
+						_starting = true
+						_remember()
+						get_tree().change_scene_to_file(ENDING_SCENE)
+				elif not _map:
+					_life.poke_near()            # E：戳離家豪最近的東西
 			KEY_ESCAPE:
 				if not _map:
 					set_map(true)                # 島上按 Esc：先退到世界地圖
@@ -3403,7 +3670,8 @@ func _process(dt: float) -> void:
 	_zoom = move_toward(_zoom, 1.0 if _map else 0.0, dt / ZOOM_TIME)
 	var z := _z()
 	# 島上的鏡頭慢慢跟上家豪；世界地圖的鏡頭固定在所有島的正上方（稍微偏向家豪所在的島）。兩個之間照 z 混合
-	var target := Vector3(_hero.position.x, _hero.position.y - 0.3, _hero.position.z)
+	_cam_bias = _cam_bias.lerp(_cam_bias_to, 1.0 - exp(-dt * 3.5))
+	var target := Vector3(_hero.position.x, _hero.position.y - 0.3, _hero.position.z) + _cam_bias
 	_focus = _focus.lerp(target, 1.0 - exp(-dt * 5.5))
 	var sway := Vector3(sin(_t * 0.25) * 0.5, 0, 0)
 	var lean := (Vector3(_focus.x, 0, _focus.z) - _map_center) * 0.06
@@ -3454,10 +3722,9 @@ func _process(dt: float) -> void:
 		_ring_edge.albedo_color = Color(PATH_EDGE, z * 0.85)
 	for sm in _small:
 		(sm as Node3D).visible = z < 0.5
-	for h in _hens:
-		var hop := maxf(sin(_t * 2.6 + float(h.phase)), 0.0)
-		(h.node as Node3D).position = (h.base as Vector3) + Vector3(0, hop * hop * 0.22, 0)
-		(h.node as Node3D).rotation.y = float(h.phase) * 1.7 + sin(_t * 0.6 + float(h.phase)) * 0.5
+	_life.tick(dt, _t)
+	_growth.tick(dt, _t)
+	_fishing.tick(dt, _t)
 	# 世界地圖上地標放大（玩具地圖的感覺）、飽和度收一點（海才不會搶島的顏色）
 	var big := Vector3.ONE * lerpf(1.0, SPOT_BIG, z)
 	for w2 in worlds:
@@ -3509,7 +3776,7 @@ func _process(dt: float) -> void:
 	if not hot and _map:
 		hot = _isle_at(mp) >= 0
 	elif not hot:
-		hot = _start_rect.has_point(mp) or _node_at(mp) >= 0
+		hot = _start_rect.has_point(mp) or _node_at(mp) >= 0 or _life.hover_at(mp)
 	Input.set_default_cursor_shape(Input.CURSOR_POINTING_HAND if hot else Input.CURSOR_ARROW)
 	_overlay.queue_redraw()
 	_ov_isle.queue_redraw()
@@ -3574,7 +3841,7 @@ func _tick_hero(dt: float) -> void:
 				_shake_t = SHAKE_TIME
 		return
 	# 待機：轉回來面對鏡頭、輕輕彈；被擋住時往那邊頂一下
-	_hero.rotation.y = lerp_angle(_hero.rotation.y, 0.0, 1.0 - exp(-dt * 8.0))
+	_hero.rotation.y = lerp_angle(_hero.rotation.y, _face_yaw, 1.0 - exp(-dt * 8.0))
 	_hero_body.position.y = absf(sin(_t * 3.2)) * 0.08
 	var base := _stand_now()
 	if _bump_t > 0.0:
@@ -3633,6 +3900,106 @@ func _mapshots(dir: String) -> void:
 			await _shot(dir.path_join("map_w%d_s%d.png" % [e, k + 1]))
 	get_tree().quit()
 
+# ================================================================== 開發用：主島的戳戳樂、釣魚、手帳各截幾張圖（--hubshots=資料夾）
+
+func _hubshots(dir: String) -> void:
+	DirAccess.make_dir_recursive_absolute(dir)
+	Journal.reset_memory()
+	await get_tree().create_timer(0.8).timeout
+	_map = false
+	_zoom = 0.0
+	select(0)
+	for k in int(worlds[0].n):
+		select_stage(k)
+		await _shot(dir.path_join("hub_%d.png" % k))
+	# 世界地圖上的主島
+	_map = true
+	select(0)
+	await _shot(dir.path_join("world_hub.png"))
+	_map = false
+	# 戳戳樂：母雞、樹、穀倉
+	select_stage(_hub_index("home"))
+	await _shot(dir.path_join("poke_0.png"))
+	for i in 3:
+		var hen: Dictionary = _life.hens[i]
+		hen.pokes = 2
+		hen.thing.cd = 0.0
+		_life._poke(hen.thing)
+	for th in _life.things:
+		if String(th.kind) == "tree" and (th.node as Node3D).global_position.distance_to(_hero.global_position) < 18.0:
+			th.cd = 0.0
+			_life._poke(th)
+			break
+	for th in _life.things:
+		if String(th.kind) == "barn":
+			_life._poke(th)
+	await get_tree().create_timer(0.5).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("poke_1.png"))
+	await get_tree().create_timer(1.3).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("poke_2.png"))
+	# 釣魚的幾個階段
+	select_stage(_hub_index("fish"))
+	await _shot(dir.path_join("fish_0_station.png"))
+	_fishing.begin()
+	await get_tree().create_timer(1.0).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("fish_1_aim.png"))
+	_fishing.press()
+	await get_tree().create_timer(0.9).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("fish_2_wait.png"))
+	_fishing._wait = 0.05
+	await get_tree().create_timer(0.4).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("fish_3_bite.png"))
+	_fishing.press()
+	_fishing._speed = 0.0
+	await get_tree().create_timer(0.4).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("fish_4_reel.png"))
+	var guard := 0
+	while _fishing.state == "reel" and guard < 6:
+		_fishing._speed = 0.0
+		_fishing._mark = _fishing._zone_c
+		_fishing.press()
+		await get_tree().create_timer(0.15).timeout
+		guard += 1
+	await get_tree().create_timer(1.5).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("fish_5_catch.png"))
+	_fishing.end()
+	# 農莊長大：每個大關長出小地標和居民
+	select_stage(_hub_index("home"))
+	_zoom = 0.0
+	for gid in HubGrowth.ids():
+		_growth.grow(String(gid), true, 0.0)
+	_snap_view()
+	await get_tree().create_timer(0.8).timeout
+	await RenderingServer.frame_post_draw
+	get_viewport().get_texture().get_image().save_png(dir.path_join("grow_0_pop.png"))
+	await get_tree().create_timer(2.5).timeout
+	for k in [0, 4]:
+		select_stage(k)
+		await _shot(dir.path_join("grow_%d.png" % (k + 1)))
+	select_stage(_hub_index("guide"))
+	await _shot(dir.path_join("grow_3.png"))
+	# 手帳：灌一些假資料，三頁各一張
+	Journal.add("poke", "total", 23)
+	Journal.add("poke", "hen", 12)
+	Journal.add("egg", "total", 4)
+	for id in ["tilapia", "carp", "peel", "goldfish"]:
+		Journal.caught(Journal.fish_by_id(id), 30)
+	Journal.unlock_new(_journal_ctx())
+	for t in 3:
+		_journal.open(t)
+		await get_tree().create_timer(0.5).timeout
+		await RenderingServer.frame_post_draw
+		get_viewport().get_texture().get_image().save_png(dir.path_join("journal_%d.png" % t))
+		_journal.close()
+	get_tree().quit()
+
 # ================================================================== 自動驗收（--autotest）
 
 func _press(code: Key) -> void:
@@ -3663,6 +4030,143 @@ func _regions_ok() -> bool:
 			return false
 	return true
 
+## 主島的新東西：冒險手帳、戳戳樂、釣魚（手帳存檔用記憶體，不寫玩家的檔案）
+func _autotest_hub(checks: Array) -> void:
+	Journal.reset_memory()
+	_map = false
+	_zoom = 0.0
+	select(0)
+	# 冒險手帳：Enter 翻開、→ 換頁、Esc 合上
+	select_stage(_hub_index("board"))
+	_press(KEY_ENTER)
+	await get_tree().create_timer(0.4).timeout
+	var j_open: bool = _journal.is_open() and _busy()
+	_press(KEY_RIGHT)
+	await get_tree().create_timer(0.2).timeout
+	var j_tab: bool = _journal.tab == 1
+	if DisplayServer.window_can_draw():
+		await RenderingServer.frame_post_draw
+	_press(KEY_ESCAPE)
+	await get_tree().create_timer(0.2).timeout
+	checks.append(["冒險手帳：Enter 翻開、→ 換頁、Esc 合上（不會跳到世界地圖）", j_open and j_tab and not _journal.is_open() and not _map])
+	# 戳戳樂：戳母雞三下會下蛋，蛋收得起來；手帳記著次數
+	var hen: Dictionary = _life.hens[0]
+	for i in 3:
+		hen.thing.cd = 0.0
+		_life._poke(hen.thing)
+		await get_tree().create_timer(0.25).timeout
+	await get_tree().create_timer(1.2).timeout
+	var laid: bool = _life.eggs.size() >= 1
+	if laid:
+		_life._collect_egg(_life.eggs[0])
+	await get_tree().create_timer(0.8).timeout
+	checks.append(["戳戳樂：戳母雞三下會下蛋，蛋收得起來（手帳記著：戳 %d 下、蛋 %d 顆）" % [Journal.n("poke", "hen"), Journal.n("egg", "total")],
+		laid and Journal.n("poke", "hen") == 3 and Journal.n("egg", "total") == 1 and _life.eggs.is_empty()])
+	# 戳樹、穀倉、家豪
+	var did := {}
+	for th in _life.things:
+		var kd := String(th.kind)
+		if kd in ["tree", "barn", "windmill", "hay", "pumpkin", "silo"] and not did.has(kd):
+			did[kd] = true
+			th.cd = 0.0
+			_life._poke(th)
+	_life.poke_near()
+	await get_tree().create_timer(0.6).timeout
+	checks.append(["戳戳樂：樹、穀倉、風車、乾草、南瓜、筒倉都登記了、都戳得動", did.size() == 6 and Journal.n("poke", "total") >= 9])
+	# 用滑鼠點母雞（真的走輸入、算螢幕座標）和按 E
+	select_stage(_hub_index("home"))
+	await get_tree().create_timer(0.3).timeout
+	var hen2: Dictionary = _life.hens[7]          # 家門口的那隻（雞圈裡的在畫面外）
+	hen2.thing.cd = 0.0
+	var sp: Variant = _life._screen(hen2.thing)
+	var before := Journal.n("poke", "hen")
+	if sp != null and DisplayServer.window_can_draw() or sp != null:
+		var click := InputEventMouseButton.new()
+		click.button_index = MOUSE_BUTTON_LEFT
+		click.pressed = true
+		click.position = sp
+		Input.parse_input_event(click)
+		await get_tree().create_timer(0.3).timeout
+	var clicked := Journal.n("poke", "hen") > before
+	if not clicked and sp != null:
+		# headless 沒有真的視窗，合成的滑鼠事件可能進不來：改成直接呼叫點擊的處理
+		hen2.thing.cd = 0.0
+		sp = _life._screen(hen2.thing)
+		clicked = _life.poke_at(sp, true) and Journal.n("poke", "hen") > before
+	await get_tree().create_timer(0.4).timeout           # 等剛剛那一戳的冷卻過去
+	var before2 := Journal.n("poke", "total")
+	var eggs_before := Journal.n("egg", "total")
+	_press(KEY_E)
+	await get_tree().create_timer(0.3).timeout
+	var e_ok := Journal.n("poke", "total") > before2 or Journal.n("egg", "total") > eggs_before      # 附近有蛋的話 E 會先收蛋
+	checks.append(["戳戳樂：滑鼠點母雞（%s）、按 E 戳最近的東西（%s）都有反應" % [clicked, e_ok], clicked and e_ok])
+	# 釣魚：Enter 甩竿 → 等 → 咬鉤 → 拉鉤 → 時機條 → 釣到 → Esc 收竿
+	select_stage(_hub_index("fish"))
+	await get_tree().create_timer(0.3).timeout
+	_press(KEY_ENTER)
+	await get_tree().create_timer(0.4).timeout
+	var f0: bool = _fishing.active and _fishing.state == "aim"
+	_press(KEY_SPACE)
+	await get_tree().create_timer(1.0).timeout
+	var f1: bool = _fishing.state == "wait"
+	_fishing._wait = 0.05
+	await get_tree().create_timer(0.5).timeout
+	var f2: bool = _fishing.state == "bite"
+	_press(KEY_SPACE)
+	await get_tree().create_timer(0.2).timeout
+	var f3: bool = _fishing.state == "reel"
+	var guard := 0
+	while _fishing.state == "reel" and guard < 6:
+		_fishing._speed = 0.0
+		_fishing._mark = _fishing._zone_c
+		_press(KEY_SPACE)
+		await get_tree().create_timer(0.2).timeout
+		guard += 1
+	var f4: bool = _fishing.state == "catch" and Journal.book_count() == 1
+	await get_tree().create_timer(1.4).timeout
+	_press(KEY_SPACE)
+	await get_tree().create_timer(0.3).timeout
+	var f5: bool = _fishing.state == "aim"
+	_press(KEY_ESCAPE)
+	await get_tree().create_timer(0.3).timeout
+	checks.append(["釣魚：甩竿、等、咬鉤、拉鉤、時機條、釣到（圖鑑 %d 種）、再甩、Esc 收竿" % Journal.book_count(),
+		f0 and f1 and f2 and f3 and f4 and f5 and not _fishing.active and not _busy()])
+	# 農莊長大：每個大關長出小地標和居民，居民可以戳
+	for gid in HubGrowth.ids():
+		_growth.grow(String(gid), false)
+	await get_tree().create_timer(0.3).timeout
+	var res_th: Dictionary = {}
+	for th in _life.things:
+		if String(th.kind) == "resident":
+			res_th = th
+			break
+	var talked := false
+	if not res_th.is_empty():
+		res_th.cd = 0.0
+		_life._poke(res_th)
+		talked = Journal.n("poke", "resident") == 1
+	checks.append(["農莊長大：%d 個小地標和居民都長出來了，居民可以戳" % _growth.count(), _growth.count() == HubGrowth.ids().size() and talked])
+	# 貼紙：戳和釣的紀錄會解鎖貼紙
+	var got := 0
+	for st in Journal.stickers(_journal_ctx()):
+		if bool(st.got):
+			got += 1
+	checks.append(["貼紙：戳一戳、釣到魚都會算進貼紙（現在 %d 張）" % got, got >= 1])
+	Journal.reset_memory()
+
+## 只跑主島新東西的驗收（--hubtest）：比完整的 --autotest 快很多，跑完自己關掉
+func _hubtest() -> void:
+	await get_tree().create_timer(1.0).timeout
+	var checks: Array = []
+	await _autotest_hub(checks)
+	var fails := 0
+	for c in checks:
+		if not bool(c[1]):
+			fails += 1
+		print("[%s] %s" % ["PASS" if bool(c[1]) else "FAIL", c[0]])
+	print("HUBTEST: %s" % ("ALL PASS" if fails == 0 else "%d FAIL" % fails))
+	get_tree().quit()
+
 func _autotest() -> void:
 	var lines: Array = []
 	var fails := 0
@@ -3690,7 +4194,7 @@ func _autotest() -> void:
 	var checks := [
 		["選關畫面自動找到所有大關（%d 個，範本不算）" % listed, on_map == listed and listed >= 1],
 		["一進畫面家豪站在主島（農莊）的家", _is_hub(selected) and String(_st_now().kind) == "home"],
-		["主島沒有關卡，只有功能點（商店、冒險紀錄、家、告示牌、碼頭）", hub_kinds == ["shop", "board", "home", "guide", "dock"]],
+		["主島沒有關卡，只有功能點（商店、冒險手帳、家、告示牌、釣魚、碼頭）", hub_kinds == ["shop", "board", "home", "guide", "fish", "dock"]],
 		["農場範例是開發版多出來的一座島", farm > 0],
 		["每個大關的第 1 小關都可以玩", all_first],
 		["主題島至少 %d 座（沒做好的上鎖）" % ISLAND_SLOTS, real_isles >= ISLAND_SLOTS],
@@ -3719,6 +4223,8 @@ func _autotest() -> void:
 	_press(KEY_ENTER)
 	await get_tree().create_timer(ZOOM_TIME + 0.3).timeout
 	checks.append(["主島的碼頭按 Enter 出航（世界地圖），再按 Enter 回主島", at_dock and sailed and not _map])
+	select(0)
+	await _autotest_hub(checks)
 	select(0)
 	# 世界地圖：按 M 拉遠，方向鍵飛到別的島，Enter 登島
 	_press(KEY_M)
