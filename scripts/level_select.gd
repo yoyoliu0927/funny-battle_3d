@@ -2238,7 +2238,7 @@ func _flag_icon(c: Control, center: Vector2, r: float, col: Color, w: float) -> 
 	c.draw_line(center + Vector2(-r * 0.15, r * 0.3), center + Vector2(-r * 0.15, -r * 0.85), col, w, true)
 	c.draw_colored_polygon(PackedVector2Array([center + Vector2(-r * 0.15, -r * 0.85), center + Vector2(r * 0.7, -r * 0.5), center + Vector2(-r * 0.15, -r * 0.15)]), col)
 
-## 島的圓徽章：認得的島畫圖示（冰雪島＝雪花、森林＝樹、要塞＝城垛、秋島＝葉子）；其他的 chapter.gd 有 ICON 就用那個字，沒有就畫旗子
+## 島的圓徽章：認得的島畫圖示（冰雪島＝雪花、森林＝樹、要塞＝城垛、秋島＝葉子、丹穴山海＝山）；其他的 chapter.gd 有 ICON 就用那個字，沒有就畫旗子
 func _island_badge(c: Control, ch: Dictionary, center: Vector2, r: float, col: Color) -> void:
 	c.draw_circle(center + Vector2(0, r * 0.08), r, col.darkened(0.35))
 	c.draw_circle(center, r, col.darkened(0.12))
@@ -2266,6 +2266,13 @@ func _island_badge(c: Control, ch: Dictionary, center: Vector2, r: float, col: C
 				leaf.append(center + (p as Vector2) * k * 0.92)
 			c.draw_colored_polygon(leaf, ink)
 			c.draw_line(center + Vector2(0, 4) * k, center + Vector2(0, 15) * k, ink, 2.4 * k, true)
+		"heaven":
+			# 山：中間一座高峰、兩旁兩座矮的，主峰頂上一點白
+			var base := 11.0
+			c.draw_colored_polygon(PackedVector2Array([center + Vector2(-15, base) * k, center + Vector2(-8, -2) * k, center + Vector2(-1, base) * k]), ink)
+			c.draw_colored_polygon(PackedVector2Array([center + Vector2(1, base) * k, center + Vector2(9, 0) * k, center + Vector2(16, base) * k]), ink)
+			c.draw_colored_polygon(PackedVector2Array([center + Vector2(-10, base) * k, center + Vector2(0, -13) * k, center + Vector2(10, base) * k]), ink)
+			c.draw_colored_polygon(PackedVector2Array([center + Vector2(-3.9, -4) * k, center + Vector2(0, -13) * k, center + Vector2(3.9, -4) * k, center + Vector2(1.3, -5.5) * k, center + Vector2(-1.3, -3.5) * k]), Color(1, 1, 1))
 		_:
 			var glyph := String(_chapter_consts(ch).get("ICON", ""))
 			if glyph != "":
