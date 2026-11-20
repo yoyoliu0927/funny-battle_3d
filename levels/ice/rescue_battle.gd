@@ -1361,7 +1361,7 @@ func _make_finale_card() -> Control:
 	v.add_theme_constant_override("separation", 14)
 	panel.add_child(v)
 	var title := Label.new()
-	title.text = "冰雪島　完成！"
+	title.text = "冰羽踏雪　完成！"
 	title.label_settings = UISkin.ls(44, UISkin.INK)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
