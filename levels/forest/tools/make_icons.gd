@@ -13,6 +13,11 @@ const SHOTS := {
 	"decoy": ["decoy", 0.75, 0.32, 7],
 	"guide": ["guide", 1.25, 0.18, 7],
 	"basket": ["basket", 0.5, 0.42, 7],
+	"tree": ["tree", 0.6, 0.25, 6],
+	"stump": ["stump", 0.6, 0.3, 6],
+	"log": ["log_down", 0.35, 0.55, 6],
+	"hood": ["hood", 0.45, 0.18, 6],
+	"flame": ["flame", 0.3, 0.2, 6],
 }
 
 var vp: SubViewport
@@ -63,6 +68,11 @@ func _shoot(id: String, cfg: Array) -> void:
 		"decoy": Models.decoy(model)
 		"guide": Models.guide(model)
 		"basket": Models.basket(model)
+		"tree": Models.tree(model)
+		"stump": Models.stump(model)
+		"log_down": Models.log_down(model)
+		"hood": Models.hood(model)
+		"flame": Models.flame(model)
 	# 把整個模型框進畫面：用包圍盒的中心和大小決定鏡頭距離
 	var box := _bounds(model)
 	var center := box.get_center()

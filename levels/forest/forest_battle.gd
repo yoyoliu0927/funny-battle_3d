@@ -19,6 +19,9 @@ const Models := preload("res://levels/forest/items/models.gd")
 const ForestTutorial := preload("res://levels/forest/forest_tutorial.gd")
 const IconOverlay := preload("res://levels/forest/icon_overlay.gd")
 const ForestSfx := preload("res://levels/forest/forest_sfx.gd")
+const ResultCard := preload("res://levels/forest/result_card.gd")
+var _result_card: Control
+var _defeat_card: Control
 const MUSIC_DB := {"bgm_plan": -14.0, "bgm_run": -13.0}
 const MUSIC_OFF := -60.0
 var _sounds := {}             # 名字 → AudioStreamWAV
@@ -1812,6 +1815,36 @@ func _star_block(saved: bool) -> String:
 		lines.append(tag + String(c.text) + fresh)
 	return "\n".join(lines)
 
+## 過關：共用的一段文字換成結算卡（result_card.gd）
+func _show_summary() -> void:
+	if _result_card and is_instance_valid(_result_card):
+		_result_card.queue_free()
+	_result_card = null
+	if outcome != "win":
+		_summary_label.visible = true
+		super()
+		return
+	_summary_label.visible = false
+	_summary_panel.add_theme_stylebox_override("panel", StyleBoxEmpty.new())   # 卡片自己有紙
+	_result_card = ResultCard.win(self)
+	_summary_panel.add_child(_result_card)
+	_summary_panel.visible = true
+
+## 落敗：晚餐畫面底下那條深色字條換成同一種紙卡
+func _show_defeat() -> void:
+	super()
+	var band := _defeat_label.get_parent().get_parent() as Control
+	if band:
+		band.visible = false
+	if _defeat_card and is_instance_valid(_defeat_card):
+		_defeat_card.queue_free()
+	_defeat_card = ResultCard.defeat(self)
+	_defeat_layer.add_child(_defeat_card)
+	_defeat_card.set_anchors_and_offsets_preset(Control.PRESET_CENTER_BOTTOM)
+	_defeat_card.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	_defeat_card.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_defeat_card.offset_bottom = -40
+
 func _end(result: String) -> void:
 	sfx("win" if result == "win" else "lose")
 	if result == "lose" and not _seen.has("blaze"):
@@ -1821,7 +1854,7 @@ func _end(result: String) -> void:
 		for id in _done:
 			best[id] = true
 	super(result)
-	if _summary_panel and not _objectives().is_empty():
+	if _summary_panel:
 		_summary_panel.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
 		_summary_panel.offset_right = -28
 		_summary_panel.offset_top = 28

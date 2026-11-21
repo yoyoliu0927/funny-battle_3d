@@ -46,6 +46,67 @@ func in_house(x: float, z: float) -> bool:
 	var porch := absf(lx) < door_half + 0.45 and lz > house_half_z - 0.55 and lz < house_half_z + 1.25
 	return room or porch
 
+## 繞過木屋的路：直線被牆擋住時，回傳下一個要先走去的點。
+## 共用的「繞牆」只看擋住的那一面牆、往近的那一端走，走到屋角會被另一面牆推回去，卡在屋角來回抖。
+## 這裡用屋子四個外角＋門口內外兩點做一張小地圖，找最短路（每一格都重算，結果穩定，不會來回跳）。
+const ROUTE_PAD := 0.9          # 外角離牆多遠
+func route_point(from: Vector3, to: Vector3) -> Vector3:
+	if not has_house or _route_clear(Vector2(from.x, from.z), Vector2(to.x, to.z)):
+		return to
+	var c := house_center
+	var ex := house_half_x + ROUTE_PAD
+	var ez := house_half_z + ROUTE_PAD
+	var nodes: Array = [Vector2(from.x, from.z), Vector2(to.x, to.z),
+		c + Vector2(-ex, -ez), c + Vector2(ex, -ez), c + Vector2(ex, ez), c + Vector2(-ex, ez),
+		c + Vector2(0, house_half_z + 1.0), c + Vector2(0, house_half_z - 0.9)]
+	var n := nodes.size()
+	var dist: Array = []
+	var prev: Array = []
+	var done: Array = []
+	for i in n:
+		dist.append(INF)
+		prev.append(-1)
+		done.append(false)
+	dist[0] = 0.0
+	for _k in n:
+		var u := -1
+		for i in n:
+			if not done[i] and (u < 0 or dist[i] < dist[u]):
+				u = i
+		if u < 0 or dist[u] == INF:
+			break
+		done[u] = true
+		if u == 1:
+			break
+		for v in n:
+			if done[v] or v == u:
+				continue
+			var a: Vector2 = nodes[u]
+			var b: Vector2 = nodes[v]
+			if not _route_clear(a, b):
+				continue
+			var nd: float = dist[u] + a.distance_to(b)
+			if nd < dist[v]:
+				dist[v] = nd
+				prev[v] = u
+	if prev[1] < 0:
+		return to                    # 找不到路：照舊直直走
+	var step := 1
+	while prev[step] != 0:
+		step = prev[step]
+	var p: Vector2 = nodes[step]
+	return Vector3(p.x, to.y, p.y)
+
+## a→b 有沒有穿過木屋的牆（牆兩端多算 0.3，跟共用的繞牆判斷一樣）
+func _route_clear(a: Vector2, b: Vector2) -> bool:
+	for seg in wall_segments:
+		var s0: Vector2 = seg[0]
+		var s1: Vector2 = seg[1]
+		var d := (s1 - s0).normalized()
+		if Geometry2D.segment_intersects_segment(a, b, s0 - d * 0.3, s1 + d * 0.3) != null:
+			return false
+	return true
+
 ## 狼外婆不准走出木屋
 func clamp_house(p: Vector3) -> Vector3:
 	var x := clampf(p.x, house_center.x - house_half_x + 0.55, house_center.x + house_half_x - 0.55)

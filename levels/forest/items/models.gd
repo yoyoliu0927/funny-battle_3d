@@ -84,6 +84,58 @@ static func basket(root: Node3D) -> void:
 	box(root, Vector3(0.05, 0.34, 0.05), Vector3(0.2, 0.47, 0), wicker)
 	box(root, Vector3(0.45, 0.05, 0.05), Vector3(0, 0.64, 0), wicker)
 
+# ---------------------------------------------------------------- 結算卡用的小圖（只拍成圖示，不放到場上）
+
+## 一棵樹（跟場上可砍的樹同一個樣子：樹幹＋兩層方塊樹冠）
+static func tree(root: Node3D) -> void:
+	box(root, Vector3(0.28, 2.4, 0.28), Vector3(0, 1.2, 0), toon(Color(0.40, 0.26, 0.14)))
+	box(root, Vector3(1.7, 1.15, 1.7), Vector3(0, 2.75, 0), toon(Color(0.33, 0.58, 0.24)))
+	box(root, Vector3(1.15, 0.85, 1.15), Vector3(0, 3.45, 0), toon(Color(0.42, 0.68, 0.3)))
+
+## 燒成焦炭的樹樁
+static func stump(root: Node3D) -> void:
+	box(root, Vector3(0.36, 1.3, 0.36), Vector3(0, 0.65, 0), toon(Color(0.16, 0.12, 0.1)))
+	box(root, Vector3(0.14, 0.55, 0.14), Vector3(0.12, 1.45, 0.02), toon(Color(0.12, 0.09, 0.08)), Vector3(0, 0, -0.5))
+	box(root, Vector3(0.9, 0.08, 0.9), Vector3(0, 0.04, 0), toon(Color(0.22, 0.2, 0.2)))
+	ball(root, 0.09, Vector3(-0.1, 1.3, 0.12), toon(Color(1.0, 0.45, 0.1)))   # 還在悶燒的火星
+
+## 被砍倒的樹（橫躺的樹幹＋樹樁）
+static func log_down(root: Node3D) -> void:
+	var bark := toon(Color(0.40, 0.26, 0.14))
+	box(root, Vector3(0.34, 0.4, 0.34), Vector3(0, 0.2, 0), bark)
+	box(root, Vector3(0.3, 0.06, 0.3), Vector3(0, 0.42, 0), toon(Color(0.86, 0.7, 0.45)))     # 年輪
+	box(root, Vector3(2.0, 0.28, 0.28), Vector3(1.25, 0.14, 0.2), bark)
+	box(root, Vector3(1.0, 0.8, 1.0), Vector3(2.5, 0.4, 0.2), toon(Color(0.33, 0.58, 0.24)))
+
+## 小紅帽（跟木屋裡那個同一個樣子）
+static func hood(root: Node3D) -> void:
+	var skin := toon(Color(0.96, 0.78, 0.66))
+	var red := toon(Color(0.84, 0.10, 0.13))
+	box(root, Vector3(0.32, 0.62, 0.24), Vector3(0, 0.55, 0), toon(Color(0.45, 0.16, 0.22)))
+	box(root, Vector3(0.38, 0.75, 0.30), Vector3(0, 0.62, -0.04), red)
+	box(root, Vector3(0.24, 0.24, 0.24), Vector3(0, 1.08, 0), skin)
+	box(root, Vector3(0.05, 0.05, 0.02), Vector3(-0.06, 1.1, 0.12), toon(Color(0.1, 0.07, 0.06)))
+	box(root, Vector3(0.05, 0.05, 0.02), Vector3(0.06, 1.1, 0.12), toon(Color(0.1, 0.07, 0.06)))
+	box(root, Vector3(0.42, 0.16, 0.42), Vector3(0, 1.24, 0), red)
+	box(root, Vector3(0.2, 0.12, 0.2), Vector3(0.26, 0.42, 0.16), toon(Color(0.58, 0.38, 0.16)))
+
+## 一團火
+static func flame(root: Node3D) -> void:
+	for spec in [[0.42, 1.2, Vector3(0, 0.6, 0), Color(1.0, 0.38, 0.06)], [0.24, 0.75, Vector3(0.04, 0.42, 0.3), Color(1.0, 0.82, 0.25)]]:
+		var mi := MeshInstance3D.new()
+		var cm := CylinderMesh.new()
+		cm.top_radius = 0.02
+		cm.bottom_radius = spec[0]
+		cm.height = spec[1]
+		cm.radial_segments = 10
+		mi.mesh = cm
+		var m := StandardMaterial3D.new()
+		m.albedo_color = spec[3]
+		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mi.material_override = m
+		mi.position = spec[2]
+		root.add_child(mi)
+
 ## 道具欄圖示；還沒拍（或檔案不見）就回傳 null，道具欄會畫原本的圓圈
 static func icon(id: String) -> Texture2D:
 	var path := "res://levels/forest/assets/icons/%s.png" % id
