@@ -216,6 +216,7 @@ static func stickers(ctx: Dictionary) -> Array:
 	d.call("penguin", "企鵝聯合會", "用汽笛叫醒游泳的企鵝 3 次", "企", "sea", n("sea", "penguin"), 3)
 	d.call("edge", "天涯海角", "開到世界的盡頭", "涯", "sea", 1 if has("flag", "world_edge") else 0, 1)
 	d.call("boats3", "船東", "擁有 3 艘船", "船", "sea", int(ctx.get("boats", 1)), 3)
+	d.call("duck_red", "前途一片紅果", "在商店連續點鹹酥雞老闆 10 下", "紅", "poke", 1 if has("flag", "duck_red") else 0, 1)
 	d.call("talk10", "話癆", "跟居民聊 10 次（戳他們）", "聊", "poke", n("poke", "resident"), 10)
 	d.call("dj_first", "開張大吉", "在 DJ 台完成第一場演出", "演", "dj", n("dj", "plays"), 1)
 	d.call("dj_b", "三曲連發", "三首歌都拿到 B 以上", "曲", "dj", _dj_ranked(3), 3)
