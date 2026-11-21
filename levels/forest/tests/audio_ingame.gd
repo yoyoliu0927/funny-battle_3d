@@ -1,7 +1,7 @@
 extends SceneTree
 ## 開著聲音實際跑一下小紅帽關：背景合成時畫面不卡、配樂淡入、開打換熱鬧版、事件真的有出聲。
 ## Godot --path . --script res://levels/forest/tests/audio_ingame.gd
-const S1 := "res://levels/forest/stage_1/stage.tscn"
+const S1 := "res://levels/forest/stage_3/stage.tscn"
 var bt
 var fails := 0
 

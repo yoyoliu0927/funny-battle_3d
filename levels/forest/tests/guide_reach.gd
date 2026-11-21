@@ -2,7 +2,7 @@ extends SceneTree
 ## 家豪在木屋後面、引路點插在門口：家豪走不走得到？（從很多個起點試）
 ## Godot --headless --path . --script res://levels/forest/tests/guide_reach.gd
 const DT := 1.0 / 60.0
-const S1 := "res://levels/forest/stage_1/stage.tscn"
+const S1 := "res://levels/forest/stage_3/stage.tscn"
 var bt
 
 func _initialize() -> void:

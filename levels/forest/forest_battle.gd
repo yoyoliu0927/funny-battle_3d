@@ -55,6 +55,8 @@ var hood_cap := 80.0
 var grove: Array = []
 var trees_cut := 0
 var trees_burnt := 0
+var lure_kos := 0             # 趁人看假獵物一擊打倒幾次
+var stomps := 0               # 踩熄幾根菸蒂
 var butts: Array = []         # {pos, node, tip, fuse}
 var baskets: Array = []       # {pos, node, life}
 var _log_spots: Array = []    # 倒下的樹幹加進 world.obstacles 的圓，重試時拿掉
@@ -133,6 +135,7 @@ func _level_setup() -> void:
 		_plain_dark(hint)
 	_build_goals()
 	_cover_hotbar_stickers.call_deferred()   # 道具欄是 _level_setup 之後才建的
+	auto_next = false                        # 過關後不自動出發，按空白鍵才去下一關（見 go_next_stage）
 	_setup_audio()
 	if not _tutorial_steps().is_empty():
 		show_tutorial = false            # 有自己的教學：開場不跳共用的教學彈窗（按 H 還是看得到）
@@ -296,6 +299,28 @@ func tut_enemy(n: String) -> Fighter:
 func tut_selected(id: String) -> bool:
 	return not items.is_empty() and items[selected].id == id
 
+func _tut_guide_at_door() -> bool:
+	for g in guides:
+		if not g.used and flat_dist(g.pos, escape_point) < 2.6:
+			return true
+	return false
+
+func _tut_any_guide() -> bool:
+	for g in guides:
+		if not g.used:
+			return true
+	return false
+
+func _tut_decoy_on(kind: String) -> bool:
+	for d in decoys:
+		for f in enemies:
+			if f.kind == kind and flat_dist(d.pos, f.pos) < ATTRACT:
+				return true
+	return false
+
+func _tut_decoy_on_chopper() -> bool:
+	return _tut_decoy_on("chopper")
+
 func _plain_dark(hint: Label) -> void:
 	hint.remove_theme_stylebox_override("normal")
 	var ink := Color(0.16, 0.1, 0.06)
@@ -403,6 +428,8 @@ func _level_reset() -> void:
 	_fire_rng.seed = int(world.get("world_seed") if world.get("world_seed") != null else 0) + 777
 	trees_cut = 0
 	trees_burnt = 0
+	lure_kos = 0
+	stomps = 0
 	dinner = 0.0
 	hood_saved = false
 	hood_run = 0.0
@@ -478,7 +505,9 @@ func _build_range_ring() -> void:
 	world.add_child(_range)
 
 func _update_aim() -> void:
-	if camera == null:
+	# 過關自動前往下一關時，共用程式在 _process 裡換場景，換完還會接著呼叫這裡；
+	# 那時這一關已經離開場景樹，沒有 viewport 也沒有鏡頭位置，直接不瞄
+	if camera == null or not is_inside_tree() or not camera.is_inside_tree():
 		return
 	var origin := camera.global_position
 	var dir := -camera.global_basis.z
@@ -499,7 +528,29 @@ func _unhandled_input(event: InputEvent) -> void:
 		replay_tutorial()
 		get_viewport().set_input_as_handled()
 		return
+	if event is InputEventKey and event.pressed and not event.echo and (event as InputEventKey).physical_keycode == KEY_SPACE:
+		if go_next_stage():
+			get_viewport().set_input_as_handled()
+			return
 	super(event)
+
+# ---------------------------------------------------------------- 過關後前往下一關
+## 森林不自動前往下一關（auto_next = false）：結算卡會一直留著，玩家看完按空白鍵才出發。
+
+## 下一小關的資料（最後一關回傳空的）
+func next_stage_info() -> Dictionary:
+	return _find_next_stage()
+
+## 過關後按空白鍵：借用共用的轉場（最後半秒淡出、換到讀取畫面再載下一關）
+func go_next_stage() -> bool:
+	if phase != Phase.ENDED or outcome != "win" or _next_t >= 0.0:
+		return false
+	_next_info = next_stage_info()
+	if _next_info.is_empty():
+		return false
+	_next_t = 0.5
+	_next_space = true
+	return true
 
 func _show_range() -> void:
 	if _range == null:
@@ -640,6 +691,9 @@ func _tick_butts(dt: float) -> void:
 			(bt.node as Node3D).queue_free()
 			butts.remove_at(i)
 			log_event("家豪踩熄菸蒂")
+			stomps += 1
+			if stomps >= 3:
+				_mark_goal("stomp3")
 			_pop("踩熄！", bt.pos + Vector3(0, 1.2, 0), Color(0.7, 0.95, 1.0))
 			sfx("stomp", bt.pos)
 			_puff(bt.pos, Color(0.6, 0.6, 0.62))
@@ -1146,6 +1200,10 @@ func _tick_worker(f: Fighter, dt: float) -> void:
 	if f.state in LOCK:
 		_tick_melee(f, dt)
 		return
+	# 正在看假獵物的人：只要沒看到家豪（家豪在背後、或被樹擋住），她走到身邊也不會發現
+	if _is_lured(f) and not sees_bird(f):
+		_tick_lure(f, dt, _nearest_decoy(f.pos))
+		return
 	if _bird_close(f):
 		_fight(f, dt)
 		return
@@ -1484,7 +1542,14 @@ func sees_bird(f: Fighter) -> bool:
 	return true
 
 ## 偷襲：拍家豪和被嚇到的人
+## 正在看假獵物（走過去或站著看）
+func _is_lured(f: Fighter) -> bool:
+	return f.alive() and f.state in ["lure", "goto"] and _nearest_decoy(f.pos) >= 0
+
 func _sneak(f: Fighter) -> void:
+	if _is_lured(f):
+		_lure_knockout(f)
+		return
 	super(f)
 	sfx("bonk", f.pos)
 	var mid := (bird.pos + f.pos) * 0.5 + Vector3(0, 1.0, 0)
@@ -1494,6 +1559,31 @@ func _sneak(f: Fighter) -> void:
 	if camera and side.dot(camera.global_position - f.pos) < 0.0:
 		side = -side
 	_cut("sneak", mid, 1.2, 3.8, 0.7, false, side.normalized())
+
+## 看假獵物看到出神，被家豪從背後一擊打倒
+func _lure_knockout(f: Fighter) -> void:
+	if f.kind == "smoker" and f.data.get("lit", false):
+		f.data["lit"] = false
+		drop_butt(f, "drop")
+	f.hp = 0.0
+	f.set_state("dead")
+	anim(f, "Death")
+	hit_spots.append(f.pos)
+	lure_kos += 1
+	log_event("%s看假獵物看到出神，被家豪從背後一擊打倒" % f.name)
+	_pop("一擊！", f.pos + Vector3(0, 2.6, 0), Color(1.0, 0.85, 0.3))
+	sfx("bonk", f.pos)
+	_mark_goal("lure_ko")
+	var mid := (bird.pos + f.pos) * 0.5 + Vector3(0, 1.0, 0)
+	var side := (f.pos - bird.pos).cross(Vector3.UP)
+	if side.length() < 0.05:
+		side = Vector3.RIGHT
+	if camera and side.dot(camera.global_position - f.pos) < 0.0:
+		side = -side
+	_cut("lure_ko", mid, 1.4, 3.8, 0.8, false, side.normalized())
+	if not _seen.has("lure_tip"):
+		_seen["lure_tip"] = true
+		toast("看假獵物的人背對著家豪——一擊就倒！", 1.8)
 
 # ---------------------------------------------------------------- 畫面
 
@@ -1597,6 +1687,9 @@ func _cutting() -> bool:
 
 func _process(dt: float) -> void:
 	super(dt)
+	if not is_inside_tree():
+		Engine.time_scale = 1.0
+		return                   # 這一格剛換場景（過關前往下一關）：剩下的都不用做了
 	_poll_audio()
 	_tick_music(dt)
 	var want := 1.0
@@ -1689,10 +1782,16 @@ func _update_phase_label() -> void:
 	super()
 	if phase == Phase.RUNNING and _phase_label != null:
 		_phase_label.text = _meter_line()
+	elif phase == Phase.ENDED and outcome == "win" and _phase_label != null and _next_t < 0.0:
+		var nxt := next_stage_info()
+		if not nxt.is_empty():
+			_phase_label.text = "勝利！空白鍵 前往「%s」｜R 再玩一次" % nxt.title
 
 # ---------------------------------------------------------------- 左邊的三顆星
 
-## 過關看小紅帽；星星看這三件事。伐木的人要兩個都打倒才算一顆。
+## 左邊三顆星。小關可以覆寫；能用的 id：
+##   hood 救出小紅帽、smoker 抽菸的人全倒、chop 伐木的人全倒、lure_ko 趁人看假獵物一擊打倒、
+##   stomp3 踩熄 3 根菸蒂、trees_ok 過關時損失的樹不超過 _tree_star_cap()、no_fire 過關時一棵都沒燒掉
 func _objectives() -> Array:
 	if not want_hood:
 		return []
@@ -1701,6 +1800,17 @@ func _objectives() -> Array:
 		{"id": "smoker", "text": "打倒抽菸的人"},
 		{"id": "chop", "text": "打倒伐木的人"},
 	]
+
+## 「樹沒損失太多」那顆星的門檻
+func _tree_star_cap() -> int:
+	return 3
+
+## 過關那一刻才算得出來的星星
+func _final_goals() -> void:
+	if trees_lost() <= _tree_star_cap():
+		_mark_goal("trees_ok")
+	if trees_burnt == 0:
+		_mark_goal("no_fire")
 
 func _stage_key() -> String:
 	var root := get_parent()
@@ -1815,6 +1925,14 @@ func _star_block(saved: bool) -> String:
 		lines.append(tag + String(c.text) + fresh)
 	return "\n".join(lines)
 
+## 結算卡的大標題（小關可以覆寫）
+func _win_title() -> String:
+	if want_hood:
+		return "救出小紅帽了！"
+	if trees_lost() == 0:
+		return "一棵樹都沒少！"
+	return "森林保住了！"
+
 ## 過關：共用的一段文字換成結算卡（result_card.gd）
 func _show_summary() -> void:
 	if _result_card and is_instance_valid(_result_card):
@@ -1850,6 +1968,7 @@ func _end(result: String) -> void:
 	if result == "lose" and not _seen.has("blaze"):
 		_cut_off()
 	if result == "win":
+		_final_goals()
 		var best := _best()
 		for id in _done:
 			best[id] = true

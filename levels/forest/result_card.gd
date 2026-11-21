@@ -14,8 +14,8 @@ static func win(bt) -> Control:
 	# 標題：小紅帽＋一句話
 	var head := _row(12)
 	head.alignment = BoxContainer.ALIGNMENT_CENTER
-	head.add_child(_icon("hood", 64))
-	var title := _label(_win_title(bt), 38)
+	head.add_child(_icon("hood" if bt.want_hood else "tree", 64))
+	var title := _label(bt._win_title(), 38)
 	head.add_child(title)
 	v.add_child(head)
 	# 三顆大星（累積的紀錄），新拿到的底下寫「新！」
@@ -48,10 +48,10 @@ static func win(bt) -> Control:
 	v.add_child(_rule())
 	_stats(bt, v)
 	v.add_child(_gap(4))
-	# 按鈕：有下一關就空白鍵出發（共用的倒數會自己走），不然回地圖
+	# 按鈕：有下一關就按空白鍵出發（森林不自動出發，見 forest_battle.gd 的 go_next_stage），不然回地圖
 	var btns := _row(10)
 	btns.alignment = BoxContainer.ALIGNMENT_CENTER
-	var nxt: Dictionary = bt.get("_next_info")
+	var nxt: Dictionary = bt.next_stage_info()
 	if nxt != null and not nxt.is_empty():
 		btns.add_child(_go_button("下一關 ▶", "空白"))
 	else:
@@ -59,13 +59,6 @@ static func win(bt) -> Control:
 	_key_hint(btns, "R", "再玩一次")
 	v.add_child(btns)
 	return _paper(v, 0.012)
-
-static func _win_title(bt) -> String:
-	if bt.want_hood:
-		return "救出小紅帽了！"
-	if bt.trees_lost() == 0:
-		return "一棵樹都沒少！"
-	return "森林保住了！"
 
 # ================================================================== 落敗
 

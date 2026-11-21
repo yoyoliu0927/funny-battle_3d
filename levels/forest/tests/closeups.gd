@@ -2,7 +2,7 @@ extends SceneTree
 ## 特寫截圖：每一種特寫各拍一張，看機位有沒有被樹或牆擋住。（要開視窗，不能 --headless）
 ## Godot --path . --script res://levels/forest/tests/closeups.gd -- <輸出資料夾>
 const DT := 1.0 / 60.0
-const S1 := "res://levels/forest/stage_1/stage.tscn"
+const S1 := "res://levels/forest/stage_3/stage.tscn"
 var bt
 var out := "user://forest_closeups"
 

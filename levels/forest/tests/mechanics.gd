@@ -2,8 +2,8 @@ extends SceneTree
 ## 森林機制的自動檢查（不開視窗）：菸蒂、起火延燒、倒下的樹幹、視線、假獵物丟菸、外婆的籃子、引路點順序、可重演。
 ## Godot --headless --path . --script res://levels/forest/tests/mechanics.gd
 const DT := 1.0 / 60.0
-const S1 := "res://levels/forest/stage_1/stage.tscn"
-const S3 := "res://levels/forest/stage_3/stage.tscn"
+const S1 := "res://levels/forest/stage_3/stage.tscn"
+const S3 := "res://levels/forest/stage_2/stage.tscn"   # 煙圈（抽菸、起火）
 var bt
 var fails := 0
 var checks := 0
@@ -197,6 +197,29 @@ func _go() -> void:
 		if bt._bird_in_house():
 			went_in[0] = true)
 	ok(not went_in[0], "外面還有人、也沒有旗子時，家豪不會自己走進木屋")
+
+	print("== 林道：看假獵物的人一擊就倒")
+	await load_stage("res://levels/forest/stage_1/stage.tscn")
+	bt.reset()
+	bt.start()
+	var c1 = who("伐木1")
+	bt.add_decoy(bt.ground(c1.pos + Vector3(0, 0, -3.0)))        # 假獵物在他北邊：他背對南邊的家豪
+	steps(2.5, func(): bt.bird.t = -9999.0)
+	ok(bt._is_lured(c1), "伐木1 在看假獵物（%s）" % c1.state)
+	bt.bird.pos = bt.ground(c1.pos + Vector3(0, 0, 1.4))         # 家豪站在他背後
+	ok(not bt.sees_bird(c1), "看假獵物的人沒發現背後的家豪")
+	bt.bird.set_state("charge")
+	steps(3.0)
+	ok(not c1.alive() and bt.lure_kos == 1, "從背後一啄就倒（一擊 %d）" % bt.lure_kos)
+	ok(bt._done.has("lure_ko"), "拿到「一擊打倒」那顆星")
+	bt.reset()
+	bt.start()
+	var c2 = who("伐木2")
+	bt.bird.pos = bt.ground(c2.pos + Vector3(0, 0, 1.2))
+	bt.bird.set_state("charge")
+	steps(1.5)
+	ok(c2.alive(), "沒看假獵物的伐木工一啄不會倒（剩 %.1f）" % c2.hp)
+	await load_stage(S1)
 
 	print("== 引路點照放的順序")
 	bt.reset()
