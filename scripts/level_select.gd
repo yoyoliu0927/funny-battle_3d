@@ -2442,8 +2442,18 @@ func _font() -> Font:
 	var f := UIStyle.font()
 	return f if f else ThemeDB.fallback_font
 
+var _box_cache := {}
+
+## 圓角框（同樣的顏色、圓角、邊框只做一份：介面每一畫面都重畫，每次 new 會一直配置記憶體）
 func _box(bg: Color, edge: Color, radius: float, border := 3.0, shadow := true) -> StyleBoxFlat:
+	var key := [bg, edge, int(radius), int(border), shadow]
+	var hit = _box_cache.get(key)
+	if hit:
+		return hit
+	if _box_cache.size() > 512:
+		_box_cache.clear()
 	var s := StyleBoxFlat.new()
+	_box_cache[key] = s
 	s.bg_color = bg
 	s.border_color = edge
 	s.set_border_width_all(int(border))
@@ -4216,6 +4226,10 @@ func _process(dt: float) -> void:
 	_sea.position = Vector3(sea.x, 0, sea.z)
 	_env.fog_density = lerpf(0.003, 0.0, smoothstep(0.0, 0.45, z))    # 霧先散掉：拉到一半畫面才不會白白的；世界地圖上完全沒有霧
 	_sun.directional_shadow_max_distance = lerpf(90.0, _map_cam.length() * 1.5, z)
+	# 陰影切片：島上 2 層；世界地圖從上面看、東西都很遠，1 層就夠（預設 4 層會把幾千個物件的影子畫 4 次，網頁版很卡）
+	var smode := DirectionalLight3D.SHADOW_ORTHOGONAL if z > 0.5 else DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+	if _sun.directional_shadow_mode != smode:
+		_sun.directional_shadow_mode = smode
 	_sea_mat.set_shader_parameter("fade_near", lerpf(60.0, 700.0, z))
 	_sea_mat.set_shader_parameter("fade_far", lerpf(260.0, 1400.0, z))
 	_sea_mat.set_shader_parameter("zoom", z)
@@ -4261,10 +4275,12 @@ func _process(dt: float) -> void:
 	_fishing.tick(dt, _t)
 	_dj.tick(dt, _t)
 	# 世界地圖上地標放大（玩具地圖的感覺）、飽和度收一點（海才不會搶島的顏色）
+	# 只在數值變了才設：設 scale 會讓底下幾千個網格全部重算位置，就算數值一樣也會
 	var big := Vector3.ONE * lerpf(1.0, SPOT_BIG, z)
 	for w2 in worlds:
 		for ir in w2.isle_roots:
-			(ir as Node3D).scale = big
+			if not (ir as Node3D).scale.is_equal_approx(big):
+				(ir as Node3D).scale = big
 	_env.adjustment_saturation = lerpf(1.35, 1.2, z)
 	_shallow_mat.albedo_color = Color(_shallow_tint, lerpf(0.5, 1.0, z))
 	for r in _shallow_mats:
