@@ -3,6 +3,7 @@ extends Control
 ## 所有關卡共用（template）。有給 portrait（頭像圖片）就直接畫圖片。
 var boss := false
 var dead := false
+var armed := false       # 拿槍的：右下角一個小槍徽章（取代名字後面寫的「（持槍）」）
 var portrait: Texture2D
 
 func _draw() -> void:
@@ -15,10 +16,22 @@ func _draw() -> void:
 		draw_texture_rect(portrait, r.grow(-3.0), false)
 	else:
 		_draw_face(c, k)
+	if armed and not dead:
+		_draw_gun_badge(size - Vector2(2, 2) * k, k)
 	if dead:
 		draw_rect(r, Color(0.1, 0.1, 0.1, 0.55))
 		draw_line(Vector2(8, 8) * k, size - Vector2(8, 8) * k, Color(0.95, 0.3, 0.25), 4.0 * k)
 		draw_line(Vector2(size.x - 8 * k, 8 * k), Vector2(8 * k, size.y - 8 * k), Color(0.95, 0.3, 0.25), 4.0 * k)
+
+## 右下角的小槍徽章：紅底圓形＋白色手槍剪影（at 是徽章的右下角）
+func _draw_gun_badge(at: Vector2, k: float) -> void:
+	var c := at - Vector2(11, 11) * k
+	draw_circle(c, 12 * k, Color(0.12, 0.1, 0.1))
+	draw_circle(c, 10 * k, Color(0.86, 0.22, 0.18))
+	var w := Color(1, 1, 1)
+	draw_rect(Rect2(c + Vector2(-7, -4) * k, Vector2(14, 4.5) * k), w)        # 槍管
+	draw_colored_polygon(PackedVector2Array([c + Vector2(-7, 0) * k, c + Vector2(-2, 0) * k,
+		c + Vector2(-1, 6) * k, c + Vector2(-6, 6) * k]), w)                     # 握把
 
 func _draw_face(c: Vector2, k: float) -> void:
 	var skin := Color(0.96, 0.78, 0.62)

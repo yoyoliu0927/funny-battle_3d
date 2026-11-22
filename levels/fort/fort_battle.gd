@@ -219,7 +219,7 @@ var _phase_label: Label
 var _phase_start_key: Control
 var _enemy_col: VBoxContainer
 var _crew_label: Label
-var _tower_label: Label
+var _tower_pips = null         # TowerPips：右上角敵人欄最後面的敵方炮塔小圖示（打掉的變灰打叉）
 var _bird_bar: PaperBar
 var _hearts: HeartBar          # 統一介面：家豪的血改用愛心顯示
 var _start_btn: Control        # 右下角「開始 ▶ Enter」
@@ -381,6 +381,7 @@ class Fighter:
 class EnemyFace extends Control:
 	var boss := false
 	var dead := false
+	var armed := false
 
 	## 圓形貼紙：深色外圈、米色底，中間畫臉；倒下就變灰、打紅叉
 	func _draw() -> void:
@@ -413,6 +414,33 @@ class EnemyFace extends Control:
 			for v in [Vector2(d, d), Vector2(d, -d)]:
 				draw_line(c0 - v, c0 + v, UIStyle.INK, 6.0, true)
 				draw_line(c0 - v, c0 + v, UIStyle.accent(), 3.5, true)
+		elif armed:
+			# 拿槍的：右下角紅底小槍徽章（取代名字後面的「（持槍）」）
+			var gc := size - Vector2(9, 9) * k
+			draw_circle(gc, 11 * k, UIStyle.INK)
+			draw_circle(gc, 9 * k, Color(0.86, 0.22, 0.18))
+			draw_rect(Rect2(gc + Vector2(-6.5, -4) * k, Vector2(13, 4) * k), Color(1, 1, 1))
+			draw_colored_polygon(PackedVector2Array([gc + Vector2(-6.5, 0) * k, gc + Vector2(-2, 0) * k,
+				gc + Vector2(-1, 5.5) * k, gc + Vector2(-5.5, 5.5) * k]), Color(1, 1, 1))
+
+## 敵方炮塔的小圖示：一座一個塔的剪影，打掉的變灰打紅叉（取代「敵方炮塔 2/3」）
+class TowerPips extends Control:
+	var left := 0
+	var total := 0
+
+	func _draw() -> void:
+		for i in total:
+			var c := Vector2(18.0 + 30.0 * i, size.y * 0.5)
+			var gone := i >= left
+			var col := Color(0.55, 0.52, 0.48) if gone else Color("5a4a3a")
+			draw_rect(Rect2(c + Vector2(-8, -6), Vector2(16, 18)), col)            # 塔身
+			draw_rect(Rect2(c + Vector2(-11, -12), Vector2(22, 7)), col)           # 塔頂
+			for sx in [-9.0, -2.0, 5.0]:
+				draw_rect(Rect2(c + Vector2(sx, -16), Vector2(4, 4)), col)         # 城垛
+			draw_rect(Rect2(c + Vector2(4, -4), Vector2(10, 4)), Color("2d2420") if not gone else col)   # 砲管
+			if gone:
+				draw_line(c + Vector2(-10, -14), c + Vector2(10, 12), UIStyle.accent(), 3.0, true)
+				draw_line(c + Vector2(10, -14), c + Vector2(-10, 12), UIStyle.accent(), 3.0, true)
 
 ## 血條（手帳風格）：深色圓角外框、米色底；淺色那段是剛扣掉的血，慢慢追上
 class PaperBar extends Control:
@@ -515,7 +543,7 @@ class Hotbar extends Control:
 			queue_redraw()
 
 	## 手帳風格（跟教學卡、對話框同一套）：每個神蹟一張米色圓角紙卡，選中的往上浮、紅框；
-	## 中間一顆深色圓貼紙放像素圖示，右上角紅色圓徽章是這個階段還能用幾次
+	## 中間一顆深色圓貼紙放像素圖示，右上角深色小圓是這個階段還能用幾次（用完、不限次數不畫）
 	func _draw() -> void:
 		var bs := bar_size()
 		var font := UIStyle.font()
@@ -554,12 +582,15 @@ class Hotbar extends Control:
 				_shadow_text(font, card.get_center() + Vector2(-cw * 0.5, 9), ct, 26, Color(1, 1, 1))
 			# 左上角小小的按鍵數字
 			draw_string(font, card.position + Vector2(8, 19), skills[i].key, HORIZONTAL_ALIGNMENT_LEFT, -1, 15, Color(UIStyle.INK, 0.7))
-			# 右上角的次數徽章（換階段時徽章跳一下、閃一圈金光）
+			# 右上角的次數徽章：深色小圓（紅色看起來像「通知／警告」）；換階段時跳一下、閃一圈金光。
+			# 用完（0）不畫：整格已經變灰；不限次數（∞）也不畫：沒有數字要記
+			if cnt <= 0:
+				continue
 			var bc := card.position + Vector2(card.size.x - 5.0, 5.0)
-			var rad := 17.0 * (1.0 + 0.25 * k)
-			draw_circle(bc, rad, UIStyle.INK)
-			draw_circle(bc, rad - 2.5, UIStyle.accent() if cnt != 0 else Color(0.55, 0.55, 0.55))
-			var txt := "∞" if cnt < 0 else str(cnt)
+			var rad := 16.0 * (1.0 + 0.25 * k)
+			draw_circle(bc, rad, Color(1, 1, 1, 0.9))
+			draw_circle(bc, rad - 2.5, UIStyle.INK)
+			var txt := str(cnt)
 			var fs := int(20 * (1.0 + 0.3 * k))
 			var tw := font.get_string_size(txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 			draw_string(font, bc + Vector2(-tw * 0.5, fs * 0.36), txt, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(1, 1, 1))
@@ -2031,8 +2062,15 @@ func _tick_hud_misc(dt: float) -> void:
 			face.queue_redraw()
 	if _crew_label:
 		_crew_label.text = "農夫 %d/%d" % [up, crew]
-	if _tower_label:
-		_tower_label.text = "敵方炮塔 %d/%d" % [towers_left(), towers_total()]
+	if _tower_pips:
+		# 只算看得到的敵方炮塔：還藏著的（之後才升起來）不先畫成打叉，變成我方的也不算被打掉
+		var shown := towers.filter(func(t): return t.gun != null and t.side == "enemy" and t.state != "hidden").size()
+		if _tower_pips.left != towers_left() or _tower_pips.total != shown:
+			_tower_pips.left = towers_left()
+			_tower_pips.total = shown
+			_tower_pips.custom_minimum_size.x = 30.0 * shown + 6.0
+			_tower_pips.visible = shown > 0
+			_tower_pips.queue_redraw()
 	if _bird_bar:
 		_bird_bar.set_values(bird.ratio() if bird.alive() else 0.0, bird.chip)
 	if _hearts:
@@ -4882,68 +4920,55 @@ func _build_hud() -> void:
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(col)
 	_enemy_col = col
+	# 右上角一排：老闆／指揮官（大一號，拿槍的有槍徽章）＋農夫頭像＋敵方炮塔小圖示。
+	# 不寫名字和「農夫 3/5」「敵方炮塔 2/3」：頭像和炮塔圖示本身就是數量，打倒的變灰打叉；名字在滑鼠停上去時出現
+	var ecard := PanelContainer.new()
+	UIStyle.slip(ecard, Vector2(10, 8))
+	ecard.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ecard.size_flags_horizontal = Control.SIZE_SHRINK_END
+	col.add_child(ecard)
+	var erow := HBoxContainer.new()
+	erow.add_theme_constant_override("separation", 8)
+	erow.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	ecard.add_child(erow)
 	for f in farmers.filter(func(f): return f.is_boss):
-		var card := PanelContainer.new()
-		UIStyle.slip(card, Vector2(12, 8))
-		card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		card.size_flags_horizontal = Control.SIZE_SHRINK_END
-		col.add_child(card)
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 10)
-		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		card.add_child(row)
+		var slot := VBoxContainer.new()
+		slot.alignment = BoxContainer.ALIGNMENT_CENTER
+		slot.add_theme_constant_override("separation", 4)
+		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		erow.add_child(slot)
 		var face := EnemyFace.new()
 		face.boss = true
+		face.armed = f.cone == null       # 沒有視線扇形的老闆是拿槍站崗的
 		face.custom_minimum_size = Vector2(52, 52)
-		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		row.add_child(face)
-		var info := VBoxContainer.new()
-		info.alignment = BoxContainer.ALIGNMENT_CENTER
-		info.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		row.add_child(info)
-		var nm := Label.new()
-		nm.text = f.name + ("" if f.cone else "（持槍）")
-		nm.label_settings = UIStyle.ls(17, UIStyle.INK)
-		info.add_child(nm)
+		face.mouse_filter = Control.MOUSE_FILTER_PASS
+		face.tooltip_text = f.name
+		slot.add_child(face)
 		var bar := PaperBar.new()
 		bar.fill = Color("e2483d")
-		bar.custom_minimum_size = Vector2(170, 16)
-		bar.visible = f.cone != null   # 統一介面不顯示敵人血量；指揮官有 3 點血，例外顯示
-		info.add_child(bar)
+		bar.custom_minimum_size = Vector2(52, 10)
+		bar.visible = f.cone != null   # 統一介面不顯示敵人血量；指揮官有 3 點血，例外顯示（頭像下面一條細的）
+		slot.add_child(bar)
 		_enemy_rows.append({"fighter": f, "face": face, "bar": bar})
 	var crew: Array = farmers.filter(func(f): return not f.is_boss and not f.reserve)
-	if not crew.is_empty():
-		var card := PanelContainer.new()
-		UIStyle.slip(card, Vector2(12, 8))
-		card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		card.size_flags_horizontal = Control.SIZE_SHRINK_END
-		col.add_child(card)
-		var row := HBoxContainer.new()
-		row.add_theme_constant_override("separation", 8)
-		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		card.add_child(row)
-		_crew_label = Label.new()
-		_crew_label.label_settings = UIStyle.ls(17, UIStyle.INK)
-		_crew_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-		row.add_child(_crew_label)
-		for f in crew:
-			var face := EnemyFace.new()
-			face.custom_minimum_size = Vector2(40, 40)
-			face.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			row.add_child(face)
-			_enemy_rows.append({"fighter": f, "face": face, "bar": null})
+	for f in crew:
+		var face := EnemyFace.new()
+		face.custom_minimum_size = Vector2(40, 40)
+		face.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		face.mouse_filter = Control.MOUSE_FILTER_PASS
+		face.tooltip_text = f.name
+		erow.add_child(face)
+		_enemy_rows.append({"fighter": f, "face": face, "bar": null})
 	if towers_total() > 0:
-		var tcard := PanelContainer.new()
-		UIStyle.slip(tcard, Vector2(12, 8))
-		tcard.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tcard.size_flags_horizontal = Control.SIZE_SHRINK_END
-		col.add_child(tcard)
-		_tower_label = Label.new()
-		_tower_label.label_settings = UIStyle.ls(17, UIStyle.INK)
-		tcard.add_child(_tower_label)
+		_tower_pips = TowerPips.new()
+		_tower_pips.custom_minimum_size = Vector2(30.0 * towers_total() + 6.0, 40)
+		_tower_pips.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		_tower_pips.mouse_filter = Control.MOUSE_FILTER_PASS
+		_tower_pips.tooltip_text = "敵方炮塔"
+		erow.add_child(_tower_pips)
 	# 左下角：家豪的頭像＋血條（頭上不再疊血條）
 	var me := PanelContainer.new()
-	UIStyle.slip(me, Vector2(12, 8))
+	me.add_theme_stylebox_override("panel", StyleBoxEmpty.new())   # 不加紙片底：頭像和愛心自己就看得懂
 	me.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	me.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_LEFT)
 	me.offset_left = 28 + hb.x + 18   # 神蹟欄右邊同一排（上方留給浮出的神蹟名稱）
@@ -5005,7 +5030,10 @@ func _build_hud() -> void:
 	prow.add_child(_phase_start_key)
 	_phase_retry_key = UIStyle.key_hint("R", "重試", 16)
 	prow.add_child(_phase_retry_key)
-	# 右下角：常用的三顆鍵（其他操作都在 H 的說明裡）
+	# 這張階段紙片不顯示了：「準備中 Enter 開打」跟右下角的開始鈕重複，戰鬥中的秒數沒有用，
+	# 結果交給結算／輸了的畫面。節點留著（其他地方還會改它的字），只是藏起來
+	phase_box.visible = false
+	# 右下角：只留「H ?」。R 重試、M 地圖會中斷這一局，放在 Esc 選單裡（按 R／M 照樣有效）
 	var corner := PanelContainer.new()
 	UIStyle.slip(corner, Vector2(12, 6))
 	corner.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -5020,11 +5048,9 @@ func _build_hud() -> void:
 	crow.add_theme_constant_override("separation", 14)
 	crow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	corner.add_child(crow)
-	crow.add_child(UIStyle.key_hint("H", "操作說明", 13))
+	crow.add_child(UIStyle.key_hint("H", "?", 13))
 	_start_btn = _make_start_button()
 	layer.add_child(_start_btn)
-	crow.add_child(UIStyle.key_hint("R", "重試", 13))
-	crow.add_child(UIStyle.key_hint("M", "地圖", 13))
 	# 第一次玩：教學關掉後，在神蹟欄上方提示一次「先試著放一個」，放成功就收起來
 	_first_hint = PanelContainer.new()
 	UIStyle.slip(_first_hint, Vector2(16, 8))
@@ -5405,7 +5431,7 @@ func _show_summary() -> void:
 	for a in attempts.slice(maxi(attempts.size() - 5, 0)):
 		lines.append("  #%d　%s（%.1f 秒）" % [a.num, "勝" if a.outcome == "win" else "敗，剩 %d 個農夫" % a.left, a.time])
 	lines.append("")
-	lines.append("按 R 回到起點重試（觀察位置會保留）　｜　按 M 回到地圖")
+	lines.append("R 重試　M 地圖")
 	_summary_label.text = "\n".join(lines)
 	_summary_panel.visible = true
 

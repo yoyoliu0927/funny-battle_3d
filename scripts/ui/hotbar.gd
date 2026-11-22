@@ -1,6 +1,6 @@
 extends Control
 ## 技能欄
-## 手帳風格的快捷欄：每個道具一張米色紙卡，選中的往上浮、紅框；右上角紅色圓徽章是次數
+## 手帳風格的快捷欄：每個道具一張米色紙卡，選中的往上浮、紅框；右上角深色小圓是剩幾次（用完、不限次數不畫）
 ## 所有關卡共用（template）。道具資料來自 scripts/items/item.gd。
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術（手帳風格）
 const S := 84.0          # 一格的大小
@@ -92,11 +92,14 @@ func _draw() -> void:
 		# 左上角小小的按鍵數字（只有一種道具時不用寫）
 		if skills.size() > 1:
 			draw_string(font, card.position + Vector2(9, 22), str(i + 1), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, Color(UIStyle.INK, 0.7))
-		# 右上角的次數徽章
+		# 右上角的次數徽章：深色小圓（紅色看起來像「通知／警告」，次數只是資訊）。
+		# 用完（0）不畫：整格已經變灰；不限次數（∞）也不畫：沒有數字要記。開始時的換次數動畫照播
 		var bc := card.position + Vector2(card.size.x - 5.0, 5.0)
-		draw_circle(bc, 17.0, UIStyle.INK)
-		draw_circle(bc, 14.5, UIStyle.accent() if cnt != 0 else Color(0.55, 0.55, 0.55))
-		if sw.has(i):
+		var show_badge := sw.has(i) or cnt > 0
+		if show_badge:
+			draw_circle(bc, 16.0, Color(1, 1, 1, 0.9))
+			draw_circle(bc, 13.5, UIStyle.INK)
+		if show_badge and sw.has(i):
 			var e: float = sw[i]
 			var old: int = old_counts[i] if i < old_counts.size() else cnt
 			if e < 0.0:
@@ -121,7 +124,7 @@ func _draw() -> void:
 					_draw_count(font, bc, cnt, int(round(20.0 + 10.0 * pop)), 8.0 * (1.0 - ev), nc)
 					# 徽章閃一下金光，提示「這格換成開打後的次數了」
 					draw_arc(bc, 18.0, 0.0, TAU, 24, Color(1.0, 0.85, 0.3, 0.9 * (1.0 - ev)), 3.0, true)
-		else:
+		elif show_badge:
 			_draw_count(font, bc, cnt, 20, 0.0, _count_color(cnt))
 	# 切換時在上方浮出技能名稱
 	if name_t > 0.0 and selected < skills.size():

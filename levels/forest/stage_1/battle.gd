@@ -67,7 +67,7 @@ func _tutorial_steps() -> Array:
 	]
 
 func _prepare_hint() -> String:
-	return "打倒兩個伐木工。倒下的樹超過 6 棵就輸　Enter 開始"
+	return "倒下的樹超過 6 棵就輸"      # 目標寫在左上角的目標卡，這裡只補輸的條件
 
 func _win_title() -> String:
 	return "林道保住了！" if trees_lost() > 0 else "一棵樹都沒少！"

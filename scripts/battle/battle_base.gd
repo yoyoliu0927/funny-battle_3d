@@ -114,7 +114,9 @@ var _dialog: DialogBox
 var _enemy_rows: Array = []    # 右上角敵人欄 {fighter, face, fill, chip, width}
 var _enemy_col: VBoxContainer  # 右上角整個敵人欄（關卡要整個藏起來就藏這個）
 var _crew_label: Label         # 小兵那張紙片上的「敵人 2/3」
-var _corner_keys: Control      # 右下角「H 操作說明｜R 重試｜M 地圖」
+var _corner_keys: Control      # 右下角「H ?」（＋還沒用過的 Tab 俯看）
+var _tab_hint: Control         # 右下角的「Tab 俯看」：按過一次 Tab 就收掉（這次開遊戲都記得）
+const TAB_USED_META := "battle_tab_used"
 var tutorial_step := -1        # -1 = 沒在教學
 var _tut_t := 0.0
 var _tut_seen := false
@@ -247,8 +249,19 @@ func _tutorial_texts() -> Array:
 		out.append("【%d %s】%s" % [i + 1, items[i].name, items[i].tutorial])
 	return out
 
+## 準備階段上方紙片寫的字：只寫這一關的「目標／輸的條件」（例如「打倒兩個伐木工。倒下的樹超過 6 棵就輸」）。
+## 「準備中」「按 Enter 開始」不用寫：右下角的開始鈕已經說了，寫了也會被 _goal_text() 拿掉。空字串＝不顯示紙片
 func _prepare_hint() -> String:
-	return "準備中：可以先放道具、換觀察位置　按 Enter 開始"
+	return ""
+
+## 上方紙片真正顯示的字：把 _prepare_hint() 裡重複開始鈕的套話（「準備中：」「按 Enter 開始」）拿掉
+func _goal_text() -> String:
+	var t := _prepare_hint().strip_edges()
+	var re := RegEx.create_from_string("^準備中[：:　 ]*(｜[　 ]*)?")
+	t = re.sub(t, "").strip_edges()
+	re = RegEx.create_from_string("[　 ]*(｜[　 ]*)?(按[　 ]*)?Enter[　 ]*開始[。！]?$")
+	t = re.sub(t, "").strip_edges()
+	return t
 
 func _win_line() -> String:
 	return "過關！這場是你偷偷扳回來的。"
@@ -724,6 +737,11 @@ func _step(dt: float) -> void:
 		_tick_fx(dt)
 
 func _process(dt: float) -> void:
+	if _tab_hint and Input.is_physical_key_pressed(KEY_TAB):
+		# Tab 由 view_toggle.gd 處理（不一定會傳到這裡），所以每幀看一下：按過一次就把提示收掉
+		Engine.set_meta(TAB_USED_META, true)
+		_tab_hint.queue_free()
+		_tab_hint = null
 	_tick_next_stage(dt)
 	_tick_tutorial(dt)
 	_tick_cooldowns(dt)
@@ -1692,8 +1710,8 @@ func _build_hud() -> void:
 	layer.add_child(_tut_panel)
 
 	var top := UIStyle.ls(22, UIStyle.INK)
-	# 右上角敵人欄（跟要塞一樣的米色小紙片）：Boss 一張（頭像＋名字）；小兵合成一張，
-	# 一排小頭像，被打倒就打紅叉——一下就倒，血量沒什麼好看的
+	# 右上角敵人欄：一排頭像（老闆大一號排最前面，拿槍的頭像角落有一把小槍），被打倒就變灰打紅叉。
+	# 不寫「敵人 3/3」：頭像本身就是數量。名字只在滑鼠停在頭像上時出現（tooltip）
 	var col := VBoxContainer.new()
 	col.add_theme_constant_override("separation", 10)
 	col.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
@@ -1703,36 +1721,19 @@ func _build_hud() -> void:
 	col.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(col)
 	_enemy_col = col
-	var crew_row: HBoxContainer = null
+	var holder: HBoxContainer = null
 	var order: Array = enemies.filter(func(f): return f.is_boss) + enemies.filter(func(f): return not f.is_boss)
 	for f in order:
-		var holder: BoxContainer
-		if f.is_boss:
+		if holder == null:
 			var card := PanelContainer.new()
-			UIStyle.slip(card, Vector2(12, 8))
+			UIStyle.slip(card, Vector2(10, 8))
 			card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			card.size_flags_horizontal = Control.SIZE_SHRINK_END
 			col.add_child(card)
 			holder = HBoxContainer.new()
-			holder.add_theme_constant_override("separation", 10)
+			holder.add_theme_constant_override("separation", 8)
 			holder.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			card.add_child(holder)
-		else:
-			if crew_row == null:
-				var card := PanelContainer.new()
-				UIStyle.slip(card, Vector2(12, 8))
-				card.mouse_filter = Control.MOUSE_FILTER_IGNORE
-				card.size_flags_horizontal = Control.SIZE_SHRINK_END
-				col.add_child(card)
-				crew_row = HBoxContainer.new()
-				crew_row.add_theme_constant_override("separation", 8)
-				crew_row.mouse_filter = Control.MOUSE_FILTER_IGNORE
-				card.add_child(crew_row)
-				_crew_label = Label.new()
-				_crew_label.label_settings = UIStyle.ls(17, UIStyle.INK)
-				_crew_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-				crew_row.add_child(_crew_label)
-			holder = crew_row
 		# 每個頭像各自包一層（關卡要藏某一個敵人時，藏它的外層就好）
 		var slot := VBoxContainer.new()
 		slot.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1740,16 +1741,12 @@ func _build_hud() -> void:
 		holder.add_child(slot)
 		var face := EnemyFace.new()
 		face.boss = f.face == "boss"
+		face.armed = f.gun != null
 		face.portrait = f.portrait
 		face.custom_minimum_size = Vector2(52, 52) if f.is_boss else Vector2(40, 40)
-		face.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		face.mouse_filter = Control.MOUSE_FILTER_PASS
+		face.tooltip_text = f.hud_name if f.hud_name != "" else f.name
 		slot.add_child(face)
-		if f.is_boss:
-			var nm := Label.new()
-			nm.text = f.hud_name if f.hud_name != "" else f.name
-			nm.label_settings = UIStyle.ls(17, UIStyle.INK)
-			nm.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-			holder.add_child(nm)
 		# 血條節點保留但不顯示（關卡程式還會讀 fill／chip）
 		var bar := Control.new()
 		bar.custom_minimum_size = Vector2(140, 14)
@@ -1771,7 +1768,8 @@ func _build_hud() -> void:
 	_phase_label.grow_horizontal = Control.GROW_DIRECTION_BOTH
 	UIStyle.slip(_phase_label, Vector2(18, 8))   # 上方的階段＝米色小紙片（跟要塞一樣）
 	layer.add_child(_phase_label)
-	# 右下角：常用的三顆鍵（其他操作都在 H 的教學裡），開始鈕在它上面
+	# 右下角：只留「H ?」（操作說明）；Tab 俯看只教到用過一次為止。
+	# R 重試、M 地圖不掛在畫面上：會中斷這一局，放在 Esc 選單裡（按 R／M 照樣有效）
 	var corner := PanelContainer.new()
 	UIStyle.slip(corner, Vector2(12, 6))
 	corner.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -1786,11 +1784,10 @@ func _build_hud() -> void:
 	crow.add_theme_constant_override("separation", 14)
 	crow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	corner.add_child(crow)
-	crow.add_child(UIStyle.key_hint("H", "操作說明", 13))
-	if use_view_toggle:
-		crow.add_child(UIStyle.key_hint("Tab", "俯看", 13))
-	crow.add_child(UIStyle.key_hint("R", "重試", 13))
-	crow.add_child(UIStyle.key_hint("M", "地圖", 13))
+	crow.add_child(UIStyle.key_hint("H", "?", 13))
+	if use_view_toggle and not Engine.has_meta(TAB_USED_META):
+		_tab_hint = UIStyle.key_hint("Tab", "俯看", 13)
+		crow.add_child(_tab_hint)
 	_corner_keys = corner
 	corner.visible = show_corner_keys
 	# 最上面那一整行操作文字收起來（跟要塞一樣；內容還是留著給 H 的操作表讀）
@@ -1824,7 +1821,7 @@ func _build_hud() -> void:
 ## 家豪的愛心：道具欄上方一張小紙片（頭像＋名字＋愛心）
 func _build_hero_card(layer: CanvasLayer, hb: Vector2) -> void:
 	var card := PanelContainer.new()
-	card.add_theme_stylebox_override("panel", UIStyle.slip_box(Vector2(12, 6)))
+	card.add_theme_stylebox_override("panel", StyleBoxEmpty.new())   # 不加紙片底：頭像和愛心自己就看得懂
 	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	# 放在道具欄右邊同一排（道具欄上方留給切換道具時浮出的名稱和說明，不會疊在一起）
 	card.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
@@ -2030,11 +2027,11 @@ func _update_bars(dt: float) -> void:
 func _update_phase_label() -> void:
 	match phase:
 		Phase.PREPARE:
-			_phase_label.text = _prepare_hint()
+			_phase_label.text = _goal_text()
 		Phase.RUNNING:
-			_phase_label.text = "戰鬥中  %.1f 秒　｜　R 重試" % time
+			_phase_label.text = ""      # 開打後不掛字：秒數沒有用，R 重試在 Esc 選單裡
 		Phase.ENDED:
-			_phase_label.text = ("勝利！" if outcome == "win" else "落敗…") + "　按 R 重試"
+			_phase_label.text = ""      # 結果交給結算／輸了的畫面，上面不再重複
 	_phase_label.visible = _phase_label.text != ""
 
 func _show_summary() -> void:
@@ -2048,7 +2045,7 @@ func _show_summary() -> void:
 	for a in attempts.slice(maxi(attempts.size() - 5, 0)):
 		lines.append("  #%d　%s（%.1f 秒）" % [a.num, "勝" if a.outcome == "win" else "敗，剩 %d 個敵人" % a.left, a.time])
 	lines.append("")
-	lines.append("按 R 回到起點重試（觀察位置會保留）　｜　按 M 回到地圖")
+	lines.append("R 重試　M 地圖")
 	_summary_label.text = "\n".join(lines)
 	_summary_panel.visible = true
 

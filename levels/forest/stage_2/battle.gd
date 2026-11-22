@@ -53,7 +53,7 @@ func _tutorial_steps() -> Array:
 	]
 
 func _prepare_hint() -> String:
-	return "打倒所有抽菸的人。燒掉的樹超過 5 棵就輸　Enter 開始"
+	return "燒掉的樹超過 5 棵就輸"      # 目標寫在左上角的目標卡，這裡只補輸的條件
 
 func _win_title() -> String:
 	return "菸都熄了！" if trees_burnt == 0 else "火撲滅了！"

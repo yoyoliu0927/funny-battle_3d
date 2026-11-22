@@ -478,7 +478,7 @@ func _update_marks() -> void:
 	if phase == Phase.PREPARE and _phase_label and tr.size() >= 2:
 		_phase_label.text = "預測：" + _forecast_text(preds)
 	elif phase == Phase.PREPARE and _phase_label:
-		_phase_label.text = _prepare_hint()
+		_phase_label.text = _goal_text()      # 只留目標，「準備中」「按 Enter 開始」交給開始鈕
 
 func _process(dt: float) -> void:
 	super(dt)

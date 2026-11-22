@@ -206,6 +206,9 @@ var _queued := 0             # 走路中又按了方向鍵：-1／+1，走到之
 var _bump_t := 0.0           # 被擋住時抖一下還剩幾秒
 var _bump_dir := Vector3.ZERO
 var _t := 0.0
+var _idle_t := 0.0           # 多久沒按鍵、沒點滑鼠了（太久就把按鍵提示叫回來）
+var _head_key := ""          # 左上角大標題現在寫的字（換了就重新計時：先大大的秀，再淡出）
+var _head_t0 := 0.0
 var _toast: Label
 var _toast_t := 0.0
 var _starting := false
@@ -2455,6 +2458,11 @@ func _box(bg: Color, edge: Color, radius: float, border := 3.0, shadow := true) 
 func _text(c: Control, pos: Vector2, t: String, size: float, col: Color, w := -1.0, align := HORIZONTAL_ALIGNMENT_LEFT) -> void:
 	c.draw_string(_font(), pos, t, align, w, int(size), col)
 
+## 沒有紙片底的字：加一圈白邊，直接放在 3D 畫面上也讀得到
+func _text_outlined(c: Control, pos: Vector2, t: String, size: float, col: Color) -> void:
+	c.draw_string_outline(_font(), pos, t, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size), maxi(4, int(size * 0.32)), Color(1, 1, 1, 0.92))
+	c.draw_string(_font(), pos, t, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size), col)
+
 ## 字太寬就縮小字級（不截斷）
 func _fit(t: String, size: float, w: float, min_size := 11.0) -> float:
 	var f := _font()
@@ -2956,13 +2964,13 @@ func _paint_nodes(c: Control, u: float) -> void:
 			_star(c, Vector2(sp.x, y2), 9.5 * s, GOLD if cleared else Color(0.82, 0.78, 0.7), Color("8a6410") if cleared else Color(0.6, 0.56, 0.5))
 
 ## 泡泡的外框：浮在 wp 上面，尖角指著它。回傳 [框, 冒出來時縮放過的 u]；看不到就回傳 []
-func _bubble_frame(c: Control, u: float, wp: Vector3, width: float) -> Array:
+func _bubble_frame(c: Control, u: float, wp: Vector3, width: float, height := 132.0) -> Array:
 	if _cam.is_position_behind(wp):
 		return []
 	# 冒出來的時候從小放大（尺寸直接乘上去，不用畫布的變形：_lock_icon 會自己改變形）
 	u *= 0.6 + 0.4 * (1.0 - pow(1.0 - _bubble_a, 3.0))
 	var bw := width * u
-	var bh := 132.0 * u
+	var bh := height * u
 	var tail := 24.0 * u
 	var anchor := _cam.unproject_position(wp)
 	anchor.x = _cam.unproject_position(_hero.position).x
@@ -2978,22 +2986,45 @@ func _bubble_frame(c: Control, u: float, wp: Vector3, width: float) -> Array:
 	c.draw_polyline(PackedVector2Array([Vector2(tx - 17 * u, ty - 1.0), Vector2(tx, anchor.y), Vector2(tx + 17 * u, ty - 1.0)]), PAPER_EDGE, 3.0, true)
 	return [r, u]
 
-## 泡泡右下角的主要按鈕（Enter 鍵帽畫在按鈕裡）；順便記下它在畫面上的位置給滑鼠點
-func _bubble_button(c: Control, u: float, r: Rect2, label: String, bg: Color, edge: Color, ink := Color(1, 1, 1)) -> void:
-	var row_y := r.position.y + 96 * u
-	var f := _font()
-	var lw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(25 * u)).x
-	var ks := UIStyle.keycap_size("Enter", 14 * u)
-	var bw := lw + ks.x + 52 * u
-	var br := Rect2(Vector2(r.end.x - bw - 18 * u, row_y - 24 * u), Vector2(bw, 48 * u))
-	var pulse := 1.0 + sin(_t * 4.0) * 0.03
-	var bb := Rect2(br.get_center() - br.size * 0.5 * pulse, br.size * pulse)
-	c.draw_style_box(_box(bg, edge, 22 * u, 3.0, false), bb)
-	_text(c, Vector2(bb.position.x + 18 * u, bb.get_center().y + 9 * u), label, 25 * u, ink)
-	UIStyle.draw_keycap(c, Vector2(bb.end.x - 12 * u - ks.x, bb.get_center().y - ks.y * 0.5), "Enter", 14 * u)
-	_start_rect = bb
+## 泡泡右下角的 Enter 鍵帽（就是按鈕本身，滑鼠點它也行）：不再包一層彩色按鈕——
+## 泡泡是一個框、鍵帽是一個框，中間再夾一個框就是框中框。泡泡上的圖示和名字已經說了這是什麼
+func _bubble_key(c: Control, u: float, r: Rect2) -> void:
+	var row_y := r.end.y - 36 * u                  # 兩列的泡泡：第二列；一列的泡泡：跟名字同一列
+	var pulse := 1.0 + sin(_t * 4.0) * 0.04
+	var ks := UIStyle.keycap_size("Enter", 18 * u * pulse)
+	var pos := Vector2(r.end.x - 20 * u - ks.x, row_y - ks.y * 0.5)
+	UIStyle.draw_keycap(c, pos, "Enter", 18 * u * pulse)
+	_start_rect = Rect2(pos, ks).grow(10 * u)
 
-## 家豪所在那一格的泡泡：浮在地標上面，尖角指著地標
+## 只要「圖示＋名字＋Enter」的建築：一列高的小泡泡。{種類: [名字, 按鈕底色, 按鈕框色]}
+const SLIM_BUBBLE := ["shop", "board", "guide", "dock", "home"]
+
+func _slim_title(kind: String) -> String:
+	match kind:
+		"shop":
+			return "商店"
+		"board":
+			return "冒險手帳"
+		"guide":
+			return "操作說明"
+		"dock":
+			return "碼頭"
+	return "家豪的家"
+
+func _paint_slim_bubble(c: Control, u0: float, wp: Vector3, kind: String) -> void:
+	var title := _slim_title(kind)
+	var ts := 32.0 * u0
+	var tw := _font().get_string_size(title, HORIZONTAL_ALIGNMENT_LEFT, -1, int(ts)).x / u0
+	var bw := UIStyle.keycap_size("Enter", 18 * u0).x / u0
+	var fr := _bubble_frame(c, u0, wp, 92.0 + tw + 24.0 + bw + 20.0, 84.0)
+	if fr.is_empty():
+		return
+	var r: Rect2 = fr[0]
+	var u: float = fr[1]
+	var cy := r.get_center().y
+	_icon_badge(c, Vector2(r.position.x + 50 * u, cy), 29 * u, kind)
+	_text(c, Vector2(r.position.x + 92 * u, cy + 32 * u * 0.36), title, 32 * u, INK)
+	_bubble_key(c, u, r)
 func _paint_bubble(c: Control, u0: float) -> void:
 	if _map or _bubble_a <= 0.02 or _busy():
 		return
@@ -3004,7 +3035,10 @@ func _paint_bubble(c: Control, u0: float) -> void:
 	var wp: Vector3 = (w.isles[stage_sel] as Vector3) + Vector3(0, float(ir.get_meta("bubble_y", 5.0)), 0)
 	var st := _st_now()
 	var kind := String(st.kind)
-	var fr := _bubble_frame(c, u0, wp, 400.0 if kind == "stage" else 372.0)
+	if SLIM_BUBBLE.has(kind) and not (kind == "dock" and _sail_enabled):
+		_paint_slim_bubble(c, u0, wp, kind)
+		return
+	var fr := _bubble_frame(c, u0, wp, 400.0 if kind == "stage" else 300.0)
 	if fr.is_empty():
 		return
 	var r: Rect2 = fr[0]
@@ -3019,42 +3053,37 @@ func _paint_bubble(c: Control, u0: float) -> void:
 			_lock_icon(c, bc + Vector2(0, 14 * u), 34 * u, Color("8a857a"), rot)
 			_text(c, Vector2(text_x, o.y + 60 * u), "？？？", 34 * u, Color("7d776c"))
 			_text(c, Vector2(text_x, o.y + 100 * u), "即將開放", 22 * u, Color("7d776c"))
+		# 主島的建築：圖示＋名字＋Enter 就好（星星在右上角的商店按鈕、羽毛在左上角，不在泡泡裡重複）
 		"shop":
 			_icon_badge(c, bc, 29 * u, "shop")
 			_text(c, Vector2(text_x, o.y + 58 * u), "商店", 32 * u, INK)
-			_star(c, Vector2(text_x + 14 * u, row_y), 14 * u, GOLD, Color("8a6410"))
-			_text(c, Vector2(text_x + 36 * u, row_y + 9 * u), str(_wallet), 24 * u, INK)
-			_bubble_button(c, u, r, "進去", SHOP_RED, Color("8f231c"))
+			_bubble_key(c, u, r)
 		"board":
-			# 冒險手帳：這趟旅程帶回的羽毛，Enter 翻開
 			_icon_badge(c, bc, 29 * u, "board")
 			_text(c, Vector2(text_x, o.y + 58 * u), "冒險手帳", 32 * u, INK)
-			var fs := _feathers()
-			for i in fs.size():
-				_feather(c, Vector2(text_x + 8 * u + 17 * u * i, row_y + 15 * u), 26 * u, 0.32, fs[i].col, bool(fs[i].have))
-			_bubble_button(c, u, r, "翻開", Color("e3a31c"), Color("8a6410"))
+			_bubble_key(c, u, r)
 		"fish":
-			# 釣魚：圖鑑收了幾種，Enter 甩竿
+			# 釣魚：圖鑑收了幾種（只有這裡看得到，留著）
 			_icon_badge(c, bc, 29 * u, "fish")
 			_text(c, Vector2(text_x, o.y + 58 * u), "釣魚", 32 * u, INK)
 			HubUI.fish_icon(c, Vector2(text_x + 20 * u, row_y), 38 * u, Color("5aa6d6"))
 			_text(c, Vector2(text_x + 50 * u, row_y + 9 * u), "%d/%d" % [Journal.book_count(), Journal.FISH.size()], 24 * u, INK)
-			_bubble_button(c, u, r, "甩竿", FISH_COLOR, Color("1f6a9a"))
+			_bubble_key(c, u, r)
 		"guide":
 			_icon_badge(c, bc, 29 * u, "guide")
-			_text(c, Vector2(text_x, o.y + 58 * u), "告示牌", 32 * u, INK)
-			_bubble_button(c, u, r, "操作說明", GUIDE_COLOR.darkened(0.12), Color("2c6f66"))
+			_text(c, Vector2(text_x, o.y + 58 * u), "操作說明", 32 * u, INK)
+			_bubble_key(c, u, r)
 		"dock":
 			_icon_badge(c, bc, 29 * u, "dock")
 			_text(c, Vector2(text_x, o.y + 58 * u), "碼頭", 32 * u, INK)
-			_bubble_button(c, u, r, "出航", DOCK_COLOR, Color("2c5d8a"))
+			_bubble_key(c, u, r)
 			if _sail_enabled:
 				var gk := UIStyle.draw_keycap(c, Vector2(text_x, row_y - 14 * u), "G", 14 * u)
 				_text(c, Vector2(text_x + gk.x + 8 * u, row_y + 8 * u), "換船", 22 * u, Color("6f6a60"))
 		"home":
 			_icon_badge(c, bc, 29 * u, "home")
 			_text(c, Vector2(text_x, o.y + 58 * u), "家豪的家", 32 * u, INK)
-			_bubble_button(c, u, r, "重溫那場夢", Color("fff1c9"), Color("b98a4a"), INK)      # 次要的按鈕：米色底，不搶「開始」的綠色
+			_bubble_key(c, u, r)
 		_:
 			var ch: Dictionary = st.ch
 			var stage := _st_stage(st)
@@ -3080,25 +3109,38 @@ func _paint_bubble(c: Control, u0: float) -> void:
 					_star_row(c, Vector2(text_x + 44 * u, row_y), 15 * u, stars)
 				else:
 					# 沒有三星制度的大關：過一關＝一顆星
+					# 沒有三星制度的大關：一顆星，金色＝過關、灰色＝還沒（不用再寫字）
 					_star(c, Vector2(text_x + 14 * u, row_y), 15 * u, GOLD if cleared else Color(0.85, 0.81, 0.73), Color("8a6410") if cleared else Color(0.62, 0.58, 0.52))
-					_text(c, Vector2(text_x + 36 * u, row_y + 8 * u), "過關" if cleared else "未過關", 22 * u, Color("3c7d3c") if cleared else Color("6f6a60"))
-				_bubble_button(c, u, r, "開始", GREEN, Color("2f7a2f"))
-
-## 世界地圖上島牌要寫的東西：{"title", "col", "stat": "13/18"（沒有就空白）, "starred", "done": 全破, "kind": "hub"／"isle"／"locked"}
+				_bubble_key(c, u, r)
 func _tag_info(e: int) -> Dictionary:
 	var ent: Dictionary = entries[e]
 	var todo := _next_station(e) >= 0
 	if _is_hub(e):
 		var t := _hub_total()
 		return {"title": HUB_TITLE, "col": HUB_COLOR, "stat": ("%d/%d" % [t[0], t[1]]) if int(t[1]) > 0 else "", "starred": false,
-			"done": int(t[1]) > 0 and int(t[0]) >= int(t[1]), "kind": "hub", "fresh": todo}
+			"done": int(t[1]) > 0 and int(t[0]) >= int(t[1]), "kind": "hub", "fresh": todo,
+			"frac": float(t[0]) / float(t[1]) if int(t[1]) > 0 else -1.0}
 	var ch: Dictionary = ent.ch
 	if not _playable(ch):
 		return {"title": "？？？", "col": LOCKED, "stat": "", "starred": false, "done": false, "kind": "locked", "fresh": false}
 	var t2 := _star_total(ch)
 	var need := _gate_need(ch)
-	return {"title": String(ch.title), "col": _color_of(ent), "stat": ("還差 %d 根羽毛" % need) if need > 0 else "%d/%d" % [t2[0], t2[1]], "starred": true,
-		"done": int(t2[1]) > 0 and int(t2[0]) >= int(t2[1]), "kind": "isle", "fresh": todo, "gate": need}
+	# 還差幾根羽毛才能上島：不寫字，島牌上畫鎖頭＋幾根空羽毛（stat 留空）
+	return {"title": String(ch.title), "col": _color_of(ent), "stat": "" if need > 0 else "%d/%d" % [t2[0], t2[1]], "starred": true,
+		"done": int(t2[1]) > 0 and int(t2[0]) >= int(t2[1]), "kind": "isle", "fresh": todo, "gate": need,
+		"frac": float(t2[0]) / float(t2[1]) if int(t2[1]) > 0 else -1.0}
+
+## 「還差幾根羽毛才能上島」的圖示：鎖頭＋幾根空羽毛（不寫字）。right 是右邊緣的中點，回傳寬度
+func _gate_width(s: float, need: int) -> float:
+	return 26.0 * s + need * 15.0 * s
+
+func _gate_mark(c: Control, right: Vector2, s: float, need: int) -> float:
+	var w := _gate_width(s, need)
+	var x := right.x - w
+	_lock_icon(c, Vector2(x + 10 * s, right.y + 1 * s), 11 * s, Color("8a857a"))
+	for i in need:
+		_feather(c, Vector2(x + 30 * s + 15 * s * i, right.y + 12 * s), 24 * s, 0.32, Color("8a857a"), false)
+	return w
 
 ## 主島上的關卡：[過了幾關, 一共幾關]
 func _hub_total() -> Array:
@@ -3154,6 +3196,16 @@ func _paint_tags(c: Control, u: float) -> void:
 		if not lside and absf(wc.x - hubc.x) > 20.0:
 			anchor.x += signf(wc.x - hubc.x) * (76.0 if on else 46.0) * u      # 東西兩邊的島：島牌往外挪一點，讓出中間給主島（和碼頭）
 		var ax := anchor.x
+		# 沒選到的島：只畫圓徽章＋一圈星星進度（名字和數字等滑鼠移上去、或選到它再出現）
+		var mini_r := 24.0 * u
+		var mini_c := anchor + (Vector2(-mini_r - tail, 0) if lside else Vector2(0, -mini_r - tail))
+		if not on and mouse.distance_to(mini_c) > mini_r + 10.0 * u:
+			_paint_mini_tag(c, u, e, info, mini_c, mini_r, e == hint)
+			_tag_rects[e] = Rect2(mini_c - Vector2.ONE * (mini_r + 8.0 * u), Vector2.ONE * (mini_r + 8.0 * u) * 2.0)
+			continue
+		var gate := int(info.get("gate", 0))
+		if gate > 0:
+			bw += _gate_width(s, gate) + 16.0 * s
 		var r := Rect2(Vector2(anchor.x - bw * 0.5, anchor.y - bh - tail + bob), Vector2(bw, bh))
 		if lside:
 			r.position = Vector2(anchor.x - tail - bw, anchor.y - bh * 0.5 + bob)
@@ -3208,7 +3260,9 @@ func _paint_tags(c: Control, u: float) -> void:
 		var tcol := INK if kind != "locked" else Color("7d776c")
 		_text(c, Vector2(r.position.x + 66 * s, r.position.y + 30 * s + ts * 0.36), title, ts, tcol)
 		if e == hint:
-			_next_banner(c, r, maxf(s, 0.9 * u) * 0.92)
+			_next_mark(c, r.position + Vector2(r.size.x - 6 * s, 4 * s), s)       # 下一站：跟島上「下一關」同一顆紅色驚嘆號
+		if gate > 0:
+			_gate_mark(c, Vector2(r.position.x + 66 * s + tw + 16 * s + _gate_width(s, gate), r.position.y + 30 * s), s, gate)
 		if stat != "":
 			var sx := r.position.x + 66 * s + tw + 16 * s
 			var chip := Rect2(Vector2(sx, r.position.y + 14 * s), Vector2(sw, 32 * s))
@@ -3225,8 +3279,6 @@ func _paint_tags(c: Control, u: float) -> void:
 			var gr := Rect2(Vector2(r.position.x + 12 * s, r.position.y + 57 * s), Vector2(bw - 24 * s, 43 * s))
 			gr = Rect2(gr.get_center() - gr.size * 0.5 * pulse, gr.size * pulse)
 			var shut := int(info.get("gate", 0)) > 0
-			if shut:
-				label = "登島看看"
 			c.draw_style_box(_box(LOCKED if shut else GREEN, LOCKED_EDGE if shut else Color("2f7a2f"), 20 * s, 3.0, false), gr)
 			var lw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(24 * s)).x
 			var x0 := gr.get_center().x - (lw + 10 * s + ks.x) * 0.5
@@ -3236,6 +3288,36 @@ func _paint_tags(c: Control, u: float) -> void:
 			UIStyle.draw_keycap(c, Vector2(x0 + lw + 10 * s, gr.get_center().y - ks.y * 0.5), "Enter", 14 * s)
 			_go_rect = gr
 		_tag_rects[e] = r
+
+## 沒選到的島：一顆圓徽章（跟島牌上的同一個圖案）＋外圈的星星進度，還沒能上的島右下角掛一個小鎖頭
+func _paint_mini_tag(c: Control, u: float, e: int, info: Dictionary, bc: Vector2, br: float, next: bool) -> void:
+	var kind := String(info.kind)
+	var col: Color = info.col
+	c.draw_circle(bc + Vector2(0, 4) * u, br + 5.0 * u, Color(0, 0, 0, 0.22))
+	c.draw_circle(bc, br + 5.0 * u, PAPER)
+	var frac := float(info.get("frac", -1.0))
+	if frac >= 0.0:
+		c.draw_arc(bc, br + 2.5 * u, 0.0, TAU, 40, Color(PAPER_EDGE, 0.9), 4.0 * u, true)
+		if frac > 0.0:
+			c.draw_arc(bc, br + 2.5 * u, -PI * 0.5, -PI * 0.5 + TAU * frac, 40, GOLD, 4.5 * u, true)
+	if kind == "hub":
+		c.draw_circle(bc, br * 0.92, col.darkened(0.12))
+		c.draw_circle(bc, br * 0.8, col.lightened(0.25))
+		_house(c, bc + Vector2(0, br * 0.08), br / 36.0, col.darkened(0.55), col.lightened(0.25))
+	elif kind == "locked":
+		c.draw_circle(bc, br * 0.92, Color("efece4"))
+		_lock_icon(c, bc + Vector2(0, 2 * u), 15 * u, Color("8a857a"))
+	else:
+		_island_badge(c, entries[e].ch, bc, br * 0.92, col)
+		if bool(info.done):
+			_crown(c, bc + Vector2(0, -br - 7.0 * u), u * 0.75)
+		if _ch_cleared(entries[e].ch):
+			_feather(c, bc + Vector2(br * 0.55, br * 0.95), 22.0 * u, 0.5, _feather_col(entries[e].ch))
+	if int(info.get("gate", 0)) > 0:
+		c.draw_circle(bc + Vector2(br * 0.72, br * 0.72), 11 * u, PAPER)
+		_lock_icon(c, bc + Vector2(br * 0.72, br * 0.78), 8 * u, Color("8a857a"))
+	if next:
+		_next_mark(c, bc + Vector2(br * 0.8, -br * 0.9), u * 0.8)
 
 ## 南北的分界線（海面上一道手繪虛線，經過主島時斷開）和兩區的名字（左邊靠分界線，北在上、南在下）
 func _paint_regions(c: Control, u: float) -> void:
@@ -3278,9 +3360,7 @@ func _paint_regions(c: Control, u: float) -> void:
 		var info: Dictionary = REGION_INFO[key]
 		var up: bool = key == "north"
 		var nm := String(info.name)
-		var sub := String(info.sub)
 		var ns := 40.0 * u
-		var ss := 19.0 * u
 		var x0 := 52.0 * u
 		var base_y := ly - 30.0 * u if up else ly + 66.0 * u
 		# 字距拉開，像地圖上的地名
@@ -3289,9 +3369,7 @@ func _paint_regions(c: Control, u: float) -> void:
 			c.draw_string_outline(f, Vector2(cx, base_y), ch, HORIZONTAL_ALIGNMENT_LEFT, -1, int(ns), int(9 * u), Color(0.04, 0.16, 0.30, 0.55))
 			c.draw_string(f, Vector2(cx, base_y), ch, HORIZONTAL_ALIGNMENT_LEFT, -1, int(ns), info.col)
 			cx += f.get_string_size(ch, HORIZONTAL_ALIGNMENT_LEFT, -1, int(ns)).x + 10.0 * u
-		var sy := base_y + 30.0 * u
-		c.draw_string_outline(f, Vector2(x0 + 46.0 * u, sy), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, int(ss), int(6 * u), Color(0.04, 0.16, 0.30, 0.5))
-		c.draw_string(f, Vector2(x0 + 46.0 * u, sy), sub, HORIZONTAL_ALIGNMENT_LEFT, -1, int(ss), Color(info.col, 0.92))
+		# 副標（「神獸與冰雪的國度」）拿掉了：雪花／太陽圖示和島的樣子已經說明這一區是什麼
 		# 前面的小圖示：北方一片雪花、南方一顆太陽；再一個指向那一區的箭頭
 		var ic := Vector2(x0 + 18.0 * u, base_y - 13.0 * u)
 		if up:
@@ -3442,14 +3520,32 @@ func _paint_compass(c: Control, u: float) -> void:
 		c.draw_colored_polygon(PackedVector2Array([tip, o, rt]), SHOP_RED.darkened(0.3) if i == 0 else Color(INK, 0.45))
 	_text(c, o + Vector2(-r, -r - 12 * u), "N", 20 * u, SHOP_RED, r * 2.0, HORIZONTAL_ALIGNMENT_CENTER)
 
-## 左上角的大標題（白邊紅字，稍微歪一點）
+## 大標題只在剛到的時候秀：HEAD_HOLD 秒之後花 HEAD_FADE 秒淡出（一直掛著只是佔畫面）
+const HEAD_HOLD := 2.0
+const HEAD_FADE := 0.6
+
+## 大標題現在的透明度（標題的字換了就重新計時）
+func _head_alpha(head: String) -> float:
+	if head != _head_key:
+		_head_key = head
+		_head_t0 = _t
+	return clampf(1.0 - (_t - _head_t0 - HEAD_HOLD) / HEAD_FADE, 0.0, 1.0)
+
+## 標題底下那排小紙片的位置：標題淡出之後往上補到最上面
+func _hud_at(u: float, head: String) -> Vector2:
+	return Vector2(44 * u, lerpf(36.0, 116.0, _head_alpha(head)) * u)
+
+## 左上角的大標題（白邊紅字，稍微歪一點）；剛到的時候秀一下就淡出
 func _headline(c: Control, u: float, head: String, size: float) -> void:
+	var a := _head_alpha(head)
+	if a <= 0.0:
+		return
 	var f := _font()
 	var fs := int(size * u)
 	c.draw_set_transform(Vector2(40 * u, 92 * u), -0.035, Vector2.ONE)
-	c.draw_string_outline(f, Vector2(0, 6 * u), head, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, int(20 * u), Color(0.20, 0.10, 0.06, 0.35))
-	c.draw_string_outline(f, Vector2.ZERO, head, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, int(18 * u), Color(1, 1, 1))
-	c.draw_string(f, Vector2.ZERO, head, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color("e8483a"))
+	c.draw_string_outline(f, Vector2(0, 6 * u), head, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, int(20 * u), Color(0.20, 0.10, 0.06, 0.35 * a))
+	c.draw_string_outline(f, Vector2.ZERO, head, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, int(18 * u), Color(1, 1, 1, a))
+	c.draw_string(f, Vector2.ZERO, head, HORIZONTAL_ALIGNMENT_LEFT, -1, fs, Color(Color("e8483a"), a))
 	c.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
 ## 標題下面的一張小紙片：前面一個圖示（"star"／"check"／""），後面一行字。回傳它的框
@@ -3476,8 +3572,9 @@ func _chip(c: Control, u: float, pos: Vector2, icon: String, label: String, size
 func _paint_hud(c: Control, u: float) -> void:
 	var ent: Dictionary = entries[selected]
 	var ch: Dictionary = ent.ch
-	var at := Vector2(44 * u, 116 * u)
+	var at: Vector2
 	if not _sail.is_empty():
+		at = _hud_at(u, "出海")
 		_headline(c, u, "出海", 62.0)
 		var what := "開船中・%s" % String(_sail.get("name", ""))
 		if bool(_sail.auto):
@@ -3485,6 +3582,7 @@ func _paint_hud(c: Control, u: float) -> void:
 		_chip(c, u, at, "", what, 24.0)
 		return
 	if _zoom > 0.5:
+		at = _hud_at(u, "世界地圖")
 		_headline(c, u, "世界地圖", 62.0)
 		var all := _star_all()
 		var x := at.x
@@ -3494,101 +3592,126 @@ func _paint_hud(c: Control, u: float) -> void:
 		return
 	if _is_hub(selected):
 		# 主島沒有關卡：秀這趟旅程帶回了幾根羽毛
+		at = _hud_at(u, HUB_TITLE)
 		_headline(c, u, HUB_TITLE, 62.0)
 		_feather_chip(c, u, at)
 		return
 	var playable := _playable(ch)
-	_headline(c, u, String(ch.title) if playable else "？？？", 62.0)
+	var head := String(ch.title) if playable else "？？？"
+	at = _hud_at(u, head)
+	_headline(c, u, head, 62.0)
 	if not playable:
 		return
 	# 「★ 7/18」（沒有三星制度的大關：過一關算一顆）
 	var tot := _star_total(ch)
 	_chip(c, u, at, "star", "%d/%d" % [tot[0], tot[1]], 24.0)
 
-## 右上角的圓按鈕底：米色紙片＋陰影；下面掛一顆鍵帽。回傳半徑
-func _round_button(c: Control, u: float, ctr: Vector2, key: String, label: String, bg := PAPER, edge := PAPER_EDGE, pop := 0.0) -> float:
-	var r := 34.0 * u * (1.0 + 0.18 * sin(pop / 0.25 * PI))
-	c.draw_circle(ctr + Vector2(2, 5) * u, r + 3.0 * u, Color(0, 0, 0, 0.25))
-	c.draw_circle(ctr, r + 3.0 * u, edge)
-	c.draw_circle(ctr, r, bg)
+## 右上角的按鈕：不加底框，直接放圖示（白色＋深色描邊，夜空、白雲上都看得到），下面掛一顆鍵帽。
+## 滑鼠移上去：圖示稍微放大，鍵帽旁邊才寫它叫什麼。回傳圖示的縮放
+const ICON_COL := Color("fffaf0")              # 平常的圖示
+const ICON_ON := Color("ffd84a")               # 打開中（正在看地圖、時間面板開著）
+const ICON_OFF := Color("b9b4aa")              # 關掉的（靜音）
+const ICON_EDGE := Color(0.13, 0.09, 0.07, 0.9)
+
+func _corner_button(c: Control, u: float, ctr: Vector2, key: String, label: String, pop := 0.0) -> float:
+	var hover := c.get_local_mouse_position().distance_to(ctr) < 44.0 * u
+	var k := u * (1.0 + 0.18 * sin(pop / 0.25 * PI)) * (1.12 if hover else 1.0)
 	var f := _font()
 	var ks := UIStyle.keycap_size(key, 14 * u)
-	var lw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u)).x
+	if not hover:
+		label = ""
+	var lw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u)).x if label != "" else -5.0 * u
 	var x := ctr.x - (ks.x + 5 * u + lw) * 0.5
-	var y := ctr.y + 34.0 * u + 5.0 * u
+	var y := ctr.y + 30.0 * u
 	UIStyle.draw_keycap(c, Vector2(x, y), key, 14 * u)
-	c.draw_string_outline(f, Vector2(x + ks.x + 5 * u, y + ks.y * 0.5 + 6 * u), label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), int(6 * u), Color(1, 1, 1, 0.9))
-	c.draw_string(f, Vector2(x + ks.x + 5 * u, y + ks.y * 0.5 + 6 * u), label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), INK)
-	return r
+	if label != "":
+		c.draw_string_outline(f, Vector2(x + ks.x + 5 * u, y + ks.y * 0.5 + 6 * u), label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), int(6 * u), Color(1, 1, 1, 0.9))
+		c.draw_string(f, Vector2(x + ks.x + 5 * u, y + ks.y * 0.5 + 6 * u), label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), INK)
+	return k
 
-## 右上角三顆圓按鈕（由右到左）：聲音 V、商店 B、世界地圖 M
+## 畫一個圖示：先一圈深色描邊（往八個方向各偏一點畫），再畫本體
+func _outlined_icon(c: Control, kind: String, ctr: Vector2, k: float, col: Color) -> void:
+	_icon_shape(c, kind, ctr + Vector2(0, 3) * k, k, Color(0, 0, 0, 0.28))        # 影子
+	for i in 8:
+		var a := i * TAU / 8.0
+		_icon_shape(c, kind, ctr + Vector2(cos(a), sin(a)) * 2.4 * k, k, ICON_EDGE)
+	_icon_shape(c, kind, ctr, k, col, true)
+
+## 右上角按鈕的圖示形狀；detail = true 是本體那一次（紅點、紅叉這些小細節只畫在最上面）
+func _icon_shape(c: Control, kind: String, o: Vector2, k: float, col: Color, detail := false) -> void:
+	var w := 3.6 * k
+	match kind:
+		"snd", "snd_off":
+			var s := o + Vector2(-7, 0) * k
+			c.draw_colored_polygon(PackedVector2Array([s + Vector2(-11, -6) * k, s + Vector2(-3, -6) * k, s + Vector2(7, -15) * k,
+				s + Vector2(7, 15) * k, s + Vector2(-3, 6) * k, s + Vector2(-11, 6) * k]), col)
+			if kind == "snd":
+				c.draw_arc(s + Vector2(7, 0) * k, 8.0 * k, -0.9, 0.9, 12, col, w, true)
+				c.draw_arc(s + Vector2(7, 0) * k, 15.0 * k, -0.9, 0.9, 16, col, w, true)
+			else:
+				var xc := o + Vector2(13, 0) * k
+				var xcol := Color("e8483a") if detail else col
+				c.draw_line(xc + Vector2(-6, -6) * k, xc + Vector2(6, 6) * k, xcol, 4.4 * k, true)
+				c.draw_line(xc + Vector2(-6, 6) * k, xc + Vector2(6, -6) * k, xcol, 4.4 * k, true)
+		"shop":
+			c.draw_arc(o + Vector2(0, -15) * k, 5.0 * k, -PI * 0.9, PI * 0.5, 12, col, w, true)
+			c.draw_polyline(PackedVector2Array([o + Vector2(0, -10) * k, o + Vector2(-20, 7) * k, o + Vector2(20, 7) * k, o + Vector2(0, -10) * k]), col, w, true)
+		"map":
+			var m := PackedVector2Array([Vector2(-18, -10), Vector2(-6, -14), Vector2(6, -9), Vector2(18, -13),
+				Vector2(18, 10), Vector2(6, 14), Vector2(-6, 9), Vector2(-18, 13), Vector2(-18, -10)])
+			for i in m.size():
+				m[i] = o + m[i] * k
+			c.draw_polyline(m, col, w, true)
+			c.draw_line(o + Vector2(-6, -14) * k, o + Vector2(-6, 9) * k, col, 3.0 * k, true)
+			c.draw_line(o + Vector2(6, -9) * k, o + Vector2(6, 14) * k, col, 3.0 * k, true)
+			if detail:
+				c.draw_circle(o + Vector2(0.5, 1.0) * k, 3.6 * k, SHOP_RED)
+
+## 右上角的按鈕（由右到左）：聲音 V、商店 B、世界地圖 M
 func _paint_buttons(c: Control, u: float) -> void:
 	var vs := get_viewport().get_visible_rect().size
 	# ---- 聲音：喇叭有聲波＝開、打叉＝關
 	var muted := sound_muted()
-	var ctr := Vector2(vs.x - 62.0 * u, 62.0 * u)
+	var ctr := Vector2(vs.x - 62.0 * u, 56.0 * u)
 	_snd_rect = Rect2(ctr - Vector2(44, 44) * u, Vector2(88, 88) * u)
-	var r := _round_button(c, u, ctr, "V", "聲音", LOCKED if muted else PAPER, LOCKED_EDGE if muted else PAPER_EDGE, _snd_pop)
-	var ink := Color("8a857a") if muted else INK
-	var k := r / 34.0
-	var o := ctr + Vector2(-7, 0) * k
-	c.draw_colored_polygon(PackedVector2Array([o + Vector2(-11, -6) * k, o + Vector2(-3, -6) * k, o + Vector2(7, -15) * k,
-		o + Vector2(7, 15) * k, o + Vector2(-3, 6) * k, o + Vector2(-11, 6) * k]), ink)
-	if muted:
-		var x := ctr + Vector2(13, 0) * k
-		c.draw_line(x + Vector2(-6, -6) * k, x + Vector2(6, 6) * k, Color("d9534f"), 4.0 * k, true)
-		c.draw_line(x + Vector2(-6, 6) * k, x + Vector2(6, -6) * k, Color("d9534f"), 4.0 * k, true)
-	else:
-		c.draw_arc(o + Vector2(7, 0) * k, 8.0 * k, -0.9, 0.9, 12, ink, 3.2 * k, true)
-		c.draw_arc(o + Vector2(7, 0) * k, 15.0 * k, -0.9, 0.9, 16, ink, 3.2 * k, true)
+	var k := _corner_button(c, u, ctr, "V", "聲音", _snd_pop)
+	_outlined_icon(c, "snd_off" if muted else "snd", ctr, k, ICON_OFF if muted else ICON_COL)
 	# ---- 商店：衣架；右下角掛著還能花的星星
 	ctr += Vector2(-118.0 * u, 0)
 	_shop_rect = Rect2(ctr - Vector2(48, 44) * u, Vector2(96, 88) * u)
-	_round_button(c, u, ctr, "B", "商店")
-	_hanger(c, ctr + Vector2(0, -2) * u, u, INK)
+	k = _corner_button(c, u, ctr, "B", "商店")
+	_outlined_icon(c, "shop", ctr + Vector2(0, -2) * u, k, ICON_COL)
 	var label := str(_wallet)
 	var f := _font()
 	var lw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u)).x
-	var chip := Rect2(ctr + Vector2(4, 12) * u, Vector2(lw + 32 * u, 26 * u))
+	var chip := Rect2(ctr + Vector2(10, 4) * u, Vector2(lw + 32 * u, 26 * u))
 	c.draw_style_box(_box(Color("fff1bf"), Color("d9b84a"), 13 * u, 2.0, false), chip)
 	_star(c, chip.position + Vector2(13, 13) * u, 8 * u, GOLD, Color("8a6410"))
 	_text(c, chip.position + Vector2(24 * u, 19 * u), label, 17 * u, INK)
-	# ---- 世界地圖：一張摺起來的地圖；正在看地圖時按鈕是亮的
+	# ---- 世界地圖：一張摺起來的地圖；正在看地圖時圖示是金色的
 	ctr += Vector2(-118.0 * u, 0)
 	_map_rect = Rect2(ctr - Vector2(48, 44) * u, Vector2(96, 88) * u)
-	_round_button(c, u, ctr, "M", "世界地圖", Color("ffe98a") if _map else PAPER, Color("d9b84a") if _map else PAPER_EDGE)
-	# ---- 時間：白天是太陽、晚上是月亮；下面掛現在幾點
-	if _tod_on:
-		var tc := ctr + Vector2(-118.0 * u, 0)
-		_time_rect = Rect2(tc - Vector2(48, 44) * u, Vector2(96, 88) * u)
-		var tbg := Color("ffe98a") if _tod_open else PAPER
-		_round_button(c, u, tc, "T", "時間", tbg, Color("d9b84a") if _tod_open else PAPER_EDGE)
-		if _tod_hour >= 5.5 and _tod_hour < 19.0:
-			c.draw_circle(tc, 9.5 * u, Color("f0a81c"))
-			for ri in 8:
-				var ra := ri * TAU / 8.0
-				c.draw_line(tc + Vector2(cos(ra), sin(ra)) * 14.0 * u, tc + Vector2(cos(ra), sin(ra)) * 20.0 * u, Color("f0a81c"), 3.2 * u, true)
-		else:
-			c.draw_circle(tc + Vector2(-2, 0) * u, 14.0 * u, Color("5d6fb8"))
-			c.draw_circle(tc + Vector2(4, -4) * u, 12.0 * u, tbg)
-		var tl := HubTime.label(_tod_hour)
-		var tw2 := _font().get_string_size(tl, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u)).x
-		var tchip := Rect2(tc + Vector2(-tw2 * 0.5 - 14 * u, 12 * u) + Vector2(-2, 0) * u, Vector2(tw2 + 28 * u, 26 * u))
-		c.draw_style_box(_box(Color("e3e8ff") if (_tod_hour < 5.5 or _tod_hour >= 19.0) else Color("fff1bf"), Color("a9b4e0") if (_tod_hour < 5.5 or _tod_hour >= 19.0) else Color("d9b84a"), 13 * u, 2.0, false), tchip)
-		_text(c, tchip.position + Vector2(14 * u, 19 * u), tl, 17 * u, INK)
-	else:
-		_time_rect = Rect2()
-	var m := PackedVector2Array([Vector2(-18, -10), Vector2(-6, -14), Vector2(6, -9), Vector2(18, -13),
-		Vector2(18, 10), Vector2(6, 14), Vector2(-6, 9), Vector2(-18, 13), Vector2(-18, -10)])
-	for i in m.size():
-		m[i] = ctr + m[i] * u
-	c.draw_polyline(m, INK, 3.2 * u, true)
-	c.draw_line(ctr + Vector2(-6, -14) * u, ctr + Vector2(-6, 9) * u, INK, 2.6 * u, true)
-	c.draw_line(ctr + Vector2(6, -9) * u, ctr + Vector2(6, 14) * u, INK, 2.6 * u, true)
-	c.draw_circle(ctr + Vector2(0.5, 1.0) * u, 3.4 * u, SHOP_RED)
+	k = _corner_button(c, u, ctr, "M", "世界地圖")
+	_outlined_icon(c, "map", ctr, k, ICON_ON if _map else ICON_COL)
+	# 時間按鈕拿掉了：天色本來就跟著電腦的時間走，玩家不需要一顆按鈕來看幾點。
+	# T 鍵還留著（隱藏，給測試和展示用），畫面上不提示
+	_time_rect = Rect2()
+
+## 島上的按鍵提示用過就收：記在 Engine 的 meta（這次開遊戲都記得，進關卡再回來也不會又跳出來）
+## 卡住才提示：IDLE_HINT 秒沒有任何按鍵或滑鼠點擊，用過的提示也全部叫回來
+const KEYS_USED_META := "hub_keys_used"
+const IDLE_HINT := 20.0
+
+func _key_used(id: String) -> bool:
+	return (Engine.get_meta(KEYS_USED_META, {}) as Dictionary).has(id)
+
+func _mark_key(id: String) -> void:
+	var d: Dictionary = Engine.get_meta(KEYS_USED_META, {})
+	d[id] = true
+	Engine.set_meta(KEYS_USED_META, d)
 
 ## 右下角的按鍵提示（一條橫的小紙片，「鍵帽＋做什麼」一組一組排）：
-##   島上：← → 走路／（站點多的島）1~6 直達／M 世界地圖；世界地圖：↑ ← ↓ → 選島／Esc 返回標題。
+##   島上：還沒用過的 ← → 走路／1~6 直達／E 戳一戳（用過就收）；世界地圖：↑ ← ↓ → 選島／Esc 返回標題。
 ##   Enter 寫在泡泡和島牌的按鈕上，這裡不重複。只有一列高，才不會蓋到往右下延伸的路和下一站
 func _paint_keys(c: Control, u: float) -> void:
 	var vs := get_viewport().get_visible_rect().size
@@ -3604,18 +3727,23 @@ func _paint_keys(c: Control, u: float) -> void:
 	elif _zoom > 0.5:
 		items = [[["↑", "←", "↓", "→"], "選島"], [["Esc"], "返回標題"]]
 	else:
+		# 島上：只教還沒用過的按鍵，用過一次那一格就收掉；全部用過整條就不見了。
+		# Enter 寫在泡泡上、M 寫在右上角的地圖按鈕上，這裡不重複（完整的說明在告示牌）
 		var n := int(worlds[selected].n)
+		var all: Array = []
+		# 數字鍵直達（1~6）不提示：站點上沒有編號，「直達」看不出是直達哪裡；
+		# 功能還在（熟練的玩家用），寫在告示牌的操作說明裡
 		if _free_hub():
-			items = [[["W", "A", "S", "D"], "走路"], [["Enter"], "進去"], [["1~%d" % n], "直達"]]
+			all = [[["W", "A", "S", "D"], "走路", "walk"]]
 		else:
-			items = [[["←", "→"], "走路" if n > 1 else "離島"]]
-			if n >= 4:
-				items.append([["1~%d" % n], "直達"])
+			all = [[["←", "→"], "走路" if n > 1 else "離島", "walk"]]
 		if _is_hub(selected):
-			items.append([["E"], "戳一戳"])
-		items.append([["M"], "世界地圖"])
-		if _fishing.active or _dj.active or _journal.is_open():
-			return                     # 釣魚和手帳有自己的按鍵提示
+			all.append([["E"], "戳一戳", "poke"])
+		items = all.filter(func(it): return not _key_used(String(it[2])))
+		if _idle_t > IDLE_HINT:
+			items = all                # 很久沒動（可能卡住了）：全部的提示叫回來，一動就又收掉
+		if items.is_empty() or _fishing.active or _dj.active or _journal.is_open():
+			return                     # 都學會了；或是釣魚和手帳開著（它們有自己的按鍵提示）
 	var ks := 16.0 * u
 	var ts := 20.0 * u
 	var gap := 4.0 * u
@@ -3626,8 +3754,8 @@ func _paint_keys(c: Control, u: float) -> void:
 			w += UIStyle.keycap_size(String(key), ks).x + gap
 		w += 5.0 * u + f.get_string_size(String(it[1]), HORIZONTAL_ALIGNMENT_LEFT, -1, int(ts)).x
 	w += 26.0 * u * (items.size() - 1)
+	# 不墊紙片：鍵帽本身就是一個框，外面再包一層只是框中框。字加白邊，放在畫面上也讀得到
 	var r := Rect2(Vector2(vs.x - w - 58.0 * u, vs.y - 68.0 * u), Vector2(w + 36.0 * u, 48.0 * u))
-	c.draw_style_box(_box(Color(PAPER, 0.94), PAPER_EDGE, 24 * u, 3.0), r)
 	var x := r.position.x + 18.0 * u
 	var cy := r.get_center().y - 1.0 * u
 	for it in items:
@@ -3635,7 +3763,7 @@ func _paint_keys(c: Control, u: float) -> void:
 			x += UIStyle.draw_keycap(c, Vector2(x, cy - cap_h * 0.5), String(key), ks).x + gap
 		x += 5.0 * u
 		var label := String(it[1])
-		_text(c, Vector2(x, cy + ts * 0.36), label, ts, INK)
+		_text_outlined(c, Vector2(x, cy + ts * 0.36), label, ts, INK)
 		x += f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(ts)).x + 26.0 * u
 
 # ================================================================== 選取、移動、開始
@@ -3927,6 +4055,8 @@ func _isle_at(pos: Vector2) -> int:
 	return best
 
 func _unhandled_input(ev: InputEvent) -> void:
+	if (ev is InputEventKey or ev is InputEventMouseButton) and ev.pressed:
+		_idle_t = 0.0
 	if _title != null:
 		return                       # 標題畫面還開著：按鍵都給它
 	if _fishing.active or _dj.active or _journal.is_open():
@@ -3969,12 +4099,22 @@ func _unhandled_input(ev: InputEvent) -> void:
 				elif k >= 0:
 					_free_dash_to(k)
 				else:
+					_mark_key("walk")        # 用滑鼠點地面走路也算學會走路了
 					_free_goto_screen(ev.position)
 			elif k == stage_sel:
 				start_selected()
 			elif k >= 0:
 				walk_to(k)
 	elif ev is InputEventKey and ev.pressed and not ev.echo:
+		if not _map:
+			# 右下角的按鍵提示：用過的那一格收掉
+			match ev.keycode:
+				KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN, KEY_W, KEY_A, KEY_S, KEY_D:
+					_mark_key("walk")
+				KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9:
+					_mark_key("jump")
+				KEY_E:
+					_mark_key("poke")
 		match ev.keycode:
 			KEY_LEFT, KEY_A:
 				_arrow(Vector2(-1, 0))
@@ -4046,6 +4186,7 @@ func _step(d: int) -> void:
 
 func _process(dt: float) -> void:
 	_t += dt
+	_idle_t += dt
 	_tick_hero(dt)
 	_sail_housekeeping(dt)
 	_tod_tick(dt)
@@ -5295,9 +5436,7 @@ func _paint_sail_isle(c: Control, u: float) -> void:
 		var stat := String(info2.stat)
 		if stat != "":
 			_text(c, Vector2(text_x, o.y + 104 * uu), stat, 22 * uu, Color("6f6a60"))
-		_bubble_button(c, uu, r2, "靠岸" if _sail_near != 0 else "回碼頭", GREEN, Color("2f7a2f"))
-
-## 自動航行選單：左邊一張紙，一列一座島，↑↓ 選、Enter 出發
+		_bubble_key(c, uu, r2)
 func _paint_sail_picker(c: Control, u: float) -> void:
 	_sail_rows = []
 	if not bool(_sail.pick):
@@ -5322,7 +5461,9 @@ func _paint_sail_picker(c: Control, u: float) -> void:
 		c.draw_circle(r.position + Vector2(26 * u, r.size.y * 0.5), 8 * u, col.lightened(0.2))
 		_text(c, r.position + Vector2(52 * u, r.size.y * 0.5 + 8 * u), String(info.title), 26 * u, INK)
 		var stat := String(info.stat)
-		if stat != "":
+		if int(info.get("gate", 0)) > 0:
+			_gate_mark(c, Vector2(r.end.x - 16 * u, r.get_center().y), u * 0.8, int(info.gate))
+		elif stat != "":
 			var sw := _font().get_string_size(stat, HORIZONTAL_ALIGNMENT_LEFT, -1, int(20 * u)).x
 			_text(c, r.position + Vector2(r.size.x - sw - 16 * u, r.size.y * 0.5 + 7 * u), stat, 20 * u, Color("6f6a60"))
 

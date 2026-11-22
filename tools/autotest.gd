@@ -328,7 +328,7 @@ func _battle_tests() -> void:
 
 	# 巡邏與偵測區
 	_check("每個農夫前方都有紅色偵測區", bt.farmers.all(func(f): return f.is_boss or f.cone.visible))
-	_check("右上角敵人欄：四列頭像＋血條，老闆（持槍）在最上面", bt._enemy_rows.size() == 4 and bt._enemy_rows[0].fighter.is_boss)
+	_check("右上角敵人欄：一排四個頭像，老闆（頭像有槍徽章）排第一個", bt._enemy_rows.size() == 4 and bt._enemy_rows[0].fighter.is_boss)
 	# 從穀倉門口看進去：胖商人老闆坐在最裡面
 	var dout: Vector3 = world.door_out
 	player.global_position = Vector3(dout.x + 0.5, world.height_at(dout.x, dout.z) + 0.3, dout.z + 4.0)

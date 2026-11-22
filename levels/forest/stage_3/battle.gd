@@ -69,4 +69,4 @@ func _tutorial_steps() -> Array:
 	]
 
 func _prepare_hint() -> String:
-	return "過關：把家豪送進木屋。砍倒加燒掉的樹超過 10 棵就輸　Enter 開始"
+	return "砍倒加燒掉的樹超過 10 棵就輸"      # 目標（救出小紅帽）寫在左上角的目標卡，這裡只補輸的條件

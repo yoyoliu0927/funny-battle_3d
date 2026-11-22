@@ -1629,12 +1629,13 @@ func _gift_card(layer: Node, i: int, bright: bool) -> Array:
 	icon.modulate = Color(1, 1, 1) if live else Color(0.45, 0.45, 0.45)
 	icon.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(icon)
-	if not bright:
-		# 右上角的次數徽章（介紹中的那張大卡片不畫，歸位之後技能欄自己會畫）
+	if not bright and cnt > 0:
+		# 右上角的次數徽章：跟共用技能欄一樣是深色小圓，用完（0）和不限次數（∞）不畫
+		# （介紹中的那張大卡片不畫，歸位之後技能欄自己會畫）
 		var badge := Panel.new()
 		var bb := StyleBoxFlat.new()
-		bb.bg_color = UIStyle.accent() if cnt != 0 else Color(0.55, 0.55, 0.55)
-		bb.border_color = UIStyle.INK
+		bb.bg_color = UIStyle.INK
+		bb.border_color = Color(1, 1, 1, 0.9)
 		bb.set_border_width_all(3)
 		bb.set_corner_radius_all(17)
 		badge.add_theme_stylebox_override("panel", bb)
@@ -1643,7 +1644,7 @@ func _gift_card(layer: Node, i: int, bright: bool) -> Array:
 		badge.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		card.add_child(badge)
 		var num := Label.new()
-		num.text = "∞" if cnt < 0 else str(cnt)
+		num.text = str(cnt)
 		num.add_theme_font_size_override("font_size", 20)
 		num.add_theme_color_override("font_color", Color(1, 1, 1))
 		num.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
