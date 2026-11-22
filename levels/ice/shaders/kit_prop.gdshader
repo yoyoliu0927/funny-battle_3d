@@ -19,7 +19,7 @@ uniform float dark_body = 0.0;
 uniform vec3 body_color : source_color = vec3(0.07, 0.08, 0.12);
 uniform float rim = 0.0;
 uniform vec3 rim_color : source_color = vec3(0.75, 0.88, 1.0);
-instance uniform float base_y = -1000.0;   // 這個模型站的地面高度（ice_world.gd 放模型時填）
+// 地面高度直接用模型自己的位置算（不用 instance uniform：網頁版的 Compatibility 渲染器最多只能放 4096 個，選關地圖會超過而整個畫面變灰）
 
 varying vec3 wp;
 varying vec3 wn;
@@ -28,7 +28,7 @@ varying float hy;
 void vertex() {
 	wp = (MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz;
 	wn = normalize((MODEL_MATRIX * vec4(NORMAL, 0.0)).xyz);
-	hy = wp.y - base_y;
+	hy = wp.y - NODE_POSITION_WORLD.y;
 }
 
 void fragment() {

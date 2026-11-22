@@ -468,14 +468,12 @@ func _on_thin(x: float, z: float, margin := 0.7) -> bool:
 func _restyle(n: Node3D, shadows := true) -> void:
 	if n == null:
 		return
-	var base_y := n.global_position.y if n.is_inside_tree() else -1000.0
 	for m in n.find_children("*", "MeshInstance3D", true, false):
 		var mi := m as MeshInstance3D
 		if mi.mesh == null:
 			continue
 		if not shadows:
 			mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-		mi.set_instance_shader_parameter("base_y", base_y)       # 卡通材質用：離地面越近越暗
 		for i in mi.mesh.get_surface_count():
 			var mat := mi.mesh.surface_get_material(i)
 			match String(mat.resource_name) if mat else "":

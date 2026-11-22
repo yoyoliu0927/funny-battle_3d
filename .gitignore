@@ -4,3 +4,5 @@
 export_presets.cfg
 # macOS
 .DS_Store
+# 網頁版匯出的檔案（不要放進 git）
+build/

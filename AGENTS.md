@@ -35,6 +35,10 @@
 - 每一畫面都會跑的函式裡不要 `find_child()`、不要 `XxxMaterial.new()`；特效用 `puff()`、`fx_material()`、`fx_sphere()`。
 - 家豪的新行為用 `_tick_bird_custom()`、`_on_bird_ate()`、`_bird_pose_custom()`、`_on_primary_click()`，不要整個覆寫 `_tick_bird()`、`_bird_pose()`、`_unhandled_input()`。
 - 目標平台是網頁（Compatibility 渲染器）：不要依賴 SSAO、體積霧、SDFGI；一個小關的點光源不超過 4 盞、不開陰影。
+- 著色器不要用 `instance uniform`、腳本不要呼叫 `set_instance_shader_parameter()`：網頁版全場最多 4096 個，超過整個畫面會變灰（選關地圖會把四個大關的島一起擺出來，很容易超過）。
+- 很多個不會動的小東西（樹葉、花瓣、石頭）合併成一個網格（`merge_meshes()`）或用 `MultiMeshInstance3D`，不要每個都 `MeshInstance3D.new()`；一個小關、一座地圖上的島，繪製次數盡量在幾百次以內。
+- 每一畫面都會跑的地方不要讀寫檔案（`ConfigFile.load()`），讀一次存起來。
+- 細節和匯出步驟見 `docs/開發守則.md` 的「網頁版（itch.io）要注意的事」。
 - 註解和畫面上的文字用繁體中文。
 - 路徑一律寫 `res://levels/<名字>/...` 的完整路徑。
 
