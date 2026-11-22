@@ -102,7 +102,7 @@ var _acc := 0.0
 var interpolate_visuals := true  # 角色的畫面位置在兩步之間補間（慢動作、高更新率螢幕才不會一格一格跳）；關卡自己擺角色節點時可以關掉
 var _vis_prev := {}            # 每個角色上一步的畫面位置與朝向 {Fighter: [Vector3, yaw]}
 var _cone_key := {}            # 每個敵人的偵測扇形上次是照什麼畫的（沒變就不重畫）
-var _fx_mats := {}             # 特效共用的材質（依顏色）
+var _shared_fx_mats := {}             # 特效共用的材質（依顏色）
 var _fx_spheres := {}          # 特效共用的球（依半徑）
 var _slow_owner: Variant = null  # 現在是誰在用慢動作（見 begin_slow_motion）
 var _pan_acc := 0.0
@@ -878,13 +878,13 @@ func _exit_tree() -> void:
 
 ## 特效共用的材質：不受光、半透明、同一個顏色只做一份（不要每放一次特效就 new 一份）
 func fx_material(color: Color) -> StandardMaterial3D:
-	if not _fx_mats.has(color):
+	if not _shared_fx_mats.has(color):
 		var m := StandardMaterial3D.new()
 		m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 		m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 		m.albedo_color = color
-		_fx_mats[color] = m
-	return _fx_mats[color]
+		_shared_fx_mats[color] = m
+	return _shared_fx_mats[color]
 
 ## 特效共用的球：同一個半徑只做一份
 func fx_sphere(radius: float) -> SphereMesh:
