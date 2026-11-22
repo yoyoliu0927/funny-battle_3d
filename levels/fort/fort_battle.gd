@@ -5035,9 +5035,8 @@ func _build_hud() -> void:
 	phase_box.visible = false
 	# 右下角：只留「H ?」。R 重試、M 地圖會中斷這一局，放在 Esc 選單裡（按 R／M 照樣有效）
 	var corner := PanelContainer.new()
-	UIStyle.slip(corner, Vector2(12, 6))
+	corner.add_theme_stylebox_override("panel", StyleBoxEmpty.new())   # 不墊紙片：鍵帽本身就是框，外面再包一層是框中框
 	corner.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	corner.modulate.a = 0.85
 	corner.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	corner.offset_right = -20
 	corner.offset_bottom = -22
@@ -5049,6 +5048,7 @@ func _build_hud() -> void:
 	crow.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	corner.add_child(crow)
 	crow.add_child(UIStyle.key_hint("H", "?", 13))
+	UIStyle.outline_hint_labels(crow)
 	_start_btn = _make_start_button()
 	layer.add_child(_start_btn)
 	# 第一次玩：教學關掉後，在神蹟欄上方提示一次「先試著放一個」，放成功就收起來
@@ -5741,6 +5741,7 @@ func _build_intro_caption() -> void:
 	_intro_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	box.add_child(_intro_body)
 	var hint := UIStyle.key_hint("Space", "跳過")
+	UIStyle.outline_hint_labels(hint)      # 沒有紙片底：白字＋深色描邊
 	hint.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	hint.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 	hint.grow_vertical = Control.GROW_DIRECTION_BEGIN

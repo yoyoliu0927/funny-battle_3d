@@ -2458,10 +2458,10 @@ func _box(bg: Color, edge: Color, radius: float, border := 3.0, shadow := true) 
 func _text(c: Control, pos: Vector2, t: String, size: float, col: Color, w := -1.0, align := HORIZONTAL_ALIGNMENT_LEFT) -> void:
 	c.draw_string(_font(), pos, t, align, w, int(size), col)
 
-## 沒有紙片底的字：加一圈白邊，直接放在 3D 畫面上也讀得到
-func _text_outlined(c: Control, pos: Vector2, t: String, size: float, col: Color) -> void:
-	c.draw_string_outline(_font(), pos, t, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size), maxi(4, int(size * 0.32)), Color(1, 1, 1, 0.92))
-	c.draw_string(_font(), pos, t, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size), col)
+## 沒有紙片底的字：白字＋深色描邊（遊戲常見的做法），白天的草地、晚上的夜空上都讀得到。col 不用了，留著相容
+func _text_outlined(c: Control, pos: Vector2, t: String, size: float, _col := INK) -> void:
+	c.draw_string_outline(_font(), pos, t, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size), maxi(5, int(size * 0.34)), Color(INK, 0.9))
+	c.draw_string(_font(), pos, t, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size), Color("fffaf0"))
 
 ## 字太寬就縮小字級（不截斷）
 func _fit(t: String, size: float, w: float, min_size := 11.0) -> float:
@@ -2709,17 +2709,19 @@ func _feather_chip(c: Control, u: float, pos: Vector2) -> Rect2:
 	var lw := _font().get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(24 * u)).x
 	var step := 24.0 * u
 	var r := Rect2(pos, Vector2(20 * u + step * fs.size() + 10 * u + lw + 16 * u, 50 * u))
-	c.draw_style_box(_box(PAPER, PAPER_EDGE, 14 * u, 3.0), r)
+	# 不墊紙片：羽毛和數字直接放在畫面上（數字加白邊）
 	for i in fs.size():
 		var f: Dictionary = fs[i]
 		var fp := r.position + Vector2(22 * u + step * i, 42 * u)
+		# 沒墊紙片：每根羽毛後面先畫一根大一點的淡白羽毛當光暈，夜空上也看得到空羽毛的輪廓
+		_feather(c, fp + Vector2(-1.5, 2.0) * u, 36 * u, 0.32, Color(1, 1, 1, 0.55), true)
 		if bool(f.get("final", false)) and not bool(f.have):
 			# 最後一根在最終章拿：金色虛線框＋一閃一閃的小星光
 			_feather(c, fp, 32 * u, 0.32, GOLD, false, true)
 			_twinkle(c, fp + Vector2(14 * u, -30 * u), 6.0 * u * (0.7 + 0.3 * sin(_t * 3.0)), Color(1, 0.86, 0.3))
 		else:
 			_feather(c, fp, 32 * u, 0.32, f.col, bool(f.have))
-	_text(c, Vector2(r.position.x + 20 * u + step * fs.size() + 10 * u, r.position.y + 25 * u + 24 * u * 0.36), label, 24 * u, INK)
+	_text_outlined(c, Vector2(r.position.x + 20 * u + step * fs.size() + 10 * u, r.position.y + 25 * u + 24 * u * 0.36), label, 24 * u, INK)
 	return r
 
 func _paint_isle_layer(c: Control) -> void:
@@ -3186,11 +3188,11 @@ func _paint_tags(c: Control, u: float) -> void:
 		var sw := (f.get_string_size(stat, HORIZONTAL_ALIGNMENT_LEFT, -1, int(ss)).x + 34.0 * s) if stat != "" else 0.0
 		var bw := 66.0 * s + tw + (sw + 16.0 * s if stat != "" else 0.0) + 22.0 * s
 		var can_go := on and kind != "locked" and _jump.is_empty()
-		var label := "進農莊" if kind == "hub" else "登島"
-		var go_w := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(24 * s)).x + UIStyle.keycap_size("Enter", 14 * s).x + 58 * s
+		# 選到的島：名字那一列最後面一顆 Enter 鍵帽（不再另外一列綠色「登島」按鈕：卡片裡再包按鈕又包鍵帽是框中框）
+		var go_ks := UIStyle.keycap_size("Enter", 17 * s)
 		if can_go:
-			bw = maxf(bw, go_w + 24 * s)
-		var bh := 60.0 * s + (52.0 * s if can_go else 0.0)
+			bw += go_ks.x + 14.0 * s
+		var bh := 60.0 * s
 		var tail := 16.0 * s
 		var bob := sin(_t * 2.2 + e) * 2.5 * u if on else 0.0
 		if not lside and absf(wc.x - hubc.x) > 20.0:
@@ -3274,19 +3276,12 @@ func _paint_tags(c: Control, u: float) -> void:
 				_star(c, chip.position + Vector2(15, 16) * s, 9 * s, GOLD, Color("8a6410"))
 			_text(c, chip.position + Vector2(28 * s, 23.5 * s), stat, ss, Color("6f6a60") if gated else INK)
 		if can_go:
-			var ks := UIStyle.keycap_size("Enter", 14 * s)
-			var pulse := 1.0 if int(info.get("gate", 0)) > 0 else 1.0 + sin(_t * 4.0) * 0.025
-			var gr := Rect2(Vector2(r.position.x + 12 * s, r.position.y + 57 * s), Vector2(bw - 24 * s, 43 * s))
-			gr = Rect2(gr.get_center() - gr.size * 0.5 * pulse, gr.size * pulse)
-			var shut := int(info.get("gate", 0)) > 0
-			c.draw_style_box(_box(LOCKED if shut else GREEN, LOCKED_EDGE if shut else Color("2f7a2f"), 20 * s, 3.0, false), gr)
-			var lw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(24 * s)).x
-			var x0 := gr.get_center().x - (lw + 10 * s + ks.x) * 0.5
-			if shut:
-				_lock_icon(c, Vector2(x0 - 16 * s, gr.get_center().y + 1 * s), 11 * s, Color("8a857a"))
-			_text(c, Vector2(x0, gr.get_center().y + 8.5 * s), label, 24 * s, Color("6f6a60") if shut else Color(1, 1, 1))
-			UIStyle.draw_keycap(c, Vector2(x0 + lw + 10 * s, gr.get_center().y - ks.y * 0.5), "Enter", 14 * s)
-			_go_rect = gr
+			var shut := int(info.get("gate", 0)) > 0          # 還不能上的島：鍵帽不跳（還是可以登島看看）
+			var kp := Vector2(r.end.x - 14 * s - go_ks.x, r.position.y + 30 * s - go_ks.y * 0.5)
+			if not shut:
+				kp.y += sin(_t * 4.0) * 1.5 * s
+			UIStyle.draw_keycap(c, kp, "Enter", 17 * s)
+			_go_rect = Rect2(kp, go_ks).grow(10 * s)
 		_tag_rects[e] = r
 
 ## 沒選到的島：一顆圓徽章（跟島牌上的同一個圖案）＋外圈的星星進度，還沒能上的島右下角掛一個小鎖頭
@@ -3554,7 +3549,7 @@ func _chip(c: Control, u: float, pos: Vector2, icon: String, label: String, size
 	var lw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(size * u)).x
 	var lead := 48.0 * u if icon != "" else (26.0 * u if bar.a > 0.0 else 18.0 * u)
 	var r := Rect2(pos, Vector2(lead + lw + 16 * u, 50 * u))
-	c.draw_style_box(_box(PAPER, PAPER_EDGE, 14 * u, 3.0), r)
+	# 不墊紙片：圖示＋數字直接放在畫面上（字加白邊），左上角不再是一排小框
 	if bar.a > 0.0:
 		c.draw_rect(Rect2(r.position + Vector2(5, 5), Vector2(10 * u, r.size.y - 12)), bar)
 	var ic := r.position + Vector2(26 * u, 24 * u)
@@ -3565,7 +3560,7 @@ func _chip(c: Control, u: float, pos: Vector2, icon: String, label: String, size
 		_check_icon(c, ic, 14 * u, Color(1, 1, 1))
 	elif icon == "flag":
 		_pennant(c, ic + Vector2(2 * u, 0), 13 * u)
-	_text(c, r.position + Vector2(lead, 25 * u + size * u * 0.36), label, size * u, INK)
+	_text_outlined(c, r.position + Vector2(lead, 25 * u + size * u * 0.36), label, size * u, INK)
 	return r
 
 ## 左上角：島上是島名（大標題）＋這座島的進度；世界地圖是「世界地圖」＋全部的進度（星星和過關數分開算）

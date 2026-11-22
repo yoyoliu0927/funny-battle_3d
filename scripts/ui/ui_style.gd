@@ -231,6 +231,19 @@ static func key_hint(key: String, text := "", size := 18, color := INK) -> HBoxC
 		row.add_child(t)
 	return row
 
+## 按鍵提示不墊紙片時用：把 node 底下「說明文字」的 Label 改成白字＋深色描邊（鍵帽本身有底色，不用改），
+## 直接放在 3D 畫面上，白天晚上都讀得到
+static func outline_hint_labels(node: Node) -> void:
+	for ch in node.get_children():
+		if ch is Label and not (ch as Label).has_theme_stylebox_override("normal"):
+			var lbl := ch as Label
+			var s: LabelSettings = lbl.label_settings.duplicate() if lbl.label_settings else ls(18)
+			s.font_color = Color("fffaf0")
+			s.outline_size = maxi(5, roundi(s.font_size * 0.34))
+			s.outline_color = Color(INK, 0.9)
+			lbl.label_settings = s
+		outline_hint_labels(ch)
+
 ## 操作說明的表格：rows 是 [[按鍵, 做什麼], ...]，排成 pairs 欄（先由上往下排滿一欄再換欄）；
 ## 每一列是「鍵帽靠右＋說明靠左」，所以每欄的鍵帽和字各自對齊
 static func key_grid(rows: Array, pairs := 2, size := 16) -> GridContainer:

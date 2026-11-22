@@ -1902,9 +1902,8 @@ func _build_hud() -> void:
 	# 右下角：只留「H ?」（操作說明）；Tab 俯看只教到用過一次為止。
 	# R 重試、M 地圖不掛在畫面上：會中斷這一局，放在 Esc 選單裡（按 R／M 照樣有效）
 	var corner := PanelContainer.new()
-	UIStyle.slip(corner, Vector2(12, 6))
+	corner.add_theme_stylebox_override("panel", StyleBoxEmpty.new())   # 不墊紙片：鍵帽本身就是框，外面再包一層是框中框
 	corner.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	corner.modulate.a = 0.85
 	corner.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
 	corner.offset_right = -20
 	corner.offset_bottom = -22
@@ -1919,6 +1918,7 @@ func _build_hud() -> void:
 	if use_view_toggle and not Engine.has_meta(TAB_USED_META):
 		_tab_hint = UIStyle.key_hint("Tab", "俯看", 13)
 		crow.add_child(_tab_hint)
+	UIStyle.outline_hint_labels(crow)
 	_corner_keys = corner
 	corner.visible = show_corner_keys
 	# 最上面那一整行操作文字收起來（跟要塞一樣；內容還是留著給 H 的操作表讀）
