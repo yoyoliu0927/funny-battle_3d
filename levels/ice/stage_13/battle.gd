@@ -40,3 +40,30 @@ func _level_setup() -> void:
 	show_names_always = true
 	win_line = "……我只是去吃飯"
 	caught_line = "……飯還沒吞"
+
+## 新手教學（圖解）：薄冰（雞不破、人會破）→ 拿飼料 → 放黃線旁 → 飼料也會改守衛撲的方向 → 開始
+func _tutorial_steps() -> Array:
+	var thin := func(k: int):
+		var c: Vector2 = world.thin_spots[k].center
+		return ground(Vector3(c.x, 0, c.y))
+	return [
+		{"pic": ["hero", "plus", "thin", "eq", "ok"], "say": "雞踩薄冰沒事",
+			"spot": [thin.bind(0)], "r": 2.0, "wait": "next"},
+		{"pic": ["who:阿土", "plus", "thin", "eq", "hole"], "say": "人一踩就破成冰洞",
+			"spot": [thin.bind(1)], "r": 1.6, "wait": "next"},
+		{"pic": ["key:2", "to", "feed"], "say": "按 2 拿起飼料",
+			"spot": ["slot:1"], "wait": func(): return selected == 1,
+			"help_after": 8.0, "help_say": "也可以滾滑鼠滾輪換道具"},
+		{"pic": ["feed", "to", "line_y"], "say": "放在黃線旁，家豪會繞過去",
+			"spot": [tut_bird_seg(0)], "r": 2.6, "wait": func(): return tut_used("bait") >= 1,
+			"help_after": 14.0, "help_pic": ["aim", "plus", "lmb"], "help_say": "綠圈出現時，按左鍵放下"},
+		{"pic": ["feed", "to", "line_y", "to", "turn"], "say": "黃線一彎，守衛撲的方向也跟著轉",
+			"spot": [tut_head("守衛"), _lunge_end], "r": 1.8, "wait": "next"},
+		{"pic": [], "say": "放好就按開始（放錯按 R 重來）",
+			"spot": ["start"], "wait": "start"},
+	]
+
+## 守衛撲過去的終點（第 5 步教學的聚光燈照這裡）
+func _lunge_end():
+	var g := tut_enemy("守衛")
+	return null if g == null else lunge_point(g)

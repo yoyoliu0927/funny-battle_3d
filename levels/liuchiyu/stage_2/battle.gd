@@ -15,7 +15,9 @@ const WindItem := preload("res://levels/liuchiyu/items/wind_item.gd")
 ## 枯樹的位置和高度在 island_world.gd 的 GROVE_TREES、GROVE_H（別的小關也要照樣種出來，所以放在那邊）
 const BRIDGE_TREE := 3          # 第幾棵枯樹可以當橋（GROVE_TREES 裡的編號）：長在東邊海岸，朝外海的礁石倒就搭得上去
 const TREE_H := 12.0           # 枯樹多高（倒下來可以壓到這麼遠；要跟 island_world.gd 的 GROVE_H 一樣）
-const POOL_BIRD_DAMAGE := 5.0  # 家豪剛好在水灘裡被電到扣多少血（最多電到剩 1 滴）；他平常進不了水灘
+const POOL_BIRD_DAMAGE := 4.0  # 家豪站在水灘裡被電到扣多少血（2 顆心；最多電到剩 1 滴，不會被自己人電死）
+## 家豪被電到的時候說的話
+const ZAP_LINE := "要變烤雞了..."
 const BRIDGE_ANGLE := 60.0     # 風的方向和「樹到礁石」的方向差幾度以內，樹就會倒在礁石上
 const TRUNK_BLOCK := 0.7       # 站著的樹擋路的半徑
 const BOLT_REACH := 4.0        # 雷劈在離樹多近才算劈中
@@ -143,8 +145,28 @@ func _exit_path() -> Array[Vector3]:
 
 # ---------------------------------------------------------------- 枯樹
 
+## 進這一小關時預設選「雷」（不管道具清單怎麼排）。
+## 剛進來的那一下不理滾輪和觸控板的滑動：從第一小關飛過來時手指還在滑（或觸控板的慣性滑動），
+## 會把選好的雷又換成風。數字鍵不受影響。
+const DEFAULT_ITEM := "thunder"
+const ENTER_GUARD_MS := 1200
+var _enter_ms := 0
+
+func _select_default() -> void:
+	for i in items.size():
+		if items[i].id == DEFAULT_ITEM:
+			select_skill(i)
+			return
+
+func _wheel_step(d: int) -> void:
+	if Time.get_ticks_msec() - _enter_ms < ENTER_GUARD_MS:
+		return
+	super(d)
+
 func _level_setup() -> void:
 	super()
+	_enter_ms = Time.get_ticks_msec()
+	_select_default()
 	for k in world.GROVE_TREES.size():
 		var made: Dictionary = world.make_dead_tree_node(TREE_H, k, true)        # 高一點、分枝少的版本
 		var node: Node3D = made.node
@@ -207,7 +229,7 @@ func on_thunder(p: Vector3) -> void:
 		best.smoke = smoke
 		log_event("枯樹被雷劈開了")
 	# 劈在崖壁上那棵枯樹：整棵倒下來
-	if not _gate.is_empty() and _gate.fall < 0.0 and world.gate_tree_dist(p) <= BOLT_REACH + 1.0:
+	if not _gate.is_empty() and _gate.fall < 0.0 and _hit_gate_tree(p):
 		_gate.fall = 0.0
 		(_gate.mat as ShaderMaterial).set_shader_parameter("burnt", 1.0)
 		log_event("崖壁上的枯樹被雷劈下來")
@@ -216,6 +238,7 @@ func on_thunder(p: Vector3) -> void:
 	for pool in world.zone_pools(2):
 		if flat_dist(p, pool.center) > float(pool.r) * 1.3 + 0.8:
 			continue        # 準心指在這一灘上才算
+		pool_sparks(2, p)        # 水面爬滿白色的小電光
 		var n := 0
 		for f in enemies:
 			if f.alive() and f.kind != "gate" and flat_dist(f.pos, pool.center) <= float(pool.r) * 1.3 and world.in_pool(2, f.pos.x, f.pos.z):
@@ -229,14 +252,15 @@ func on_thunder(p: Vector3) -> void:
 		if bird.alive() and bird.air < 0.5 and flat_dist(bird.pos, pool.center) <= float(pool.r) * 1.3 and world.in_pool(2, bird.pos.x, bird.pos.z):
 			log_event("家豪在水裡被電到")
 			hit_bird(minf(POOL_BIRD_DAMAGE, maxf(bird.hp - 1.0, 0.0)), true, pool.center)
+			say_as(bird, ZAP_LINE)
+			stun_bird()        # 僵在原地抖一下，看得出被電到了
 		if n == 0:
 			log_event("雷劈在水灘上，水裡沒有人")
 
-## 家豪不踩水灘：走到水邊會被擋住（沿著邊緣繞過去），被打飛也不會掉進去
+## 家豪現在會直接走進水灘（水只到腳踝）：他站在水裡的時候雷劈那一灘，他也會被電到。
+## 以前會沿著岸邊繞過去（island_battle.gd 的 _keep_bird_dry()），這一小關不用了；函式留著，呼叫的地方不用改
 func _keep_out_of_pools() -> void:
-	if _try_state == 2:
-		return        # 正被守門員嚇得飛回來
-	_keep_bird_dry(2, 1.0 / 60.0)
+	pass
 
 ## 風吹過來（按住吹的每一步，風道具會叫這個）：劈開的枯樹順著風向倒下去
 func on_wind(p: Vector3, dir: Vector3, _dt: float) -> void:
@@ -415,9 +439,38 @@ func _aim_targets() -> Array:
 	for t in _trees:
 		if t.fall < 0.0:
 			out.append({"pos": t.pos, "h": TREE_H, "r": 2.4})
-	if not _gate.is_empty() and _gate.fall < 0.0:
-		out.append({"pos": world.gate_tree_mid(), "h": 10.0, "r": 3.2})
 	return out
+
+## 崖壁上那棵斜著長的枯樹：準心要真的指在樹幹附近才算指到。
+## 原本是「一根 10 公尺高、半徑 3.2 公尺的柱子」加上「雷劈的地方離樹的正下方 5 公尺以內」都算，
+## 所以準心在它下面一大片地上、崖壁上都劈得到。現在改成量「視線」離「樹幹這條斜線」多近。
+const GATE_AIM_R := 1.7        # 視線離樹幹多近算指到（公尺）
+
+func _aim_on_gate() -> bool:
+	if _gate.is_empty() or _gate.fall >= 0.0 or camera == null:
+		return false
+	var o := camera.global_position
+	var d := -camera.global_basis.z
+	var root: Vector3 = world.gate_rock_top()
+	var axis: Vector3 = world.gate_tree_fallen_basis(0.0) * Vector3.UP
+	var y := 0.0
+	while y <= float(world.GATE_TREE_H):
+		var q: Vector3 = root + axis * y
+		var along := (q - o).dot(d)
+		if along > 0.0 and ((q - o) - d * along).length() <= GATE_AIM_R:
+			return true
+		y += 0.5
+	return false
+
+## 準心指著那棵樹的時候，雷就劈在它身上（回傳樹中段底下的位置）；其他情況照舊
+func _aim_p() -> Vector3:
+	if _aim_on_gate():
+		return world.gate_tree_mid()
+	return super()
+
+## 這一下是不是對著崖壁那棵樹劈的（只有準心指著它的時候，落點才會剛好是這個位置）
+func _hit_gate_tree(p: Vector3) -> bool:
+	return flat_dist(p, world.gate_tree_mid()) <= 0.6
 
 ## 晚上會閃藍綠色的光的東西：還站著的枯樹、崖壁上那棵、水灘
 func _glow_nodes() -> Array:
@@ -506,7 +559,7 @@ func _level_visuals() -> void:
 		return
 	var p := _aim_p()
 	var id: String = items[selected].id if selected >= 0 and selected < items.size() else ""
-	var live: bool = phase != Phase.PREPARE and not _leaving
+	var live: bool = not _leaving        # 準備階段（還沒按 Enter）也會變白
 	for t in _trees:
 		var node: Node3D = t.node
 		var basis := Basis(Vector3.UP, t.yaw)
@@ -545,7 +598,7 @@ func _level_visuals() -> void:
 		var gkeep: float = _gone(_gate, _gate.done, GATE_GONE)
 		gn.visible = gkeep > 0.0
 		gn.global_transform = Transform3D(world.gate_tree_fallen_basis(gk * gk).scaled(Vector3.ONE * maxf(gkeep, 0.001)), world.gate_rock_top())
-		world.set_highlight(gn, live and id == "thunder" and _gate.fall < 0.0 and world.gate_tree_dist(p) <= BOLT_REACH + 1.0)
+		world.set_highlight(gn, live and id == "thunder" and _gate.fall < 0.0 and _hit_gate_tree(p))
 	# 拿著雷指到水灘，水面也變淺白色
 	for pool in world.zone_pools(2):
 		if pool.node:

@@ -2,7 +2,7 @@ extends RefCounted
 ## 大關：冰雪島。島規則只有一條：冰雪對雞友善，對人類不友善。
 ##   雞不滑、人會滑；雞不破、人會破。家豪當誘餌，讓人類被冰整倒。
 
-const TITLE := "冰雪島"
+const TITLE := "冰羽踏雪"
 const CITY := ""            # 選關地圖上的位置；空白就照 ORDER 自動排
 const AUTHOR := ""          # 你的名字
 const ORDER := 10           # 地圖上的順序（小的排前面）

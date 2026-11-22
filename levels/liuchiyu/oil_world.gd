@@ -1,16 +1,13 @@
 extends "res://scripts/world/arena_world.gd"
 ## 劉起佑版的「油畫」美術：秋天的樹林，滿地落葉都是一筆一筆的顏料，
-## 樹幹是直向的深色筆觸。畫面不再套全螢幕濾鏡：材質是預先畫好的貼圖＋三階 ramp 光影＋描邊，
-## 再靠柔和的霧和 bloom 收整體氣氛。小關的 world.gd 改成 extends 這個檔案就會套用。
+## 樹幹是直向的深色筆觸，整個畫面再過一層油畫濾鏡。小關的 world.gd 改成 extends 這個檔案就會套用。
 ## 只換外觀，遊玩範圍、牆、障礙物、地形高度都跟原本一樣。
 
 const GROUND_SHADER := preload("res://levels/liuchiyu/shaders/oil_ground.gdshader")
 const TRUNK_SHADER := preload("res://levels/liuchiyu/shaders/oil_trunk.gdshader")
 const LEAF_SHADER := preload("res://levels/liuchiyu/shaders/oil_leaf.gdshader")
 const SKY_SHADER := preload("res://levels/liuchiyu/shaders/oil_sky.gdshader")
-const SKY_NIGHT_SHADER := preload("res://levels/liuchiyu/shaders/oil_sky_night.gdshader")
-const OUTLINE_SHADER := preload("res://levels/liuchiyu/shaders/oil_outline.gdshader")
-const OilTextures := preload("res://levels/liuchiyu/oil_textures.gd")
+const FILTER_SHADER := preload("res://levels/liuchiyu/shaders/oil_filter.gdshader")
 
 ## 葉子的顏色（黃、橘為主，一點紅和綠）
 const LEAF_COLORS := [
@@ -46,9 +43,6 @@ var night := false
 var _leaf_mats: Array = []      # 所有要跟著日夜換色的材質（葉子、地面）
 var _grass_mat: ShaderMaterial
 var _sky_mat: ShaderMaterial
-var _sky_day: Sky             # 白天、晚上各一個 Sky：切換的時候直接換，各自算好的天空圖不用重算
-var _sky_night: Sky
-var _outline_mat: ShaderMaterial
 var _env: Environment
 var _sun: DirectionalLight3D
 
@@ -59,8 +53,8 @@ func _input(event: InputEvent) -> void:
 
 ## 依白天／晚上設定光線、霧、天空和葉子的色調
 func _apply_time() -> void:
-	if _env and _sky_day:
-		_env.sky = _sky_night if night else _sky_day
+	if _sky_mat:
+		_sky_mat.set_shader_parameter("night", 1.0 if night else 0.0)
 	if _env:
 		if night:
 			_env.ambient_light_color = Color(0.30, 0.48, 0.52)     # 極光映下來的藍綠色
@@ -68,18 +62,16 @@ func _apply_time() -> void:
 			_env.fog_light_color = Color(0.04, 0.14, 0.16)
 			_env.fog_density = 0.0055
 			_env.fog_sun_scatter = 0.0
-			_env.glow_intensity = 0.6         # 極光和發光的東西暈開
-			_env.glow_bloom = 0.0
-			_env.glow_hdr_threshold = 0.9
+			_env.glow_intensity = 0.45
+			_env.glow_hdr_threshold = 0.95
 		else:
 			_env.ambient_light_color = Color(0.62, 0.42, 0.52)     # 陰影偏紫紅，不是黑的
 			_env.ambient_light_energy = 0.85
 			_env.fog_light_color = Color(1.0, 0.92, 0.68)          # 發亮的淡黃色薄霧
 			_env.fog_density = 0.0036
 			_env.fog_sun_scatter = 0.12
-			_env.glow_intensity = 0.3         # 白天：亮的地方（陽光、雲、水面反光）輕輕暈開
-			_env.glow_bloom = 0.03
-			_env.glow_hdr_threshold = 1.1
+			_env.glow_intensity = 0.12
+			_env.glow_hdr_threshold = 1.8
 	if _sun:
 		# 晚上同一盞燈當月光：偏藍、弱很多
 		_sun.light_color = Color(0.66, 0.82, 0.92) if night else Color(1.0, 0.86, 0.56)
@@ -91,8 +83,7 @@ func _apply_time() -> void:
 		_grass_mat.set_shader_parameter("tip_color", Color(0.62, 0.86, 0.88) if night else Color(0.74, 0.60, 0.22))
 
 func _init() -> void:
-	OilTextures.apply()        # 地面、岩石、樹幹、海的著色器要讀的預先畫好的貼圖
-	grass_count = 420
+	grass_count = 220        # 草少一點，地面比較乾淨
 	ground_a = Color(0.62, 0.30, 0.08)
 	ground_b = Color(0.40, 0.17, 0.08)
 	dirt_color = Color(0.30, 0.12, 0.08)
@@ -141,6 +132,7 @@ func _build_extra() -> void:
 		_build_sea()
 	_build_ground_leaves()
 	_build_falling_leaves()
+	_build_filter.call_deferred()
 
 func _apply_look() -> void:
 	var main := get_parent()
@@ -149,22 +141,15 @@ func _apply_look() -> void:
 	var we := main.get_node_or_null("WorldEnvironment") as WorldEnvironment
 	if we and we.environment:
 		var env: Environment = we.environment.duplicate()
-		# 白天的天空不會動：反射用的小圖 Godot 只算一次（裡面不畫雲）
 		var sm := ShaderMaterial.new()
 		sm.shader = SKY_SHADER
-		_sky_day = Sky.new()
-		_sky_day.sky_material = sm
-		_sky_day.radiance_size = Sky.RADIANCE_SIZE_64
+		var sky := Sky.new()
+		sky.sky_material = sm
+		sky.radiance_size = Sky.RADIANCE_SIZE_32      # 極光每一幀都在動，反射用的小圖不用大
 		_sky_mat = sm
-		# 晚上：極光每一幀都在動，反射用的小圖不用大
-		var nm := ShaderMaterial.new()
-		nm.shader = SKY_NIGHT_SHADER
-		_sky_night = Sky.new()
-		_sky_night.sky_material = nm
-		_sky_night.radiance_size = Sky.RADIANCE_SIZE_32
 		_env = env
 		env.background_mode = Environment.BG_SKY
-		env.sky = _sky_day
+		env.sky = sky
 		env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
 		env.ambient_light_color = Color(0.62, 0.42, 0.52)     # 陰影偏紫紅，不是黑的
 		env.ambient_light_energy = 0.85
@@ -174,10 +159,12 @@ func _apply_look() -> void:
 		env.fog_sun_scatter = 0.12
 		env.fog_sky_affect = 0.0
 		env.volumetric_fog_enabled = false
+		env.ssao_enabled = false        # 過了油畫濾鏡幾乎看不出來，省下來
+		env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED      # 材質都不反光，不用每一幀更新天空的反射圖
 		env.glow_enabled = true
-		env.glow_intensity = 0.3
-		env.glow_bloom = 0.03
-		env.glow_hdr_threshold = 1.1
+		env.glow_intensity = 0.12
+		env.glow_bloom = 0.0
+		env.glow_hdr_threshold = 1.8
 		env.adjustment_enabled = true
 		env.adjustment_brightness = 1.0
 		env.adjustment_contrast = 1.08
@@ -190,16 +177,65 @@ func _apply_look() -> void:
 		sun.light_energy = 2.2
 		sun.shadow_enabled = true
 		sun.shadow_blur = 0.6
-		sun.directional_shadow_max_distance = 110.0
+		# 陰影是最花的一項：只分兩層、只畫到 80 公尺（再遠的被薄霧蓋住，看不出來）
+		sun.directional_shadow_mode = DirectionalLight3D.SHADOW_PARALLEL_2_SPLITS
+		sun.directional_shadow_split_1 = 0.28
+		sun.directional_shadow_blend_splits = true
+		sun.directional_shadow_max_distance = 80.0
 		_sun = sun
 	_apply_time()
+	_lighten_viewport()
 
-## 描邊材質（主要的物件：樹幹、大石頭）。所有物件共用同一個
-func _outline() -> ShaderMaterial:
-	if _outline_mat == null:
-		_outline_mat = ShaderMaterial.new()
-		_outline_mat.shader = OUTLINE_SHADER
-	return _outline_mat
+## 整個畫面最後都會過油畫濾鏡（邊緣本來就糊成一筆一筆的），不需要 4 倍的多重取樣反鋸齒：
+## 在這個大關裡改用便宜的 FXAA，離開關卡時還原成專案原本的設定（不影響別人的大關）
+## 3D 畫面用 100% 的解析度算：之前降到 85% 再放大，疊上濾鏡之後整個畫面會霧霧的。
+## 想省效能可以把 RENDER_SCALE 調低（濾鏡的筆觸間距會跟著縮，放大回來之後筆觸大小不變）。
+const RENDER_SCALE := 1.0
+## 油畫濾鏡的筆觸間距（螢幕像素）。越大筆觸越粗、畫面越糊；原本是 2.0，降到 1.3 讓細節清楚一點。
+const FILTER_SPREAD := 1.3
+var _vp_saved := {}
+
+func _lighten_viewport() -> void:
+	var vp := get_viewport()
+	if vp == null or not _vp_saved.is_empty():
+		return
+	_vp_saved = {"msaa": vp.msaa_3d, "ssaa": vp.screen_space_aa, "scale": vp.scaling_3d_scale}
+	vp.msaa_3d = Viewport.MSAA_DISABLED
+	vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_FXAA
+	vp.scaling_3d_scale = RENDER_SCALE
+
+func _exit_tree() -> void:
+	var vp := get_viewport()
+	if vp != null and not _vp_saved.is_empty():
+		vp.msaa_3d = _vp_saved["msaa"]
+		vp.screen_space_aa = _vp_saved["ssaa"]
+		vp.scaling_3d_scale = _vp_saved["scale"]
+	_vp_saved = {}
+
+## 油畫濾鏡：一片貼在鏡頭前面的全螢幕面。介面（CanvasLayer）不受影響。
+func _build_filter() -> void:
+	var main := get_parent()
+	if main == null:
+		return
+	var cam := main.get_node_or_null("Player/Head/Camera3D") as Camera3D
+	if cam == null:
+		cam = get_viewport().get_camera_3d()
+	if cam == null or cam.has_node("OilFilter"):
+		return
+	var quad := MeshInstance3D.new()
+	quad.name = "OilFilter"
+	var qm := QuadMesh.new()
+	qm.size = Vector2(2.0, 2.0)
+	quad.mesh = qm
+	var m := ShaderMaterial.new()
+	m.shader = FILTER_SHADER
+	m.set_shader_parameter("spread", FILTER_SPREAD * RENDER_SCALE)     # 3D 解析度降低時筆觸間距跟著縮，放大回來大小不變
+	m.render_priority = -100        # 最先畫，血條、視野扇形這些半透明的東西才會蓋在上面
+	quad.material_override = m
+	quad.extra_cull_margin = 16000.0
+	quad.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	quad.position = Vector3(0, 0, -1.0)
+	cam.add_child(quad)
 
 # ---------------------------------------------------------------- 石頭懸崖
 
@@ -405,7 +441,6 @@ func _build_cliff() -> void:
 	bi.name = "CliffBoulders"
 	bi.multimesh = mm
 	bi.material_override = _cliff_material()
-	bi.material_overlay = _outline()
 	add_child(bi)
 
 # ---------------------------------------------------------------- 海
@@ -478,7 +513,7 @@ func _build_ground_leaves() -> void:
 	for area in _leaf_areas():
 		var rect: Rect2 = area[0]
 		r.seed = world_seed + 61 + int(area[1]) * 1000
-		for k in 3200:
+		for k in 1300:        # 落葉少一點：地面不會那麼花，也少畫很多小面片
 			# 每一輪固定抽一樣多個亂數（不管這一片要不要），這樣同一個範圍每次撒出來都一樣
 			var x := rect.position.x - 8.0 + r.randf() * (rect.size.x + 16.0)
 			var z := rect.position.y - 8.0 + r.randf() * (rect.size.y + 16.0)
@@ -500,9 +535,7 @@ func _build_ground_leaves() -> void:
 	var lm := ShaderMaterial.new()
 	lm.shader = LEAF_LIT_SHADER
 	_leaf_mats.append(lm)
-	_leaf_multimesh("GroundLeaves", xf, cols, lm)
-	# 貼在地上的葉子不用投影子（省一次影子貼圖的繪製）
-	(get_node("GroundLeaves") as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_leaf_multimesh("GroundLeaves", xf, cols, lm, false)
 	_build_tufts()
 
 ## 地上一叢一叢尖尖的葉子（黃、綠、橘），每叢是幾筆往外斜的長筆觸
@@ -513,7 +546,7 @@ func _build_tufts() -> void:
 	var cols: Array[Color] = []
 	for area in _leaf_areas():
 		var rect: Rect2 = area[0]
-		for k in 260:
+		for k in 110:
 			# 每一叢用自己的亂數種子，這樣同一個範圍每次長出來都一樣
 			r.seed = world_seed + 77 + int(area[1]) * 1000 + k
 			var x := rect.position.x - 10.0 + r.randf() * (rect.size.x + 20.0)
@@ -521,8 +554,7 @@ func _build_tufts() -> void:
 			if in_water(x, z) or _on_cliff_face(x, z):
 				continue
 			_one_tuft(r, x, z, tuft_cols, xf, cols)
-	_leaf_multimesh("Tufts", xf, cols)
-	(get_node("Tufts") as GeometryInstance3D).cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_leaf_multimesh("Tufts", xf, cols, null, false)
 
 func _one_tuft(r: RandomNumberGenerator, x: float, z: float, tuft_cols: Array, xf: Array[Transform3D], cols: Array[Color]) -> void:
 	if true:
@@ -540,7 +572,8 @@ func _one_tuft(r: RandomNumberGenerator, x: float, z: float, tuft_cols: Array, x
 			var v := r.randf_range(0.6, 0.85)
 			cols.append(Color(c.r * v, c.g * v, c.b * v))
 
-func _leaf_multimesh(node_name: String, xf: Array[Transform3D], cols: Array[Color], mat: ShaderMaterial = null) -> void:
+## shadow = false：貼在地上的小東西不投影子（影子看不出來，卻要多畫好幾次）
+func _leaf_multimesh(node_name: String, xf: Array[Transform3D], cols: Array[Color], mat: ShaderMaterial = null, shadow := true) -> void:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_colors = true
@@ -555,6 +588,8 @@ func _leaf_multimesh(node_name: String, xf: Array[Transform3D], cols: Array[Colo
 	mi.name = node_name
 	mi.multimesh = mm
 	mi.material_override = mat if mat else _leaf_material()
+	if not shadow:
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(mi)
 
 ## 慢慢飄下來的葉子
@@ -563,7 +598,7 @@ func _build_falling_leaves() -> void:
 	var size := play_max - play_min
 	var p := CPUParticles3D.new()
 	p.name = "FallingLeaves"
-	p.amount = 170
+	p.amount = 70
 	p.lifetime = 11.0
 	p.preprocess = 11.0
 	p.emission_shape = CPUParticles3D.EMISSION_SHAPE_BOX
@@ -638,7 +673,7 @@ func _leaf_clump(r: RandomNumberGenerator, c: Vector3, rc: float, n: int, tint: 
 		var o := Vector3(r.randf_range(-1.0, 1.0), r.randf_range(-0.6, 0.75), r.randf_range(-1.0, 1.0))
 		if o.length() > 1.0:
 			o = o.normalized() * r.randf_range(0.5, 1.0)
-		var s := r.randf_range(0.6, 1.25)
+		var s := r.randf_range(0.85, 1.6)        # 葉子的筆觸少一點、大一點：樹冠是幾大塊顏色，不是一堆碎片
 		var b := Basis.from_euler(Vector3(r.randf_range(-1.2, 1.2), r.randf() * TAU, r.randf_range(-0.8, 0.8))).scaled(Vector3(s, s * 0.6, s))
 		_leaf_xf.append(Transform3D(b, c + o * rc))
 		var col := _leaf_color(r)
@@ -660,10 +695,10 @@ func _limb(r: RandomNumberGenerator, a: Vector3, dir: Vector3, l: float, rad: fl
 	_seg(a, mid + dir * 0.04, rad, col)
 	_seg(mid, b, rad * 0.78, col)
 	if depth <= 0 or rad < 0.03:
-		_leaf_clump(r, b, clampf(l * 0.8, 1.0, 1.9), 8, tint)
+		_leaf_clump(r, b, clampf(l * 0.8, 1.0, 1.9), 5, tint)
 		return
 	if depth == 1:
-		_leaf_clump(r, b, 1.0, 3, tint)
+		_leaf_clump(r, b, 1.0, 2, tint)
 	var n := 2 + (1 if r.randf() < 0.45 else 0)
 	var az0 := r.randf() * TAU
 	for k in n:
@@ -747,8 +782,11 @@ func _build_arena_forest() -> void:
 	cm.top_radius = 0.78
 	cm.bottom_radius = 1.0
 	cm.height = 1.0
-	cm.radial_segments = 6
-	cm.rings = 1
+	# 樹枝是一段一段接起來的，頭尾都埋在別段或葉子裡：不用蓋子、不用中間那一圈，面數少七成
+	cm.radial_segments = 5
+	cm.rings = 0
+	cm.cap_top = false
+	cm.cap_bottom = false
 	var tm := MultiMesh.new()
 	tm.transform_format = MultiMesh.TRANSFORM_3D
 	tm.use_colors = true
@@ -763,6 +801,5 @@ func _build_arena_forest() -> void:
 	var tmat := ShaderMaterial.new()
 	tmat.shader = TRUNK_SHADER
 	tmi.material_override = tmat
-	tmi.material_overlay = _outline()
 	add_child(tmi)
 	_leaf_multimesh("ForestLeaves", _leaf_xf, _leaf_col)

@@ -13,7 +13,6 @@ const LEAF := preload("res://levels/liuchiyu/shaders/oil_leaf.gdshader")
 const LAVA := preload("res://levels/liuchiyu/shaders/oil_lava.gdshader")
 const RIVER := preload("res://levels/liuchiyu/shaders/oil_river.gdshader")
 const GHOST := preload("res://levels/liuchiyu/shaders/map_hand.gdshader")
-const OilTextures := preload("res://levels/liuchiyu/oil_textures.gd")
 const A := "res://levels/liuchiyu/assets/"
 const KH := A + "kaykit_halloween/"
 const KT := A + "kenney_town/"
@@ -92,7 +91,6 @@ func ground_y(x: float, z: float) -> float:
 
 ## 蓋整座島（世界座標；y = 0 是海面）
 func build_island(root: Node3D, ctx: Dictionary) -> void:
-	OilTextures.apply()        # 地面、岩壁的著色器要讀的預先畫好的貼圖
 	_ctx = ctx
 	_top_y = float(ctx.get("top_y", 1.5))
 	_rng.seed = 20261118
@@ -105,6 +103,9 @@ func build_island(root: Node3D, ctx: Dictionary) -> void:
 		"coves": [[1.2, 2.2, 0.20], [2.9, 1.8, 0.16], [4.6, 2.0, 0.18]]}
 	_rock_mat = ShaderMaterial.new()
 	_rock_mat.shader = ROCK
+	# 筆觸的圖案是用「離原點多遠」算的：世界地圖上這座島離 (0, 0) 很遠，不把原點移到島中心的話，
+	# 筆觸的方向會被拉成一圈一圈很密的細線（摩爾紋）。小關裡本來就有設，這裡補上
+	_rock_mat.set_shader_parameter("origin", c)
 	_leaf_mat = ShaderMaterial.new()
 	_leaf_mat.shader = LEAF
 	# 島面：油畫地面（滿地落葉的筆觸）；陡的地方畫成岩石
@@ -113,6 +114,8 @@ func build_island(root: Node3D, ctx: Dictionary) -> void:
 	top.mesh = _painted_top(Isle.build_top(_o, ground_y, 128, 14, 0.4))
 	var gm := ShaderMaterial.new()
 	gm.shader = GROUND
+	gm.set_shader_parameter("origin", c)        # 同上：筆觸以島中心為準，才不會出現摩爾紋
+	gm.set_shader_parameter("swirl", 0.0)       # 地圖上筆觸不轉向（每一層各自一個固定方向）：只要轉一點點，筆觸就會被拉成一圈一圈很密的細線
 	top.material_override = gm
 	root.add_child(top)
 	var cliff := MeshInstance3D.new()

@@ -118,6 +118,14 @@ func set_hold(item_id: String) -> void:
 func show_hands(on: bool) -> void:
 	_want_visible = on
 
+## 馬上整個收起來，不淡出（一開始的島嶼預覽用：預覽的時候完全不要看到手）
+func hide_now() -> void:
+	_want_visible = false
+	_fade = 0.0
+	visible = false
+	if _mat:
+		_mat.set_shader_parameter("fade", 0.0)
+
 func _on_anim_finished(anim: StringName) -> void:
 	if anim == StringName(IDLE) or _hold_id != "":
 		return

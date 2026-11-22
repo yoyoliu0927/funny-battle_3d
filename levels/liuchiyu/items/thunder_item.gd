@@ -13,6 +13,7 @@ const CLOUD_HEIGHT := 13.0     # 烏雲在準心上面多高
 const CLOUD_TIME := 1.1        # 烏雲停多久才散掉
 
 var hint := ""                 # 切到這個道具時，技能欄上面那一行小字
+var no_direct := true          # 準心直接指著人的時候不能用（神不能直接干預凡人；見 island_battle.gd）
 var _ch := CLOUD_HEIGHT        # 這一次的烏雲多高
 
 func _init() -> void:
@@ -38,7 +39,7 @@ func _init() -> void:
 		"...KK........",
 	], {"Y": Color(1.0, 0.90, 0.25), "O": Color(1.0, 0.62, 0.12), "K": Color(0.20, 0.16, 0.10)})
 	radius = SHOCK_RADIUS
-	cooldown = 3.0
+	cooldown = 0.0        # 沒有冷卻時間：想劈就劈（原本每次要等 3 秒）
 
 func placement_error(_bt, _p: Vector3) -> String:
 	return ""

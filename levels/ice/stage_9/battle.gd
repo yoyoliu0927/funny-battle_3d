@@ -25,3 +25,28 @@ func _how_to() -> String:
 func _defeat_tip() -> String:
 	return "換紅線的另一段試試"
 
+
+## 新手教學（圖解，一步一件事）：目標 → 誰會抓家豪 → 綠圈移到紅線 → 讓白箭頭指進冰洞 → 丟 → 開始
+func _tutorial_steps() -> Array:
+	var hero_at := func(): return bird.pos + Vector3(0, 0.8, 0)
+	return [
+		{"pic": ["hero", "line_y", "cage"], "say": "家豪會自己走去救企鵝",
+			"spot": [hero_at, world.cage + Vector3(0, 1.0, 0)], "r": 1.6, "wait": "next"},
+		{"pic": ["who:工人", "line_r", "hero+no"], "say": "被工人碰到就輸了",
+			"spot": [tut_head("工人"), hero_at], "r": 1.6, "wait": "next"},
+		{"pic": ["mouse", "to", "aim", "to", "line_r"], "say": "移動滑鼠，把綠圈移到紅線上",
+			"spot": ["center", tut_seg("工人", 1)], "r": 3.0, "wait": tut_aiming_route,
+			"help_after": 6.0, "help_say": "綠圈在畫面正中間，跟著滑鼠動"},
+		{"pic": ["aim", "to", "slide@他會滑去哪", "to", "hole:0"], "say": "沿著紅線移動，讓白箭頭指進冰洞",
+			"spot": [tut_seg("工人", 1), tut_seg("工人", 2), _pond0], "r": 2.4, "wait": func(): return tut_aim_says("冰洞"),
+			"help_after": 10.0, "help_say": "紅線有三段，每一段都試試看",
+			"help2_after": 20.0, "help2_say": "試試靠近冰洞的那一段", "help2_spot": [tut_seg("工人", 2), _pond0]},
+		{"pic": ["lmb", "to", "banana"], "say": "按左鍵，丟下香蕉皮",
+			"spot": ["center"], "wait": func(): return tut_used("banana") >= 1},
+		{"pic": [], "say": "放好了！按開始看看（放錯按 R 重來）",
+			"spot": ["start"], "wait": "start"},
+	]
+
+func _pond0():
+	var c: Vector2 = world.ponds[0].center
+	return ground(Vector3(c.x, 0, c.y))

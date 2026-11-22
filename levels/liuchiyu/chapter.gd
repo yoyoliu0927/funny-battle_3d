@@ -2,7 +2,7 @@ extends RefCounted
 ## 大關設定。複製整個 _template 資料夾、改成自己的名字（例如 levels/tainan/）之後，改這裡的內容。
 ## 選關地圖會自動找到這個檔案，不用改任何共用檔案。
 
-const TITLE := "劉起佑版"
+const TITLE := "霧山楓燃"
 const CITY := ""            # 選關地圖上的城市：高雄 / 台南 / 台中 / 新竹 / 台北；空白就照 ORDER 自動排
 const AUTHOR := "劉起佑"          # 你的名字
 const ORDER := 10           # 地圖上的順序（小的排前面）

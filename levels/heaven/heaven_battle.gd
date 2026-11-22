@@ -834,6 +834,24 @@ func _make_finale_card() -> Control:
 		vb.move_child(thanks, 1)
 	return panel
 
+## 冰雪島的落點標記只管香蕉皮和飼料，而且會把共用的瞄準圈藏掉；選到巨石的時候把共用的瞄準圈（和滾動路線）放回來
+func _update_aim_marker(cut: bool) -> void:
+	super(cut)
+	# 仙境的地是白玉色的：冰雪島那個白色的小圓圈會跟地板混在一起，改成橘色（放不下去是深灰）
+	if _aim_dot and _aim_dot.material_override is StandardMaterial3D:
+		(_aim_dot.material_override as StandardMaterial3D).albedo_color = Color(1.0, 0.46, 0.06) if aim_error == "" else Color(0.34, 0.36, 0.42)
+		if _aim_dot.visible:
+			_aim_dot.scale *= 1.6        # 順便放大一點
+	if _preview == null or items.is_empty():
+		return
+	var rock_on: bool = String(items[selected].id) == "rock" and charges[selected] != 0 and phase == Phase.PREPARE \
+			and not cut and not defeat_shown and aim_point != null
+	if rock_on:
+		_preview.visible = true
+		_preview.global_position = (aim_point as Vector3) + Vector3(0, 0.08, 0)
+		if aim_error == "" and _preview.material_override is StandardMaterial3D:
+			(_preview.material_override as StandardMaterial3D).albedo_color = Color(1.0, 0.46, 0.06, 0.9)
+
 ## 這一章先不顯示家豪的血量（使用者 2026-11-19 的要求）：道具欄旁邊那張愛心紙片不蓋
 func _build_hero_card(_layer: CanvasLayer, _hb: Vector2) -> void:
 	pass

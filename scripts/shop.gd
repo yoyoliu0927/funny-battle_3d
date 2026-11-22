@@ -11,6 +11,7 @@ extends Node3D
 const Wardrobe := preload("res://scripts/wardrobe.gd")
 const UIStyle := preload("res://scripts/ui/ui_style.gd")
 const LevelSelect := preload("res://scripts/level_select.gd")
+const Journal := preload("res://scripts/hub/journal.gd")
 const MAP_SCENE := "res://scenes/level_select.tscn"
 
 const INK := Color("3b2a20")
@@ -38,7 +39,29 @@ const VIEWS := {
 	"chest": [Vector3(-0.1, 0.86, 0.3), 1.5, -0.3, 0.08],
 }
 
+## 分類頁籤：依服裝佔用的部位篩選（多部位的服裝會出現在每個它佔用的分頁）
+const TABS := [
+	{"name": "全部", "slots": []},
+	{"name": "身體", "slots": ["body"]},
+	{"name": "頭", "slots": ["head"]},
+	{"name": "臉", "slots": ["face"]},
+	{"name": "背後・配件", "slots": ["back", "badge"]},
+]
+## 點鹹酥雞老闆的彩蛋：一句一句輪流說，連點 10 下拿貼紙
+const DUCK_LINES := ["規矩不能壞。", "吃了不燒心。", "規矩立住了，路才能越走越寬。", "不怕虧錢嗎？怕，更怕賬本不清。",
+	"搶的走鋪子，搶不走人心。", "明天怎麼辦？先做。", "剩下怎麼辦？倒掉，人不能沒良心。", "終於好起來了；嗯，要穩。",
+	"寧可少掙點，也不能壞了規矩。", "那明天多進點肉？不用，慢慢來。", "不是我穩，是不能慌，一慌就容易做錯事。",
+	"吃完舒服，下午乾活不燒心。", "老闆，你家貴是貴了點，但是吃了不燒心。"]
+const DUCK_STREAK := 10
+const DUCK_GAP_MS := 3000     # 兩下之間超過這麼久就不算「連續」
+
 var sel := 0
+var _tab := 0
+var _tab_btns: Array = []    # 每個分頁 {label, idx}
+var _duck_i := 0             # 下一句講哪一句
+var _duck_n := 0             # 目前連點幾下
+var _duck_last := 0          # 上一下點的時間（毫秒）
+var _duck_hop := 0.0         # 鴨老闆被點到時的跳一下
 var _thumbs := {}            # 服裝 id -> 拍縮圖的小畫面（SubViewport）
 var _name: Label
 var _state: Label            # 說明卡上的小標籤：試穿中／穿著中
@@ -550,27 +573,16 @@ func _build_ui() -> void:
 	_wallet.add_theme_stylebox_override("normal", ws)
 	_wallet.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(_wallet)
-	# 眼睛：三選一（不用錢），按 Tab 輪流換
-	var eyes := HBoxContainer.new()
-	eyes.add_theme_constant_override("separation", 8)
-	col.add_child(eyes)
-	eyes.add_child(_lbl("家豪的眼睛", 19, Color(INK, 0.8)))
-	var free := _lbl("免費", 16, Color(1, 1, 1))
-	free.add_theme_stylebox_override("normal", _chip_style(Color("5cb85c"), Color("3d8b3d")))
-	free.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	eyes.add_child(free)
-	var egap := Control.new()
-	egap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	eyes.add_child(egap)
-	for id in Wardrobe.EYES:
-		var b := _lbl(String(Wardrobe.EYE_NAMES[id]), 19)
-		b.mouse_filter = Control.MOUSE_FILTER_STOP
-		b.gui_input.connect(_on_eye_input.bind(String(id)))
-		eyes.add_child(b)
-		_eye_btns.append({"id": String(id), "label": b})
-	var tabk := UIStyle.keycap("Tab", 14)
-	tabk.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	eyes.add_child(tabk)
+	# 分類頁籤（數字鍵 1～5 或直接點）
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 8)
+	col.add_child(tabs)
+	for t in TABS.size():
+		var tl := _lbl("", 19)
+		tl.mouse_filter = Control.MOUSE_FILTER_STOP
+		tl.gui_input.connect(_on_tab_input.bind(t))
+		tabs.add_child(tl)
+		_tab_btns.append({"label": tl})
 	var grid := GridContainer.new()
 	grid.columns = COLS
 	grid.add_theme_constant_override("h_separation", 10)
@@ -615,6 +627,27 @@ func _build_ui() -> void:
 		chip.offset_top = 7
 		chip.grow_horizontal = Control.GROW_DIRECTION_BEGIN
 		_rows.append({"panel": card, "bg": bg, "chip": chip, "tex": tex})
+	# 最下面一排：眼睛三選一（免費），按 Tab 輪流換
+	var fill := Control.new()
+	fill.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	fill.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	col.add_child(fill)
+	var eyes := HBoxContainer.new()
+	eyes.add_theme_constant_override("separation", 8)
+	col.add_child(eyes)
+	eyes.add_child(_lbl("家豪的眼睛（免費）", 18, Color(INK, 0.75)))
+	var egap := Control.new()
+	egap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	eyes.add_child(egap)
+	for id in Wardrobe.EYES:
+		var b := _lbl(String(Wardrobe.EYE_NAMES[id]), 18)
+		b.mouse_filter = Control.MOUSE_FILTER_STOP
+		b.gui_input.connect(_on_eye_input.bind(String(id)))
+		eyes.add_child(b)
+		_eye_btns.append({"id": String(id), "label": b})
+	var tabk := UIStyle.keycap("Tab", 14)
+	tabk.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	eyes.add_child(tabk)
 
 	# 左上：鴨子老闆說的話
 	var bubble := PanelContainer.new()
@@ -693,6 +726,7 @@ func _build_ui() -> void:
 	hrow.add_theme_constant_override("separation", 22)
 	hint.add_child(hrow)
 	hrow.add_child(UIStyle.key_hint("方向鍵", "選", 18))
+	hrow.add_child(UIStyle.key_hint("1～5", "分類", 18))
 	hrow.add_child(UIStyle.key_hint("A／D", "轉", 18))
 	hrow.add_child(UIStyle.key_hint("Tab", "換眼睛", 18))
 	hrow.add_child(UIStyle.key_hint("空白鍵", "擺姿勢", 18))
@@ -738,6 +772,15 @@ func _chip_style(bg: Color, edge: Color) -> StyleBoxFlat:
 func _refresh() -> void:
 	var worn := Wardrobe.saved_look()
 	_wallet.text = "★ %d" % Wardrobe.wallet()
+	for t in _tab_btns.size():
+		var on_tab := t == _tab
+		var tl: Label = _tab_btns[t].label
+		tl.text = "%s %d" % [String(TABS[t].name), _items_in(t).size()]
+		tl.label_settings = UIStyle.ls(19, Color(1, 1, 1) if on_tab else INK)
+		tl.add_theme_stylebox_override("normal", _style(INK if on_tab else Color(1, 1, 1, 0.8), INK if on_tab else PAPER_EDGE, 14, 2))
+	var shown := _items_in(_tab)
+	for i in _rows.size():
+		(_rows[i].panel as Control).visible = shown.has(i)
 	for i in _rows.size():
 		var it: Dictionary = Wardrobe.ITEMS[i]
 		var r: Dictionary = _rows[i]
@@ -869,15 +912,68 @@ func _select(i: int, quiet := false) -> void:
 	if not quiet:
 		_play("click")
 
-## 方向鍵在格子裡移動（超出邊界就不動）
+## 第 t 個分頁裡有哪幾件（服裝的索引）
+func _items_in(t: int) -> Array:
+	var out: Array = []
+	var want: Array = TABS[t].slots
+	for i in Wardrobe.ITEMS.size():
+		var ok := want.is_empty()
+		for s in Wardrobe.ITEMS[i].slots:
+			ok = ok or want.has(s)
+		if ok:
+			out.append(i)
+	return out
+
+func _set_tab(t: int) -> void:
+	t = clampi(t, 0, TABS.size() - 1)
+	if t == _tab:
+		return
+	_tab = t
+	var shown := _items_in(t)
+	_play("click")
+	_select(sel if shown.has(sel) else int(shown[0]), true)
+
+func _on_tab_input(ev: InputEvent, t: int) -> void:
+	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+		_set_tab(t)
+
+## 方向鍵在目前分頁的格子裡移動（超出邊界就不動）
 func _move(dx: int, dy: int) -> void:
-	var n := Wardrobe.ITEMS.size()
-	var cx := sel % COLS + dx
-	var j := sel + dx + dy * COLS
-	if cx < 0 or cx >= COLS or j < 0 or j >= n:
+	var shown := _items_in(_tab)
+	var p := shown.find(sel)
+	var cx := p % COLS + dx
+	var q := p + dx + dy * COLS
+	if cx < 0 or cx >= COLS or q < 0 or q >= shown.size():
 		_play("bump")
 		return
-	_select(j)
+	_select(int(shown[q]))
+
+## 點鹹酥雞老闆：講一句規矩，連點 10 下得貼紙
+func _poke_duck() -> void:
+	var now := Time.get_ticks_msec()
+	_duck_n = _duck_n + 1 if now - _duck_last <= DUCK_GAP_MS else 1
+	_duck_last = now
+	_say = String(DUCK_LINES[_duck_i % DUCK_LINES.size()])
+	_duck_i += 1
+	_duck_hop = 0.35
+	_play("click")
+	_refresh()
+	if _duck_n >= DUCK_STREAK:
+		_duck_n = 0
+		if not Journal.has("flag", "duck_red"):
+			Journal.mark("flag", "duck_red")
+			_show_toast("獲得貼紙：前途一片紅果（到手帳看）")
+			_play("start")
+			_burst.restart()
+			_burst.emitting = true
+
+func _is_duck_hit(pos: Vector2) -> bool:
+	var o := _cam.project_ray_origin(pos)
+	var d := _cam.project_ray_normal(pos)
+	var c := _duck.global_position + Vector3(0, 0.95, 0.3)
+	var oc := c - o
+	var t := oc.dot(d)
+	return t > 0.0 and (oc - d * t).length() < 1.05
 
 ## Enter：買／穿／脫
 func act() -> void:
@@ -951,7 +1047,14 @@ func _on_row_input(ev: InputEvent, i: int) -> void:
 			_select(i)
 
 func _unhandled_input(ev: InputEvent) -> void:
+	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:
+		if _is_duck_hit(ev.position):
+			_poke_duck()
+		return
 	if ev is InputEventKey and ev.pressed:
+		if ev.keycode >= KEY_1 and ev.keycode <= KEY_5 and not ev.echo:
+			_set_tab(ev.keycode - KEY_1)
+			return
 		match ev.keycode:
 			KEY_UP:
 				_move(0, -1)
@@ -996,7 +1099,8 @@ func _process(dt: float) -> void:
 	if _chars:
 		_chars.position.y = 0.07 + (absf(sin(_t * 9.0)) * 0.12 if _pose_t > 0.0 else 0.0)
 	if _duck:
-		_duck.position.y = absf(sin(_t * 2.0)) * 0.03
+		_duck_hop = maxf(_duck_hop - dt, 0.0)
+		_duck.position.y = absf(sin(_t * 2.0)) * 0.03 + sin(_duck_hop / 0.35 * PI) * 0.18
 	if _toast_t > 0.0:
 		_toast_t -= dt
 		if _toast_t <= 0.0:
