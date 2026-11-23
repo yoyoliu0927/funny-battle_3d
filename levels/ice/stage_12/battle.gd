@@ -25,6 +25,16 @@ func _checklist() -> Array:
 func _how_to() -> String:
 	return "守衛：家豪走進紅圈才會撲"
 
+## 按 H 的說明卡「這一關」：規則（右邊）和兩層提示（左邊，輸 1 次、3 次才打開；後面那張比較直白）
+func _level_rule() -> String:
+	return "守衛站著不動，家豪走進他的紅圈，他才會撲過去。\n\n守衛不怕香蕉皮：把別人撞過去。"
+
+func _level_hints() -> Array:
+	return [
+		"阿土的紅線經過守衛前面：讓阿土滑過去撞他。",
+		"一片丟在阿土的第一段（撞上守衛、一起進冰洞），另一片丟在阿水的第一段。",
+	]
+
 func _defeat_tip() -> String:
 	return "另一條紅線也能放"
 

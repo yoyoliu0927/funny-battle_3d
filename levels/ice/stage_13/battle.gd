@@ -27,6 +27,16 @@ func _checklist() -> Array:
 func _how_to() -> String:
 	return "飼料：家豪會繞過去"
 
+## 按 H 的說明卡「這一關」：規則（右邊）和兩層提示（左邊，輸 1 次、3 次才打開；後面那張比較直白）
+func _level_rule() -> String:
+	return "雞踩薄冰沒事，人一踩就破、掉下去。\n\n飼料放在黃線旁邊，家豪會繞過去；守衛撲過來的紅箭頭也跟著轉。"
+
+func _level_hints() -> Array:
+	return [
+		"守衛撲過來是走直線：讓他的紅箭頭穿過薄冰。",
+		"飼料放在守衛旁邊那塊薄冰的另一邊，黃線一繞，守衛就撲過薄冰；香蕉皮丟在阿水的紅線上，讓他滑進阿土踩破的洞。",
+	]
+
 func _defeat_tip() -> String:
 	return "他的紅線通到哪？"
 

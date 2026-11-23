@@ -89,7 +89,8 @@ var _phase_mode := ""
 var _follow: Fighter             # 滑行特寫要跟著誰
 var _follow_off := Vector3.ZERO
 var _card: Control               # 結算卡的內容
-var _how_tab: Control            # 「怎麼玩」收起來後的小入口（? ＋ H 鍵帽）
+var _how_tab: Control            # 「怎麼玩」收起來後的小入口（圓的 ? ＋ H 鍵帽並排）：按 H 看這一關的提示
+var _how_new: Control            # 「?」右上角的小紅點：輸了之後剛打開一張新提示、還沒看過
 var _how_panel: Control          # 便利貼
 var _how_row: HBoxContainer
 var _pending_line := ""          # 過關時家豪晚一點才說的台詞
@@ -231,6 +232,143 @@ func tut_used(id: String) -> int:
 ## 按 H 的說明彈窗：換成冰雪島的規則（共用的預設寫的是別的玩法）
 func _hero_logic_text() -> String:
 	return "家豪會沿著地上的黃色虛線，自己走去開籠子。\n\n工人沿紅色虛線衝過來，碰到家豪就把他抓走。\n雞在冰上不會滑，人會。"
+
+# ---------------------------------------------------------------- 按 H：這一關的提示（左上角「? 提示 H」）
+#
+# 按 H 打開說明卡，第一頁就是「這一關」：右邊是這一關的規則，左邊是提示板，從上到下越來越直白——
+#   怎麼玩（一直看得到，就是左上角那張便利貼）→ 提示 1（輸 1 次打開）→ 提示 2（輸 3 次打開）→ 沒拿到的星星（過關以後）。
+# 後面幾頁才是這一關有的道具、家豪和工人怎麼動、操作方式（道具的說明照這個大關的規則重寫，見 _item_help）。
+# 過關以後提示全部打開。輸了幾次記在 hint_fails（這次開遊戲期間；按 R 重來、回地圖再進來都還在）。
+# 說明卡本身是共用教學彈窗的子類別（ice_help_popup.gd），共用檔案沒改。
+
+const IceHelp := preload("res://levels/ice/ice_help_popup.gd")
+const HINT_AT := [1, 3]              # 提示 1、提示 2 各要輸幾次才打開
+static var hint_fails := {}          # 關卡 -> 這次開遊戲輸了幾次
+static var _hint_seen := {}          # 關卡 -> 說明卡上已經看過幾張提示（多打開的那張標「新！」、左上角亮紅點）
+
+## 這一關的規則（說明卡第一頁的右邊）；預設是大關 chapter.gd 裡這一關的 desc
+func _level_rule() -> String:
+	return String(_stage_info().get("desc", ""))
+
+## 這一關的兩層提示：[提示 1, 提示 2]，後面那張比較直白（關卡覆寫）。字裡的 [Tab] 會畫成鍵帽
+func _level_hints() -> Array:
+	return []
+
+## 說明卡上道具那幾頁的字：照這個大關的規則講（共用的預設寫的是別的玩法）；回傳空字串就用道具自己的 tutorial
+func _item_help(it) -> String:
+	match String(it.id):
+		"banana":
+			return "丟在紅線上：人踩到，就沿著那一段紅線的方向直直滑出去。\n\n滑進冰洞就出局；撞到別人會一起撞走；撞到雪人、滑到雪地就停。\n家豪是雞，踩到不會滑。"
+		"bait":
+			return "放在黃線旁邊：家豪會繞過去，路過順便啄兩口。\n\n黃線一彎，守衛撲過來的紅箭頭也跟著轉。\n只有準備的時候能放。"
+	return ""
+
+## 大關 chapter.gd 裡這一關的那一筆（title、desc；n＝第幾關）
+func _stage_info() -> Dictionary:
+	var cpath: String = get_script().resource_path.get_base_dir().get_base_dir() + "/chapter.gd"
+	if not ResourceLoader.exists(cpath):
+		return {}
+	var chapter := load(cpath) as Script
+	if chapter == null:
+		return {}
+	var stages: Array = chapter.get_script_constant_map().get("STAGES", [])
+	var base := chapter.resource_path.get_base_dir()
+	for i in stages.size():
+		if base.path_join(String(stages[i].scene)) == _stage_key():
+			var d: Dictionary = (stages[i] as Dictionary).duplicate()
+			d.n = i + 1
+			return d
+	return {}
+
+func help_fails() -> int:
+	return int(hint_fails.get(_stage_key(), 0))
+
+## 測試、截圖用：假裝這一關已經輸過 n 次
+func help_fake_fails(n: int) -> void:
+	hint_fails[_stage_key()] = n
+
+## 輸的次數夠了、打開了幾張提示（不算過關後全開的）
+func _hint_unlocked() -> int:
+	var n := 0
+	for i in _level_hints().size():
+		if help_fails() >= int(HINT_AT[mini(i, HINT_AT.size() - 1)]):
+			n = i + 1
+	return n
+
+## 有沒有剛打開、還沒在說明卡上看過的提示
+func _hint_fresh() -> bool:
+	return _hint_unlocked() > int(_hint_seen.get(_stage_key(), 0))
+
+func _hint_mark_seen() -> void:
+	_hint_seen[_stage_key()] = maxi(int(_hint_seen.get(_stage_key(), 0)), _hint_unlocked())
+
+## 提示板上的每一列（格式見 ice_help_popup.gd）
+func _hint_board() -> Array:
+	var rows: Array = []
+	var how := _how_to()
+	if how != "":
+		rows.append({"tag": "怎麼玩", "text": how})
+	var cleared: bool = _best().has("rescue")
+	var hs := _level_hints()
+	var got := hs.size() if cleared else _hint_unlocked()
+	var seen_n := int(_hint_seen.get(_stage_key(), 0))
+	for i in hs.size():
+		var left: int = int(HINT_AT[mini(i, HINT_AT.size() - 1)]) - help_fails()
+		rows.append({"tag": "提示 %d" % (i + 1), "text": String(hs[i]), "open": i < got,
+			"fresh": i < got and i >= seen_n and not cleared,
+			"lock": ("再試 %d 次就打開" % left) if left > 0 else "過關以後打開"})
+	# 過關以後：還沒拿到的星星，一顆一張（跟結算卡按住 H 看到的是同一句）
+	if cleared:
+		for c in _checklist():
+			if not _best().has(c.id) and String(c.get("hint", "")) != "":
+				rows.append({"tag": "★", "star": true, "text": "%s：%s" % [c.text, c.hint]})
+	return rows
+
+## 說明卡的頁面：這一關 → 道具 → 家豪會自己行動 → 操作方式
+func _tutorial_pages() -> Array:
+	var base: Array = super()
+	var info := _stage_info()
+	var pages: Array = [{"title": String(info.get("title", "這一關")), "level": true, "body": _level_rule(),
+		"keys": [["Tab", "按住看全場"]]}]
+	for p in base:
+		if p.has("item"):
+			var q: Dictionary = p.duplicate()
+			var t := _item_help(p.item)
+			if t != "":
+				q.body = t
+			pages.append(q)
+	for p in base:
+		if not p.has("item") and not p.has("controls"):
+			pages.append(p)
+	for p in base:
+		if p.has("controls"):
+			var q: Dictionary = p.duplicate()
+			var ctl: Array = (p.controls as Array).filter(func(r): return String(r[0]) != "H")
+			if not ctl.any(func(r): return String(r[0]) == "Tab"):
+				ctl.append(["Tab", "按住看全場"])
+			ctl.append(["H", "這一關的提示"])
+			q.controls = ctl
+			pages.append(q)
+	return pages
+
+## 共用的教學彈窗換成冰雪島的說明卡（同一個位置、同樣的開關條件；多了「這一關」那一頁的提示板）
+func _build_help_popup() -> void:
+	super()
+	var old := help_popup
+	if old == null:
+		return
+	var pop := IceHelp.new()
+	remove_child(old)
+	old.queue_free()
+	pop.name = "HelpPopup"
+	add_child(pop)
+	pop.clip_dir = old.clip_dir
+	pop.hotkey_h = old.hotkey_h
+	pop.can_open = old.can_open
+	pop.board = _hint_board
+	pop.seen = _hint_mark_seen
+	pop.set_pages(_tutorial_pages())
+	help_popup = pop
 
 # ---------------------------------------------------------------- 建立、重置
 
@@ -396,9 +534,10 @@ func _level_setup() -> void:
 	# 清單和便利貼各自多寬就多寬（便利貼的字比較長時，不要把清單撐寬）
 	_how_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	(_list_label.get_parent() as Control).size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	# 說明收起來之後的小入口：圓形的「?」＋H 鍵帽
-	var tab := HBoxContainer.new()
-	tab.add_theme_constant_override("separation", 6)
+	# 說明收起來之後的小入口：圓形的「?」＋H 鍵帽並排（沒有底框、沒有字）；按 H 打開說明卡，第一頁就是這一關的提示。
+	# 剛打開新的提示、還沒看過時，「?」右上角亮一顆跳動的小紅點
+	var tab_note := HBoxContainer.new()
+	tab_note.add_theme_constant_override("separation", 6)
 	var qm := Label.new()
 	qm.text = "?"
 	qm.label_settings = UISkin.ls(20, UISkin.INK)
@@ -411,9 +550,23 @@ func _level_setup() -> void:
 	qs.border_width_bottom = 4
 	qs.set_corner_radius_all(16)
 	qm.add_theme_stylebox_override("normal", qs)
-	tab.add_child(qm)
-	tab.add_child(_keycap("H"))
-	_how_tab = tab
+	tab_note.add_child(qm)
+	tab_note.add_child(_keycap("H"))
+	_how_new = Panel.new()
+	_how_new.size = Vector2(12, 12)
+	_how_new.position = Vector2(23, -3)
+	_how_new.pivot_offset = Vector2(6, 6)
+	var ns := StyleBoxFlat.new()
+	ns.bg_color = UISkin.RIBBON
+	ns.border_color = Color(1, 1, 1)
+	ns.set_border_width_all(2)
+	ns.set_corner_radius_all(6)
+	ns.anti_aliasing = true
+	_how_new.add_theme_stylebox_override("panel", ns)
+	_how_new.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_how_new.visible = false
+	qm.add_child(_how_new)
+	_how_tab = tab_note
 	_how_tab.visible = false
 	_how_tab.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	box.add_child(_how_tab)
@@ -791,6 +944,8 @@ func _end(result: String) -> void:
 		for id in _done:
 			_best()[id] = true
 		win_count[_stage_key()] = int(win_count.get(_stage_key(), 0)) + 1
+	else:
+		hint_fails[_stage_key()] = help_fails() + 1     # 按 H 的提示：輸了幾次就多打開幾張
 	_record_try(result)
 	super(result)
 	_ended_t = 0.0
@@ -1947,7 +2102,7 @@ func _process(dt: float) -> void:
 		_enemy_col.visible = false
 	var hint := get_node_or_null("../HUD/Hint") as Label
 	if hint:
-		hint.visible = not cut and Input.is_physical_key_pressed(KEY_H)   # 操作說明只在按住 H 時出現
+		hint.visible = false   # 操作說明改在 H 說明卡的最後一頁（H 現在是「這一關的提示」）
 	if crosshair:
 		crosshair.visible = not cut and (phase == Phase.PREPARE or (phase == Phase.RUNNING and not items.is_empty() and charges[selected] != 0))
 	if _phase_label:
@@ -2006,12 +2161,12 @@ func _process(dt: float) -> void:
 		(_intents[f] as Label3D).visible = (_intents[f] as Label3D).visible and not cut
 	if _how_label and cut:
 		_how_panel.visible = false
-	# 畫面上少放字：「怎麼玩」8 秒後收成一個小標籤（按住 H 再打開）；大標題 4 秒後收起
+	# 畫面上少放字：「怎麼玩」幾秒後收成左上角的「? 提示 H」（按 H 打開說明卡，第一頁就是這一關的提示）；大標題 4 秒後收起
 	if phase == Phase.PREPARE and not cut and _how_label:
 		var t_in := _clock - _prep_t0
 		var first_time: bool = attempts.is_empty()     # 說明、大標題、示範都只在第一次進這一關時出現
 		# 示範播放時先不貼說明（畫面上只留示範的一行字）；示範播完再貼幾秒
-		var show_how: bool = (first_time and not _demo_playing and t_in < (15.0 if _aid("demo") else 5.0)) or Input.is_physical_key_pressed(KEY_H)
+		var show_how: bool = first_time and not _demo_playing and t_in < (15.0 if _aid("demo") else 5.0)
 		show_how = show_how and not tut_on()      # 新手教學進行中：畫面上只留教學的便利貼
 		_how_panel.visible = show_how and not (_top_cam != null and _top_cam.current)
 		if _goal_label:
@@ -2019,6 +2174,9 @@ func _process(dt: float) -> void:
 			_goal_label.visible = false
 		if _how_tab:
 			_how_tab.visible = not show_how and not _demo_playing and not tut_on()
+			if _how_new:
+				_how_new.visible = _hint_fresh()
+				_how_new.scale = Vector2.ONE * (1.0 + 0.18 * sin(_clock * 6.0))
 	elif _how_tab:
 		_how_tab.visible = false
 	if _list_label:

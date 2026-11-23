@@ -30,6 +30,16 @@ func _checklist() -> Array:
 func _how_to() -> String:
 	return "分兩批來：先南邊、再北邊"
 
+## 按 H 的說明卡「這一關」：規則（右邊）和兩層提示（左邊，輸 1 次、3 次才打開；後面那張比較直白）
+func _level_rule() -> String:
+	return "五個人分兩批來：先南邊、再北邊。\n\n三片香蕉皮、一包飼料，怎麼分？"
+
+func _level_hints() -> Array:
+	return [
+		"先看前一批：阿火的紅線對著守衛甲，守衛甲後面就是冰洞。",
+		"阿火一片（撞守衛甲）；後一批阿土、阿水各一片，或像上一關對好時機一片解兩個；守衛乙用飼料或省下的那一片。",
+	]
+
 func _defeat_tip() -> String:
 	return "香蕉皮要放在冰上的紅線"
 

@@ -28,6 +28,16 @@ func _checklist() -> Array:
 func _how_to() -> String:
 	return "前面的人先踩到"
 
+## 按 H 的說明卡「這一關」：規則（右邊）和兩層提示（左邊，輸 1 次、3 次才打開；後面那張比較直白）
+func _level_rule() -> String:
+	return "兩個人走同一條紅線：香蕉皮一定是前面的人先踩到。\n\n雪人只擋得住第一個撞上來的人。"
+
+func _level_hints() -> Array:
+	return [
+		"第一片讓阿土撞倒雪人、暈在紅線上。後面的阿水呢？",
+		"第二片丟在第一片再往前一點（他們跑的方向），阿水滑過去會連阿土一起推進冰洞；飼料讓守衛撲過薄冰。",
+	]
+
 func _defeat_tip() -> String:
 	return "後面那個也要一片"
 

@@ -731,6 +731,18 @@ func _defeat_tip_for(who: String) -> String:
 		"唱盤": return "黃線只到唱盤前面：唱盤上要放飼料"
 	return super(who)
 
+## 按 H 的說明卡：「家豪會自己行動」那一頁換成仙境的說法（冰雪島寫的是籠子和冰）
+func _hero_logic_text() -> String:
+	return "家豪會沿著地上的黃色虛線，自己走去%s。\n\n人沿紅色虛線衝過來，碰到家豪就把他抓走。\n雞在白玉地上不會滑，人會。" % String(world.get("goal_text"))
+
+## 按 H 的說明卡：香蕉皮那一頁照這一關的地形講（水潭／錦鯉池／星洞、畫門）
+func _item_help(it) -> String:
+	if String(it.id) == "banana":
+		var door := "滑進畫門，會從另一扇門出來繼續滑；" if not (world.get("door_specs") as Array).is_empty() else ""
+		return "丟在紅線上：人踩到，就沿著那一段紅線的方向直直滑出去。\n\n滑進%s就出局；撞到別人會一起撞走；%s滑到%s就停。\n家豪是雞，踩到不會滑。" % [
+			String(world.get("hole_word")), door, String(world.get("rough_word"))]
+	return super(it)
+
 ## 泡在雲洞裡的人不會結霜
 func _set_frost(_f: Fighter, _on: bool) -> void:
 	pass
