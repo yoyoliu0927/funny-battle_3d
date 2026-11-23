@@ -757,14 +757,23 @@ func _build_ui() -> void:
 	_text.custom_minimum_size = Vector2(0, 84)
 	_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	v.add_child(_text)
+	# 「▼ 還有下一句」放在框框右下角。對話框是 PanelContainer，直接放進去的子節點會被排到左上角
+	# （錨點沒用，會疊在第一個字上），所以先墊一層一般的 Control（會被撐滿整個框的內容區），▼ 再用錨點貼右下角
+	var over := Control.new()
+	over.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_dlg.add_child(over)
 	_arrow = Label.new()
 	_arrow.text = "▼"
 	_arrow.label_settings = UIStyle.ls(18, UIStyle.accent())
 	_arrow.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_arrow.offset_left = -44
-	_arrow.offset_top = -40
+	_arrow.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_arrow.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_arrow.offset_left = -26
+	_arrow.offset_top = -26
+	_arrow.offset_right = -2
+	_arrow.offset_bottom = 2
 	_arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_dlg.add_child(_arrow)
+	over.add_child(_arrow)
 	# 畫面正中間的大字（「天選之雞」）
 	_stamp_label = Label.new()
 	_stamp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
