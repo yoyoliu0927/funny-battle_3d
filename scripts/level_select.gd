@@ -10,7 +10,7 @@ extends Node3D
 ## 主島（農莊）：家豪的家，島上沒有關卡，只有功能點。一開遊戲家豪站在雞舍前面。從西到東是：
 ##   商店（衣櫃，用星星買服裝）、冒險紀錄（寶箱：全部的星星和過關數）、家（雞舍，可以重溫開場的那場夢）、
 ##   告示牌（操作說明）、碼頭（出航＝拉遠看世界地圖）。
-## 範例關（examples/ 底下的農場大門）和底線開頭的大關（_template 範本）只有開發版看得到，各是一座多出來的島。
+## 範例關（examples/ 底下的農場大門）平常不上地圖，只有 --autotest／--dev 時多一座島；底線開頭的大關（_template 範本）不上地圖。
 ## 還沒做好的大關是一座被雲蓋住的小島（鎖頭＋？？？）。
 ##
 ## 大關從 scripts/registry.gd 自動找到（levels/*/chapter.gd、examples/*/chapter.gd），各關不用改這個檔案。
@@ -495,10 +495,12 @@ func _title_end() -> void:
 func _load_chapters() -> void:
 	LEVELS = Registry.chapters()
 	var islands: Array = LEVELS.filter(func(c): return not _is_example(c))
-	# 範例關（examples/）：只有開發版看得到，排在主題島後面各當一座多出來的島（命令列加 --no-dev 就藏起來）。
+	# 範例關（examples/ 底下的農場大門）：平常不上地圖（連從編輯器執行也看不到）；
+	# 只有自動驗收（--autotest，要進農場範例做檢查）或命令列加 --dev 時，排在主題島後面當一座多出來的島。
 	# 底線開頭的大關（_template 範本）不上地圖：它只是開新大關時複製用的。主島上不放關卡
 	var drafts: Array = LEVELS.filter(func(c): return _is_example(c) and not String(c.id).begins_with("_"))
-	if not OS.is_debug_build() or "--no-dev" in OS.get_cmdline_user_args():
+	var cli := OS.get_cmdline_user_args()
+	if not ("--autotest" in cli or "--dev" in cli):
 		drafts.clear()
 	entries.clear()
 	_stations.clear()
@@ -3525,22 +3527,25 @@ func _paint_compass(c: Control, u: float) -> void:
 		c.draw_colored_polygon(PackedVector2Array([tip, o, rt]), SHOP_RED.darkened(0.3) if i == 0 else Color(INK, 0.45))
 	_text(c, o + Vector2(-r, -r - 12 * u), "N", 20 * u, SHOP_RED, r * 2.0, HORIZONTAL_ALIGNMENT_CENTER)
 
-## 大標題只在剛到的時候秀：HEAD_HOLD 秒之後花 HEAD_FADE 秒淡出（一直掛著只是佔畫面）
+## 大標題一直留著（玩家要知道自己在哪座島）。HEAD_FADE_ON 改成 true 就會變回「剛到時秀 HEAD_HOLD 秒再淡出」
+const HEAD_FADE_ON := false
 const HEAD_HOLD := 2.0
 const HEAD_FADE := 0.6
 
 ## 大標題現在的透明度（標題的字換了就重新計時）
 func _head_alpha(head: String) -> float:
+	if not HEAD_FADE_ON:
+		return 1.0
 	if head != _head_key:
 		_head_key = head
 		_head_t0 = _t
 	return clampf(1.0 - (_t - _head_t0 - HEAD_HOLD) / HEAD_FADE, 0.0, 1.0)
 
-## 標題底下那排小紙片的位置：標題淡出之後往上補到最上面
+## 標題底下那排小紙片的位置（標題淡出的話往上補到最上面）
 func _hud_at(u: float, head: String) -> Vector2:
 	return Vector2(44 * u, lerpf(36.0, 116.0, _head_alpha(head)) * u)
 
-## 左上角的大標題（白邊紅字，稍微歪一點）；剛到的時候秀一下就淡出
+## 左上角的大標題（白邊紅字，稍微歪一點）
 func _headline(c: Control, u: float, head: String, size: float) -> void:
 	var a := _head_alpha(head)
 	if a <= 0.0:
@@ -3611,96 +3616,64 @@ func _paint_hud(c: Control, u: float) -> void:
 	var tot := _star_total(ch)
 	_chip(c, u, at, "star", "%d/%d" % [tot[0], tot[1]], 24.0)
 
-## 右上角的按鈕：不加底框，直接放圖示（白色＋深色描邊，夜空、白雲上都看得到），下面掛一顆鍵帽。
-## 滑鼠移上去：圖示稍微放大，鍵帽旁邊才寫它叫什麼。回傳圖示的縮放
-const ICON_COL := Color("fffaf0")              # 平常的圖示
-const ICON_ON := Color("ffd84a")               # 打開中（正在看地圖、時間面板開著）
-const ICON_OFF := Color("b9b4aa")              # 關掉的（靜音）
-const ICON_EDGE := Color(0.13, 0.09, 0.07, 0.9)
-
-func _corner_button(c: Control, u: float, ctr: Vector2, key: String, label: String, pop := 0.0) -> float:
-	var hover := c.get_local_mouse_position().distance_to(ctr) < 44.0 * u
-	var k := u * (1.0 + 0.18 * sin(pop / 0.25 * PI)) * (1.12 if hover else 1.0)
-	var f := _font()
+## 右上角的圓按鈕底：米色紙片＋陰影；下面置中掛一顆鍵帽。回傳半徑
+## 不寫按鈕名稱（地圖、衣架、喇叭的圖示自己就看得懂）；label 只留著當程式裡的說明
+func _round_button(c: Control, u: float, ctr: Vector2, key: String, _label: String, bg := PAPER, edge := PAPER_EDGE, pop := 0.0) -> float:
+	var r := 34.0 * u * (1.0 + 0.18 * sin(pop / 0.25 * PI))
+	c.draw_circle(ctr + Vector2(2, 5) * u, r + 3.0 * u, Color(0, 0, 0, 0.25))
+	c.draw_circle(ctr, r + 3.0 * u, edge)
+	c.draw_circle(ctr, r, bg)
 	var ks := UIStyle.keycap_size(key, 14 * u)
-	if not hover:
-		label = ""
-	var lw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u)).x if label != "" else -5.0 * u
-	var x := ctr.x - (ks.x + 5 * u + lw) * 0.5
-	var y := ctr.y + 30.0 * u
-	UIStyle.draw_keycap(c, Vector2(x, y), key, 14 * u)
-	if label != "":
-		c.draw_string_outline(f, Vector2(x + ks.x + 5 * u, y + ks.y * 0.5 + 6 * u), label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), int(6 * u), Color(1, 1, 1, 0.9))
-		c.draw_string(f, Vector2(x + ks.x + 5 * u, y + ks.y * 0.5 + 6 * u), label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u), INK)
-	return k
+	var y := ctr.y + 34.0 * u + 5.0 * u
+	UIStyle.draw_keycap(c, Vector2(ctr.x - ks.x * 0.5, y), key, 14 * u)
+	return r
 
-## 畫一個圖示：先一圈深色描邊（往八個方向各偏一點畫），再畫本體
-func _outlined_icon(c: Control, kind: String, ctr: Vector2, k: float, col: Color) -> void:
-	_icon_shape(c, kind, ctr + Vector2(0, 3) * k, k, Color(0, 0, 0, 0.28))        # 影子
-	for i in 8:
-		var a := i * TAU / 8.0
-		_icon_shape(c, kind, ctr + Vector2(cos(a), sin(a)) * 2.4 * k, k, ICON_EDGE)
-	_icon_shape(c, kind, ctr, k, col, true)
-
-## 右上角按鈕的圖示形狀；detail = true 是本體那一次（紅點、紅叉這些小細節只畫在最上面）
-func _icon_shape(c: Control, kind: String, o: Vector2, k: float, col: Color, detail := false) -> void:
-	var w := 3.6 * k
-	match kind:
-		"snd", "snd_off":
-			var s := o + Vector2(-7, 0) * k
-			c.draw_colored_polygon(PackedVector2Array([s + Vector2(-11, -6) * k, s + Vector2(-3, -6) * k, s + Vector2(7, -15) * k,
-				s + Vector2(7, 15) * k, s + Vector2(-3, 6) * k, s + Vector2(-11, 6) * k]), col)
-			if kind == "snd":
-				c.draw_arc(s + Vector2(7, 0) * k, 8.0 * k, -0.9, 0.9, 12, col, w, true)
-				c.draw_arc(s + Vector2(7, 0) * k, 15.0 * k, -0.9, 0.9, 16, col, w, true)
-			else:
-				var xc := o + Vector2(13, 0) * k
-				var xcol := Color("e8483a") if detail else col
-				c.draw_line(xc + Vector2(-6, -6) * k, xc + Vector2(6, 6) * k, xcol, 4.4 * k, true)
-				c.draw_line(xc + Vector2(-6, 6) * k, xc + Vector2(6, -6) * k, xcol, 4.4 * k, true)
-		"shop":
-			c.draw_arc(o + Vector2(0, -15) * k, 5.0 * k, -PI * 0.9, PI * 0.5, 12, col, w, true)
-			c.draw_polyline(PackedVector2Array([o + Vector2(0, -10) * k, o + Vector2(-20, 7) * k, o + Vector2(20, 7) * k, o + Vector2(0, -10) * k]), col, w, true)
-		"map":
-			var m := PackedVector2Array([Vector2(-18, -10), Vector2(-6, -14), Vector2(6, -9), Vector2(18, -13),
-				Vector2(18, 10), Vector2(6, 14), Vector2(-6, 9), Vector2(-18, 13), Vector2(-18, -10)])
-			for i in m.size():
-				m[i] = o + m[i] * k
-			c.draw_polyline(m, col, w, true)
-			c.draw_line(o + Vector2(-6, -14) * k, o + Vector2(-6, 9) * k, col, 3.0 * k, true)
-			c.draw_line(o + Vector2(6, -9) * k, o + Vector2(6, 14) * k, col, 3.0 * k, true)
-			if detail:
-				c.draw_circle(o + Vector2(0.5, 1.0) * k, 3.6 * k, SHOP_RED)
-
-## 右上角的按鈕（由右到左）：聲音 V、商店 B、世界地圖 M
+## 右上角三顆圓按鈕（由右到左）：聲音 V、商店 B、世界地圖 M
 func _paint_buttons(c: Control, u: float) -> void:
 	var vs := get_viewport().get_visible_rect().size
 	# ---- 聲音：喇叭有聲波＝開、打叉＝關
 	var muted := sound_muted()
-	var ctr := Vector2(vs.x - 62.0 * u, 56.0 * u)
+	var ctr := Vector2(vs.x - 62.0 * u, 62.0 * u)
 	_snd_rect = Rect2(ctr - Vector2(44, 44) * u, Vector2(88, 88) * u)
-	var k := _corner_button(c, u, ctr, "V", "聲音", _snd_pop)
-	_outlined_icon(c, "snd_off" if muted else "snd", ctr, k, ICON_OFF if muted else ICON_COL)
+	var r := _round_button(c, u, ctr, "V", "聲音", LOCKED if muted else PAPER, LOCKED_EDGE if muted else PAPER_EDGE, _snd_pop)
+	var ink := Color("8a857a") if muted else INK
+	var k := r / 34.0
+	var o := ctr + Vector2(-7, 0) * k
+	c.draw_colored_polygon(PackedVector2Array([o + Vector2(-11, -6) * k, o + Vector2(-3, -6) * k, o + Vector2(7, -15) * k,
+		o + Vector2(7, 15) * k, o + Vector2(-3, 6) * k, o + Vector2(-11, 6) * k]), ink)
+	if muted:
+		var x := ctr + Vector2(13, 0) * k
+		c.draw_line(x + Vector2(-6, -6) * k, x + Vector2(6, 6) * k, Color("d9534f"), 4.0 * k, true)
+		c.draw_line(x + Vector2(-6, 6) * k, x + Vector2(6, -6) * k, Color("d9534f"), 4.0 * k, true)
+	else:
+		c.draw_arc(o + Vector2(7, 0) * k, 8.0 * k, -0.9, 0.9, 12, ink, 3.2 * k, true)
+		c.draw_arc(o + Vector2(7, 0) * k, 15.0 * k, -0.9, 0.9, 16, ink, 3.2 * k, true)
 	# ---- 商店：衣架；右下角掛著還能花的星星
 	ctr += Vector2(-118.0 * u, 0)
 	_shop_rect = Rect2(ctr - Vector2(48, 44) * u, Vector2(96, 88) * u)
-	k = _corner_button(c, u, ctr, "B", "商店")
-	_outlined_icon(c, "shop", ctr + Vector2(0, -2) * u, k, ICON_COL)
+	_round_button(c, u, ctr, "B", "商店")
+	_hanger(c, ctr + Vector2(0, -2) * u, u, INK)
 	var label := str(_wallet)
 	var f := _font()
 	var lw := f.get_string_size(label, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u)).x
-	var chip := Rect2(ctr + Vector2(10, 4) * u, Vector2(lw + 32 * u, 26 * u))
+	var chip := Rect2(ctr + Vector2(4, 12) * u, Vector2(lw + 32 * u, 26 * u))
 	c.draw_style_box(_box(Color("fff1bf"), Color("d9b84a"), 13 * u, 2.0, false), chip)
 	_star(c, chip.position + Vector2(13, 13) * u, 8 * u, GOLD, Color("8a6410"))
 	_text(c, chip.position + Vector2(24 * u, 19 * u), label, 17 * u, INK)
-	# ---- 世界地圖：一張摺起來的地圖；正在看地圖時圖示是金色的
+	# ---- 世界地圖：一張摺起來的地圖；正在看地圖時按鈕是亮的
 	ctr += Vector2(-118.0 * u, 0)
 	_map_rect = Rect2(ctr - Vector2(48, 44) * u, Vector2(96, 88) * u)
-	k = _corner_button(c, u, ctr, "M", "世界地圖")
-	_outlined_icon(c, "map", ctr, k, ICON_ON if _map else ICON_COL)
-	# 時間按鈕拿掉了：天色本來就跟著電腦的時間走，玩家不需要一顆按鈕來看幾點。
-	# T 鍵還留著（隱藏，給測試和展示用），畫面上不提示
+	_round_button(c, u, ctr, "M", "世界地圖", Color("ffe98a") if _map else PAPER, Color("d9b84a") if _map else PAPER_EDGE)
+	# 時間按鈕拿掉了：天色本來就跟著電腦的時間走。T 鍵還留著（隱藏，給測試和展示用）
 	_time_rect = Rect2()
+	var m := PackedVector2Array([Vector2(-18, -10), Vector2(-6, -14), Vector2(6, -9), Vector2(18, -13),
+		Vector2(18, 10), Vector2(6, 14), Vector2(-6, 9), Vector2(-18, 13), Vector2(-18, -10)])
+	for i in m.size():
+		m[i] = ctr + m[i] * u
+	c.draw_polyline(m, INK, 3.2 * u, true)
+	c.draw_line(ctr + Vector2(-6, -14) * u, ctr + Vector2(-6, 9) * u, INK, 2.6 * u, true)
+	c.draw_line(ctr + Vector2(6, -9) * u, ctr + Vector2(6, 14) * u, INK, 2.6 * u, true)
+	c.draw_circle(ctr + Vector2(0.5, 1.0) * u, 3.4 * u, SHOP_RED)
 
 ## 島上的按鍵提示用過就收：記在 Engine 的 meta（這次開遊戲都記得，進關卡再回來也不會又跳出來）
 ## 卡住才提示：IDLE_HINT 秒沒有任何按鍵或滑鼠點擊，用過的提示也全部叫回來

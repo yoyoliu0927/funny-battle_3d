@@ -39,6 +39,9 @@ var _title: Label
 var _body: Label
 var _keys: HBoxContainer
 var _dots: HBoxContainer
+var _bottom: HBoxContainer       # 下排（上一頁、頁點、按鍵提示、下一頁）：只有一頁時整排收起來
+var _frame: PanelContainer       # 左邊放示範動畫／操作表的框
+var _frame_box: StyleBoxFlat
 var _next_btn: Button
 var _prev_btn: Button
 var _open_t := 0.0
@@ -115,6 +118,16 @@ func _show_page(i: int) -> void:
 	# 直接設：_icon 一開始就是 visible，第一頁設成 true 不會觸發 visibility_changed，米色底板就不會出現
 	_icon_bg.visible = _icon.visible or use_slot
 	_clip.visible = tex != null and ctl.is_empty()
+	# 沒有示範動畫也沒有圖示：整個框不顯示（不再秀「（沒有示範動畫）」的空框）
+	_no_clip.visible = false
+	_frame.visible = _clip.visible or _icon.visible or use_slot or _controls.visible
+	# 操作表直接放在卡片上：不再「卡片 → 深色框 → 米色底 → 鍵帽」一層包一層
+	_frame_box.bg_color = Color(0, 0, 0, 0) if _controls.visible else UIStyle.INK
+	_frame_box.border_color = Color(0, 0, 0, 0) if _controls.visible else UIStyle.INK
+	# 只有一頁（按 H 的速查卡）：不顯示第幾頁、頁點、上一頁／下一頁，✕、Esc 或再按一次 H 關掉
+	var single := pages.size() == 1
+	_bottom.visible = not single
+	_kicker.visible = not single          # 速查卡不需要「教學 1/1」
 	if tex:
 		_atlas.atlas = tex
 		_frames = COLS * int(tex.get_height() / FH)
@@ -187,6 +200,9 @@ func _input(event: InputEvent) -> void:
 				_prev()
 			KEY_ESCAPE:
 				close()
+			KEY_H:
+				if hotkey_h:
+					close()               # H 開、H 關（速查卡）
 		get_viewport().set_input_as_handled()
 	elif event is InputEventMouseMotion:
 		get_viewport().set_input_as_handled()   # 暫停時也別讓視角跟著轉
@@ -281,6 +297,8 @@ func _build() -> void:
 	frame.custom_minimum_size = CLIP_SIZE + Vector2(6, 6)
 	frame.size_flags_vertical = Control.SIZE_SHRINK_BEGIN
 	row.add_child(frame)
+	_frame = frame
+	_frame_box = fsb
 	_clip = TextureRect.new()
 	_clip.texture = _atlas
 	_clip.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
@@ -317,8 +335,8 @@ func _build() -> void:
 	frame.add_child(_slot_holder)
 	_controls = PanelContainer.new()
 	var csb := StyleBoxFlat.new()
-	csb.bg_color = Color("f6ecd4")
-	csb.set_content_margin_all(26)
+	csb.bg_color = Color(0, 0, 0, 0)     # 操作表直接放在卡片上，不再墊一層米色底
+	csb.set_content_margin_all(10)
 	_controls.add_theme_stylebox_override("panel", csb)
 	_controls.visible = false
 	frame.add_child(_controls)
@@ -347,6 +365,7 @@ func _build() -> void:
 	var bottom := HBoxContainer.new()
 	bottom.add_theme_constant_override("separation", 16)
 	col.add_child(bottom)
+	_bottom = bottom
 	_prev_btn = _btn("◀ 上一頁", 18)
 	_prev_btn.pressed.connect(_prev)
 	bottom.add_child(_prev_btn)

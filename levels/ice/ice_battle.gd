@@ -80,6 +80,9 @@ func _build_hero_card(layer: CanvasLayer, hb: Vector2) -> void:
 
 func _level_setup() -> void:
 	show_float_bars = false     # 頭上的血條也不要
+	# 共用的家豪改成 3 顆心（6 點血）了；冰雪島不顯示愛心，維持原本的 10 點血，難度不跟著偷偷變
+	# （撞球關 billiards_battle.gd 另外設自己的血量）
+	bird.max_hp = 10.0
 	# 音效和配樂是程式合成的（sfx.gd）。沒有畫面的自動測試（headless）不合成，省啟動時間
 	var sounds: Dictionary = Sfx.make_all() if SOUND_ON and DisplayServer.get_name() != "headless" else {}
 	for k in sounds:

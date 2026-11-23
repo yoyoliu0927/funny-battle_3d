@@ -25,7 +25,7 @@ signal phase_changed(phase: String)
 
 enum Phase { PREPARE, RUNNING, ENDED }
 
-const BIRD_MAX_HP := 10.0
+const BIRD_MAX_HP := 6.0       # 3 顆心（每關都一樣，跟其他大關統一）
 const FARMER_MAX_HP := 2.0     # 統一規則：小兵啄一下就倒
 ## 先攻規則：家豪先打到農夫 → 農夫一下就倒、家豪不受傷；
 ## 農夫先踢到家豪 → 家豪掉一顆心，但這個農夫踢完就沒力氣了、不會再踢，家豪回頭一定打得贏他。
@@ -76,7 +76,7 @@ const FENCE_CLEAR := 1.0
 ## 神蹟設定
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術（手帳風格）
 const HeartBar := preload("res://scripts/ui/heart_bar.gd")
-const HEART_HP := 2.0          # 一顆愛心 = 幾點血（家豪 10 點血 = 5 顆心）
+const HEART_HP := 2.0          # 一顆愛心 = 幾點血（家豪 6 點血 = 3 顆心）
 const Progress := preload("res://scripts/progress.gd")          # 共用存檔：哪些小關過了
 const FortProgress := preload("res://levels/fort/fort_progress.gd")   # 要塞自己的存檔：教學看過了沒
 const PauseMenu := preload("res://scripts/ui/pause_menu.gd")    # 共用的暫停選單（Esc）
@@ -943,13 +943,7 @@ func _build_fighters() -> void:
 			if not aps.is_empty():
 				f.anim = aps[0]
 			farmers.insert(farmers.size() - 1, f)   # 老闆維持在最後一個
-	# 先攻規則：家豪的心 = 農夫總數 − 1（至少一顆）；這關沒有農夫就照原本的血量。援兵不算。
-	# 2-3（指揮官關）再多一顆心：路上的守衛可以避開，但關卡比較長
-	var crew := farmers.filter(func(f): return not f.is_boss and not f.reserve).size()
-	if crew > 0:
-		bird.max_hp = maxf(crew - 1, 1) * FIRST_STRIKE_DMG
-		if (boss and boss.cone) or int(world.get("stage")) == 4:
-			bird.max_hp += FIRST_STRIKE_DMG   # 指揮官關、風關：多一顆心
+	# 家豪一律 3 顆心（BIRD_MAX_HP，跟其他大關統一）；以前是「農夫總數 − 1」，指揮官關、風關再多一顆
 	# 骨牌
 	for t in world.towers:
 		var td := {"node": t.node, "pos": t.pos, "radius": t.radius, "height": t.height,

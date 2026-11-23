@@ -27,13 +27,14 @@ const PauseMenu := preload("res://scripts/ui/pause_menu.gd")
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術（手帳風格）
 const HeartBar := preload("res://scripts/ui/heart_bar.gd")
 const TutorialPopup := preload("res://scripts/ui/tutorial_popup.gd")
+const Coach := preload("res://scripts/ui/coach.gd")      # 當下提示（道具欄上方，做到就收）
 const ViewToggle := preload("res://scripts/battle/view_toggle.gd")
 const Registry := preload("res://scripts/registry.gd")
 const Progress := preload("res://scripts/progress.gd")
 const LEVEL_SELECT_SCENE := "res://scenes/level_select.tscn"
 
-# 家豪（每關都一樣）
-const BIRD_MAX_HP := 10.0
+# 家豪（每關都一樣）：3 顆心（6 點血），傷害照舊
+const BIRD_MAX_HP := 6.0
 const PECK_DAMAGE := 2.5
 const SNEAK_MULT := 1.0        # 偷襲不加傷害，只會讓敵人嚇一跳愣住
 const STARTLE_TIME := 1.1      # 被偷襲嚇一跳、愣住的時間
@@ -48,7 +49,7 @@ const FEED_LINGER := 3.0       # 吃完飼料後，家豪會在原地東張西�
 const FEED_HEAL := 1.0         # 吃一把飼料回的血
 # 一般近戰敵人（農夫型）的預設值；每個敵人可以在 _enemy_specs() 個別改
 const ENEMY_MAX_HP := 2.0     # 小兵：家豪啄一下就倒（PECK_DAMAGE 2.5）；Boss 在 _enemy_specs() 另外給 "hp"
-const HEART_HP := 2.0         # 一顆愛心 = 幾點血（家豪 10 點血 = 5 顆心）
+const HEART_HP := 2.0         # 一顆愛心 = 幾點血（家豪 6 點血 = 3 顆心）
 const ALERT_RADIUS := 11.0     # 打鬥聲傳得到的距離：哪裡有人挨打，這個距離內的敵人會趕過來
 const DEFEAT_ORIGIN := Vector3(600.0, 0.0, 600.0)
 const SIM_DT := 1.0 / 60.0
@@ -137,7 +138,8 @@ var show_float_bars := false   # true：角色頭上照舊顯示血條
 var _hearts: HeartBar
 var _hero_card: Control
 var _start_btn: Control
-var help_popup: TutorialPopup  # 按 H 打開的教學彈窗（頁面來自 _tutorial_pages()）
+var help_popup: TutorialPopup  # 按 H 打開的速查卡（頁面來自 _tutorial_pages()）
+var _coach = null              # 當下提示（scripts/ui/coach.gd）
 # 兩種視角（按 Tab）：家豪旁邊 ↔ 俯看全場。關卡自己有俯視功能的可以在 _level_setup() 把 use_view_toggle 設成 false
 var use_view_toggle := true
 var start_beside_hero := true  # 開場把幽靈放在家豪旁邊
@@ -241,24 +243,22 @@ func _on_rock_rolling(_rock: Dictionary, _pos: Vector3, _speed: float) -> bool:
 func _update_highlights(_path: PackedVector3Array, _on: bool) -> void:
 	pass
 
-## 按 H 的教學彈窗要放哪些頁（格式見 scripts/ui/tutorial_popup.gd）。
-## 預設：操作方式 → 家豪會自己做什麼 → 每個道具一頁。關卡可以覆寫，例如改 _hero_logic_text() 或多加一頁機關說明。
+## 按 H 的速查卡（格式見 scripts/ui/tutorial_popup.gd）：只有一頁，不用翻——左邊操作表，右邊每個道具一行。
+## 教學不在這裡：道具第一次選到時，道具欄上方的當下提示會示範（見 _coach_begin）。
+## 關卡可以覆寫（例如多加一行機關說明）；回傳好幾頁也可以，彈窗會照舊分頁。
 func _tutorial_pages() -> Array:
 	var ctl: Array = help_list().duplicate()
 	if use_view_toggle:
-		ctl.append(["Tab", "俯看全場／回到家豪旁邊"])
-	ctl.append(["H", "再看一次教學"])
-	var pages: Array = [
-		{"title": "操作方式", "controls": ctl,
-			"body": "你是飄在空中的神，只能從旁觀察、偷偷降下神蹟幫家豪。\n\n準備階段先把神蹟佈置好，再按 Enter 開打。"},
-		{"title": "家豪會自己行動", "clip": "hero", "icon": _load_tex("res://assets/ui/jiahao_portrait.png"), "body": _hero_logic_text()},
-	]
+		ctl.append(["Tab", "俯看全場"])
+	var lines: PackedStringArray = []
+	var hero := _hero_logic_text().get_slice("\n", 0).strip_edges()
+	if hero != "":
+		lines.append(hero)
+		lines.append("")
 	for i in items.size():
 		var it = items[i]
-		var tex: Texture2D = it.icon_tex if it.icon_tex else it.icon
-		pages.append({"title": it.name, "clip": String(it.id), "icon": tex, "item": it, "body": it.tutorial,
-			"keys": [[str(i + 1), "選擇"], ["LMB", "施放"]]})
-	return pages
+		lines.append("%d  %s　%s" % [i + 1, it.name, Coach.first_sentence(String(it.tutorial))])
+	return [{"title": "操作", "controls": ctl, "body": "\n".join(lines)}]
 
 ## 「家豪會自己行動」那一頁的說明：不放神蹟時家豪怎麼決定要去哪
 func _hero_logic_text() -> String:
@@ -336,10 +336,10 @@ func _ready() -> void:
 	reset()
 	if view and start_beside_hero:
 		view.snap_to_hero()
-	# 開場教學：第一次進這個大關時自動打開教學彈窗（跟要塞一樣）；之後按 H 隨時再看。
-	# 自動測試、smoke test 不跳（彈窗會暫停整個遊戲）
-	if show_tutorial and not _automated_run():
-		_auto_help.call_deferred()
+	# 開場不再跳出整頁教學（會暫停遊戲、一次塞十幾個按鍵）：改成道具欄上方的「當下提示」，
+	# 做到了就收掉（見 _coach_begin）；完整的操作在 H 的速查卡
+	if show_tutorial:
+		_coach_begin()
 
 func _ensure_actions() -> void:
 	var map := {"battle_start": [KEY_ENTER, KEY_KP_ENTER], "battle_reset": [KEY_R], "back_to_map": [KEY_M]}
@@ -625,6 +625,7 @@ func _wheel_step(d: int) -> void:
 func select_skill(i: int) -> void:
 	selected = clampi(i, 0, maxi(items.size() - 1, 0))
 	_refresh_slots()
+	_coach_item(selected)          # 第一次選到這個道具：道具欄上方一張小卡片
 
 func _update_aim() -> void:
 	if view and view.overview:
@@ -674,6 +675,7 @@ func cast(i: int, p: Vector3) -> bool:
 	log_event("神降下%s（%.1f, %.1f）" % [it.name, p.x, p.z])
 	it.cast(self, p)
 	_refresh_slots()
+	_coach_used(i)                 # 放下了：當下提示收掉
 	return true
 
 func skill_index(id: String) -> int:
@@ -1811,6 +1813,17 @@ func _build_hud() -> void:
 	layer.add_child(_hotbar)
 	_build_hero_card(layer, hb)
 	_build_start_button(layer)
+	# 當下提示：道具欄上方（再往上留一點給切換道具時浮出的名稱）
+	_coach = Coach.new()
+	_coach.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	_coach.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_coach.offset_left = 28
+	_coach.offset_bottom = -hb.y - 30 - 56
+	# 什麼時候要藏：結束後、關卡自己的教學在跑（tut_on）、速查卡開著（遊戲暫停中，所以由提示自己每幀問）
+	_coach.wanted = func() -> bool:
+		var own_tut: bool = has_method("tut_on") and bool(call("tut_on"))
+		return phase != Phase.ENDED and not own_tut and not (help_popup and help_popup.is_open())
+	layer.add_child(_coach)
 	# 對話框：放在快捷欄上方
 	_dialog = DialogBox.new()
 	UIStyle.apply_theme(_dialog)
@@ -1971,7 +1984,7 @@ func _build_hero_card(layer: CanvasLayer, hb: Vector2) -> void:
 	face.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	row.add_child(face)
 	_hearts = HeartBar.new()
-	_hearts.max_hp = bird.max_hp if bird else 10.0
+	_hearts.max_hp = bird.max_hp if bird else BIRD_MAX_HP
 	_hearts.per_heart = HEART_HP
 	_hearts.hp = _hearts.max_hp
 	_hearts.size_flags_vertical = Control.SIZE_SHRINK_CENTER
@@ -2106,13 +2119,45 @@ func _automated_run() -> bool:
 	var args := OS.get_cmdline_args()
 	return "-s" in args or "--script" in args or DisplayServer.get_name() == "headless"
 
-## 每個大關第一次進來時打開一次教學彈窗（這次開遊戲期間記住）
+## 每個大關第一次進來時打開一次教學彈窗（這次開遊戲期間記住）。
+## 共用的開場已經不呼叫它了（改成 _coach_begin 的當下提示）；留著給想要整頁教學的關卡自己叫
 func _auto_help() -> void:
-	var key := "help_seen_" + (stage_id.get_slice("/", 0) if stage_id != "" else String(get_parent().scene_file_path))
+	var key := "help_seen_" + _chapter_key()
 	if Engine.has_meta(key) or help_popup == null:
 		return
 	Engine.set_meta(key, true)
 	help_popup.open(0)
+
+# ================================================================== 當下提示（scripts/ui/coach.gd）
+# 每個大關這次開遊戲只教一次（記在 Engine 的 meta）：
+#   還沒放過任何道具 → 道具欄上方「1~n 選道具・左鍵 放下」
+#   第一次選到某個道具 → 一張小卡片（示範動畫＋名字＋一句說明）
+#   放下道具 → 收掉（那個道具也算學會了）
+
+func _chapter_key() -> String:
+	return stage_id.get_slice("/", 0) if stage_id != "" else String(get_parent().scene_file_path)
+
+func _coach_begin() -> void:
+	if _coach == null or items.is_empty():
+		return
+	if not Engine.has_meta("coach_cast_" + _chapter_key()):
+		_coach.show_start(items.size())
+		_coach_item(selected)
+
+func _coach_item(i: int) -> void:
+	if _coach == null or i < 0 or i >= items.size():
+		return
+	if Engine.has_meta("coach_item_%s_%s" % [_chapter_key(), items[i].id]):
+		return
+	_coach.show_item(items[i], help_popup.clip_dir if help_popup else "")
+
+func _coach_used(i: int) -> void:
+	if _coach == null:
+		return
+	Engine.set_meta("coach_cast_" + _chapter_key(), true)
+	if i >= 0 and i < items.size():
+		Engine.set_meta("coach_item_%s_%s" % [_chapter_key(), items[i].id], true)
+	_coach.clear()
 
 ## 按 H 的教學彈窗
 func _build_help_popup() -> void:
