@@ -116,11 +116,10 @@ func _load_model_path(path: String, height: float, idle_names: Array) -> Node3D:
 # ------------------------------------------------------------ 載入外部模型
 
 func _find_file(keys: Array) -> String:
-	var dir := DirAccess.open(CHAR_DIR)
-	if dir == null:
-		return ""
-	for f in dir.get_files():
-		var lf := f.to_lower()
+	# 用 ResourceLoader 列檔案：匯出版（網頁版）裡原本的 .gltf 不在了，DirAccess 只看得到 .import，
+	# 會找不到模型、農夫變成備用的膠囊人
+	for f in ResourceLoader.list_directory(CHAR_DIR):
+		var lf := String(f).to_lower()
 		if not (lf.ends_with(".glb") or lf.ends_with(".gltf")):
 			continue
 		for k in keys:

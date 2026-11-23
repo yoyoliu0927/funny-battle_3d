@@ -261,8 +261,8 @@ const TUT_PAGES := [
 		"body": "家豪先啄到農夫，農夫一下就倒，家豪毫髮無傷；被農夫先踢到，家豪會掉一顆心（但還是打得贏他）。\n\n家豪的心比農夫少一顆，全部正面硬碰會輸。用香蕉皮、偷襲幫他搶先手。"},
 	{"id": "bomber", "title": "自爆農夫",
 		"body": "背著紅色火藥桶的農夫。走到家豪身邊就會點引信，炸到家豪掉一顆心，旁邊的農夫也會被炸倒。\n\n讓家豪搶先啄倒他，引信就熄了；用巨石或砲彈砸他，可以順便炸掉他身邊的同伴。讓他踩到香蕉皮，火藥桶會脫手，過一下就在原地爆炸。"},
-	{"id": "cannon", "title": "大砲", "keys": [["LMB", "提早發射"]],
-		"body": "在砲口前撒飼料，家豪吃完會鑽進砲管。引信燒完（或按左鍵）就把家豪射向準心指的地方，可以直接射上炮塔或高台。"},
+	{"id": "cannon", "title": "大砲", "keys": [["LMB", "發射"]],
+		"body": "砲口前撒飼料，家豪會鑽進去。\n準心指哪裡，就射到哪裡。"},
 	{"id": "turret", "title": "炮塔",
 		"body": "塔頂的砲手看到家豪會開砲；地上出現紅圈就是要炸下來了，讓家豪動起來就躲得掉。\n\n在梯子腳下撒飼料，家豪會爬上去把砲手踢下去，炮塔就換邊幫你打人類。巨石也撞得倒炮塔。"},
 	{"id": "commander", "title": "指揮官", "icon": preload("res://assets/ui/napoleon.png"),
@@ -5564,7 +5564,8 @@ func _show_first_hint(on: bool) -> void:
 #   first_strike    家豪第一次被農夫踢中（停一下讓玩家看清楚，再暫停說明）
 #   commander_rage  指揮官發怒（等炮塔升起的過場播完）
 
-const JIT_PAGES := ["controls", "controls_more", "feed", "banana", "rock", "wind", "first_strike", "commander_rage"]
+## "vision"（農夫的視線）、"turret"（炮塔）不自動跳：紅色扇形、地上的紅圈看了就懂，按 H 還是看得到
+const JIT_PAGES := ["controls", "controls_more", "feed", "banana", "rock", "wind", "first_strike", "commander_rage", "vision", "turret"]
 const TIP_TIME := 7.0
 var _hint_row: HBoxContainer
 var _coach := ""               # 現在的引導步驟（"" = 沒有）
