@@ -57,7 +57,13 @@ void fragment() {
 	}
 	// 浮冰旁邊：海面碰到東西的地方（跟後面場景的深度差很小）
 	float zd = texture(depth_tex, SCREEN_UV).r;
-	vec4 up = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, zd, 1.0);
+#if CURRENT_RENDERER == RENDERER_COMPATIBILITY
+	// 網頁版（Compatibility）的深度值是 0～1、要換成 -1～1 才對；沒換的話離岸遠的海也會被算成碰到東西，整片變成浪花的顏色
+	vec3 ndc = vec3(SCREEN_UV, zd) * 2.0 - 1.0;
+#else
+	vec3 ndc = vec3(SCREEN_UV * 2.0 - 1.0, zd);
+#endif
+	vec4 up = INV_PROJECTION_MATRIX * vec4(ndc, 1.0);
 	float gap = -up.z / up.w + VERTEX.z;
 	foam = max(foam, (1.0 - smoothstep(0.04, 0.14 + n * 0.3, gap)) * step(6.0, sd));
 	c = mix(c, foam_c, clamp(foam, 0.0, 1.0) * 0.92);
