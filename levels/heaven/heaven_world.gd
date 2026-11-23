@@ -78,7 +78,7 @@ var _wheels: Array = []        # {spin: Node3D, mat: ShaderMaterial, speed: floa
 var _spirit: Node3D            # 鳳羽靈光（art/spirit.gd）
 var _hv_snowfall: CPUParticles3D
 const SPIRIT := preload("res://levels/heaven/art/spirit.gd")
-## 山海經裡的十二種異獸（轉盤上的紋章；鳳凰在最上面）
+## 山海經裡的十二種異獸（轉盤上的紋章，圖案 emblem_00～11 的順序；鳳凰在最上面）。名字不再寫在盤上
 const BEASTS := ["鳳凰", "燭龍", "九尾", "陸吾", "畢方", "精衛", "帝江", "夔牛", "旋龜", "應龍", "英招", "鹿蜀"]
 
 ## 每一關的顏色（鍵跟冰雪島的 MOODS 一樣，所以冰雪島的程式可以直接用；多的鍵是仙境自己的）。
@@ -846,6 +846,10 @@ func _zone_item(root: Node3D, z: Dictionary) -> void:
 				# 星碑：深色的琉璃、發光的金字（不吃環境光，夜裡才不會變成亮藍色）
 				_swap_mat(stl, "star_glass", _flat_mat(Color(0.045, 0.05, 0.14)))
 				_swap_mat(stl, "lantern_glow_gold", _flat_mat(Color(1.0, 0.72, 0.26), 1.0))
+				# 碑上的古字壓暗成淡淡的刻痕：金框、碑額的圓印照舊發光，字不要亮到像一面寫滿字的看板（使用者 2026-11-23：字太多太雜）
+				if stl:
+					for m in stl.find_children("Glyph*", "MeshInstance3D", true, false):
+						(m as MeshInstance3D).material_override = _flat_mat(Color(0.17, 0.18, 0.34))
 			_blob_shadow(root, g, 1.2 * sc, 0.45)
 		"plum":
 			_prop(root, HM + "plum_" + ["a", "b"][int(absf(g.x * 5.0 + g.z * 3.0)) % 2] + ".glb", g - Vector3(0, 0.05, 0), yaw, sc)
@@ -1168,10 +1172,10 @@ func _build_wheel(parent: Node3D, center: Vector3, r: float, width: float, flat:
 		_restyle(md, false)
 		_swap_mat(md, "medal_base", _flat_mat(Color(0.05, 0.05, 0.13)))
 		_swap_mat(md, "lantern_glow_gold", _flat_mat(Color(1.0, 0.74, 0.28), 1.0))
-		# 異獸的圖案（自己畫的線條圖，assets/textures/emblems）在上，名字的小字在下
+		# 異獸的圖案（自己畫的線條圖，assets/textures/emblems），放在紋章盤正中間
 		var em := MeshInstance3D.new()
 		var eq := QuadMesh.new()
-		eq.size = Vector2(1.22, 1.22) * mr
+		eq.size = Vector2(1.36, 1.36) * mr
 		em.mesh = eq
 		var emm := StandardMaterial3D.new()
 		emm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
@@ -1182,19 +1186,9 @@ func _build_wheel(parent: Node3D, center: Vector3, r: float, width: float, flat:
 		em.material_override = emm
 		em.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 		em.rotation.x = -PI * 0.5
-		em.position = Vector3(0, 0.085 * mr + 0.012, -0.13 * mr)
+		em.position = Vector3(0, 0.085 * mr + 0.012, 0.0)
 		holder.add_child(em)
-		var lb := Label3D.new()
-		lb.text = String(BEASTS[k])
-		lb.font_size = 48
-		lb.pixel_size = mr * 0.0046
-		lb.modulate = Color(1.0, 0.84, 0.42)
-		lb.outline_size = 0
-		lb.shaded = false
-		lb.double_sided = true
-		lb.rotation.x = -PI * 0.5
-		lb.position = Vector3(0, 0.085 * mr + 0.014, 0.66 * mr)
-		holder.add_child(lb)
+		# 原本圖案下面還有一行異獸的名字（BEASTS）：小字一多，畫面就雜（使用者 2026-11-23），只留圖案
 		holders.append(holder)
 	var w := {"node": node, "mat": wm, "speed": speed, "holders": holders, "flat": flat, "c": center, "r": r, "spin": 0.0}
 	_wheels.append(w)

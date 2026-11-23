@@ -40,6 +40,7 @@ func _defeat_tip_for(who: String) -> String:
 func _level_setup() -> void:
 	super()
 	show_names_always = true
+	intro_tags = ["畫門"]            # 這一關新登場：畫門的名牌常駐（其他名牌指到才出現）
 	aid_last_try = 1
 	aid_tab_seconds = true
 	timing_slider = "阿土"

@@ -42,5 +42,6 @@ func _level_setup() -> void:
 	super()
 	preview_full = false
 	show_names_always = true
+	intro_tags = ["陸吾", "金光"]     # 這一關新登場：陸吾和牠的金光名牌常駐（其他名牌指到才出現）
 	win_line = "……牠睡了"
 	caught_line = "……又是你們"

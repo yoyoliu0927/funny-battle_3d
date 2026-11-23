@@ -38,6 +38,7 @@ func _level_setup() -> void:
 	preview_full = false
 	chase_avoids_holes = true
 	show_names_always = true
+	intro_tags = ["薄冰"]            # 這一關新登場：「薄冰」的牌子常駐（其他名牌指到才出現）
 	win_line = "……我只是去吃飯"
 	caught_line = "……飯還沒吞"
 
