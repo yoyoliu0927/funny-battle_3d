@@ -133,6 +133,7 @@ const CARD_CYCLE := [Color("7cc6ec"), Color("8fcf6f"), Color("f0a35a"), Color("c
 const NORTH_IDS := ["ice", "heaven"]
 const FINAL_IDS := ["heaven"]       # 最終章：其他大關都破完（帶回所有羽毛）才能上去；排在北方最高的地方
 const FINAL_GATE := false            # 最終章要不要等羽毛集齊才開：預覽版先關掉，大家不用集齊羽毛也能上丹穴山（改回 true 就恢復上鎖）
+const ALL_OPEN := true               # 預覽版封測：每個大關的每一小關都直接開放，不用照順序一關一關破（改回 false 就恢復照順序解鎖）
 const REGION_INFO := {
 	"north": {"name": "北方諸國", "sub": "神獸與冰雪的國度", "col": Color("e6f6ff"), "cap": Color("4a9fe0")},
 	"south": {"name": "南方島嶼", "sub": "被人類佔領的島", "col": Color("fff1d6"), "cap": Color("e8483a")},
@@ -3651,6 +3652,8 @@ func unlocked(i: int, n := 1) -> bool:
 func _unlocked_ch(ch: Dictionary, n: int) -> bool:
 	if ch.is_empty() or n < 1 or n > ch.stages.size() or String(ch.stages[n - 1].scene) == "":
 		return false
+	if ALL_OPEN:
+		return true
 	if _fresh:
 		return n == 1
 	return Progress.unlocked(ch.id, n)
