@@ -12,6 +12,9 @@ var hands: Node3D                # 神的雙手（第一人稱，掛在鏡頭底
 const SHOW_HANDS := false
 ## 農夫的血量：家豪啄兩下才倒（共用設定是啄一下就倒；啄一下扣 PECK_DAMAGE）
 const FARMER_HP := PECK_DAMAGE * 2.0
+## 農夫踢一下扣多少血：打完 MELEE_SCALE 的折扣之後，一腳剛好一顆心多一點（三腳就倒）。
+## 這樣設是為了「神不出手，家豪自己打不贏」：他啄兩下才倒一個農夫，換不過來
+const FARMER_KICK := HEART_HP * 1.02 / MELEE_SCALE
 
 var _leaving := false
 var _opened := false
