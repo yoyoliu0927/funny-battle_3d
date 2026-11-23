@@ -104,12 +104,15 @@ func _glow_nodes() -> Array:
 
 func _enemy_specs() -> Array:
 	return [
-		# 兩個農夫在場地南半邊巡邏，離家豪的起點（北邊石階頂）遠一點：玩家來得及先劈一次火山
-		{"name": "農夫1", "route": [Vector3(2, 0, 6), Vector3(6, 0, 10)], "loop": false, "pause": 1.2},
-		{"name": "農夫2", "route": [Vector3(-2, 0, 5), Vector3(-6, 0, 9)], "loop": false, "pause": 1.0},
+		# 三個農夫在場地南半邊巡邏，離家豪的起點（北邊石階頂）遠一點：玩家來得及先劈一次火山。
+		# 他們都是從南往北走（面朝家豪過來的方向）：家豪沒辦法從背後一個一個偷襲，神不幫忙就打不贏
+		{"name": "農夫1", "hp": FARMER_HP, "kick_damage": FARMER_KICK, "route": [Vector3(6, 0, 10), Vector3(2, 0, 6)], "loop": false, "pause": 1.2},
+		{"name": "農夫2", "hp": FARMER_HP, "kick_damage": FARMER_KICK, "route": [Vector3(-6, 0, 9), Vector3(-2, 0, 5)], "loop": false, "pause": 1.0},
+		{"name": "農夫3", "hp": FARMER_HP, "kick_damage": FARMER_KICK, "route": [Vector3(-7, 0, 11), Vector3(-9, 0, 6)], "loop": false, "pause": 1.1},
 		# 最終 Boss：穿盔甲的騎士。一開始不在場上，農夫都倒下之後才從飛機上跳下來（route 是他的落點：場地南邊、離石階最遠的那塊空地）。
 		# 走得慢、打得重，啄他完全沒用，要用岩漿砸，或是等他走進湖裡用雷劈湖
-		{"name": "豪王", "kind": "knight", "route": [Vector3(-1.0, 0, 9.5)], "yaw": PI,
+		# is_boss：右上角敵人欄給他自己一張卡（頭像＋名字＋血條），跟其他大關的 Boss 一樣
+		{"name": "豪王", "kind": "knight", "is_boss": true, "route": [Vector3(-1.0, 0, 9.5)], "yaw": PI,
 			"hp": 16.0, "speed": 1.5, "immune_peck": true, "bar_y": 3.5, "hears_noise": false},
 	]
 
@@ -304,10 +307,18 @@ func _knight_strike(f: Fighter) -> void:
 func _tutorial_texts() -> Array:
 	return ["用雷劈火山口，岩漿球飛出來之後按住風，把它吹到敵人身上或湖裡。雷和風都不能直接對人用；對著沙地吹風，沙子會讓下風處的敵人看不見。敵人站在湖水裡的時候用雷劈湖，也能把他電倒。"]
 
-## 最後一關過了：整個大關拿到幾顆星星
+## 最後一關過了：整個大關拿到幾顆星星（每一小關三顆：過關、打倒所有敵人、場上那顆星星）
 func _win_line() -> String:
-	var n: int = world.star_count()
-	return "過關！星星 %s%s（%d / %d）" % ["★".repeat(n), "☆".repeat(world.STAR_TOTAL - n), n, world.STAR_TOTAL]
+	# 打贏最後一關的這一刻，「打倒所有敵人」和「過關」兩顆就都到手了
+	mark_goal(3, "foes")
+	mark_goal(3, "clear")
+	var total: int = world.STAR_TOTAL * 3
+	var n := 0
+	for k in range(1, world.STAR_TOTAL + 1):
+		for id in ["clear", "foes"]:
+			n += 1 if goal_done(k, id) else 0
+		n += 1 if world.star_taken(k) else 0
+	return "過關！星星 %d / %d" % [n, total]
 
 func _prepare_hint() -> String:
 	return "準備中：開打後用雷劈火山口，再用風把岩漿塊吹向敵人　按 Enter 開始"
@@ -528,16 +539,19 @@ func _shock_lake(p: Vector3) -> void:
 	for f in enemies:
 		if not f.alive() or f.data.get("hidden", false) or f.air > 0.5 or not world.in_pool(3, f.pos.x, f.pos.z):
 			continue
+		if f.kind == "knight" and not _knight_can_hurt(f):
+			continue        # 還躺在水裡沒爬起來：這一下不算
 		n += 1
 		f.data.erase("blind_t")
 		f.kb_vel = Vector3.ZERO
 		anim(f, "Death")
 		# 水會導電：站在湖水裡的人直接被電倒。盔甲騎士也一樣（盔甲是鐵的，電得更兇）——
-		# 所以打倒他有兩種方法：用岩漿球砸，或是把他引進湖裡再用雷劈湖
-		f.hp = 0.0
+		# 所以打倒他有兩種方法：用岩漿球砸，或是把他引進湖裡再用雷劈湖。
+		# 騎士要挨 KNIGHT_HITS 下才會倒（岩漿和電可以混著算），沒倒的話躺幾秒會再爬起來
+		f.hp = _knight_hp_after(f) if f.kind == "knight" else 0.0
 		f.heavy = false
-		f.set_state("dead")
-		log_event("%s在湖裡被電倒了" % f.name)
+		f.set_state("dead" if f.hp <= 0.0 else "down")
+		log_event("%s在湖裡被電倒了（剩 %d）" % [f.name, ceili(f.hp)])
 	if n == 0:
 		log_event("雷劈在湖上，水裡沒有人")
 
@@ -745,14 +759,28 @@ func _step_volcano(dt: float) -> void:
 			if is_instance_valid(pl.node):
 				(pl.node as Node).queue_free()
 
+## 盔甲騎士要挨幾下（岩漿砸到或在湖裡被電到，都算一下）才會倒
+const KNIGHT_HITS := 2
+
+## 騎士再挨一下之後剩多少血（每一下扣掉全部血量的 1 / KNIGHT_HITS）
+func _knight_hp_after(f: Fighter) -> float:
+	var left := f.hp - f.max_hp / float(KNIGHT_HITS)
+	return 0.0 if left < 0.01 else left
+
+## 騎士現在挨不挨得到：躺在地上、正在爬起來的那幾秒不算（不然連劈兩下湖就等於一下打倒）
+func _knight_can_hurt(f: Fighter) -> bool:
+	return not (f.state in ["down", "getup"])
+
 ## 一顆岩漿球落地：附近的人被燙到；掉在地上留一灘岩漿，掉進湖水裡就凝固成一堆鵝卵石
 func _land(at: Vector3) -> void:
 	noise_at(at)
 	var n := 0
 	for f in enemies:
 		if f.alive() and f.air < 0.5 and flat_dist(f.pos, at) <= BOMB_RADIUS:
-			# 盔甲騎士（Boss）：被岩漿球打中一發就倒，不管還有多少血；其他人照 BOMB_DAMAGE 扣
-			f.hp = 0.0 if f.kind == "knight" else maxf(f.hp - BOMB_DAMAGE, 0.0)
+			if f.kind == "knight" and not _knight_can_hurt(f):
+				continue        # 還躺在地上：這一下不算
+			# 盔甲騎士（Boss）：被岩漿球打中 KNIGHT_HITS 次才倒；其他人照 BOMB_DAMAGE 扣
+			f.hp = _knight_hp_after(f) if f.kind == "knight" else maxf(f.hp - BOMB_DAMAGE, 0.0)
 			f.data.erase("blind_t")
 			aggro(f)
 			f.heavy = false
@@ -986,7 +1014,84 @@ func _aim_targets() -> Array:
 
 ## 岩漿球和地上的落點圈跟著位置走、地上的岩漿慢慢冷掉、騎士的頭盔跟著他；
 ## 拿著雷、準心指到火山的時候，火山變淺白色
+## 紙片風格的血條（跟人類要塞右上角 Boss 卡上的那一條同一種畫法）：米色底、紅色的血、深色外框；
+## 剛被扣掉的那一段先變淺黃色，再慢慢縮掉
+class PaperBar extends Control:
+	var fill := Color("e2483d")
+	var ratio := 1.0
+	var chip := 1.0
+
+	func set_values(r: float, c: float) -> void:
+		if absf(r - ratio) > 0.001 or absf(c - chip) > 0.001:
+			ratio = r
+			chip = c
+			queue_redraw()
+
+	func _draw() -> void:
+		var r := Rect2(Vector2.ZERO, size)
+		var rad := int(size.y * 0.5)
+		var bg := StyleBoxFlat.new()
+		bg.bg_color = Color("e9dcc0")
+		bg.set_corner_radius_all(rad)
+		bg.anti_aliasing = true
+		draw_style_box(bg, r)
+		var inner := r.grow(-3.0)
+		for part in [[chip, Color(1, 0.93, 0.7)], [ratio, fill]]:
+			var w: float = inner.size.x * clampf(part[0], 0.0, 1.0)
+			if w <= 0.5:
+				continue
+			var sb := StyleBoxFlat.new()
+			sb.bg_color = part[1]
+			sb.set_corner_radius_all(int(inner.size.y * 0.5))
+			sb.anti_aliasing = true
+			draw_style_box(sb, Rect2(inner.position, Vector2(maxf(w, inner.size.y), inner.size.y)))
+		var edge := StyleBoxFlat.new()
+		edge.draw_center = false
+		edge.border_color = UIStyle.INK
+		edge.set_border_width_all(2)
+		edge.set_corner_radius_all(rad)
+		edge.anti_aliasing = true
+		draw_style_box(edge, r)
+
+var _boss_bar: PaperBar
+var _boss_card: Control        # 右上角豪王那一整張卡（他從飛機上跳下來之後才出現）
+
+## 右上角豪王那張卡：名字底下加一條血條（共用的敵人欄只畫頭像和名字）
+func _tick_boss_bar() -> void:
+	var knight: Fighter = null
+	for f in enemies:
+		if f.kind == "knight":
+			knight = f
+	if knight == null:
+		return
+	if _boss_bar == null:
+		for row in _enemy_rows:
+			if row.fighter != knight:
+				continue
+			# 卡片裡原本是「頭像｜名字」：把名字換成「名字在上、血條在下」
+			var holder := (row.face as Control).get_parent().get_parent() as BoxContainer
+			var nm := holder.get_child(holder.get_child_count() - 1) as Label
+			if holder == null or nm == null:
+				return
+			var info := VBoxContainer.new()
+			info.alignment = BoxContainer.ALIGNMENT_CENTER
+			info.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			holder.add_child(info)
+			nm.reparent(info)
+			_boss_bar = PaperBar.new()
+			_boss_bar.custom_minimum_size = Vector2(170, 16)
+			_boss_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+			info.add_child(_boss_bar)
+			_boss_card = holder.get_parent() as Control
+		if _boss_bar == null:
+			return
+	# 豪王還沒登場（還在飛機上、或是農夫還沒打完）的時候，右上角不先露出他的卡
+	if _boss_card:
+		_boss_card.visible = phase != Phase.PREPARE and (knight.data.get("landed", false) or _drop_t >= DROP_AT)
+	_boss_bar.set_values(knight.ratio() if knight.alive() else 0.0, knight.chip)
+
 func _level_visuals() -> void:
+	_tick_boss_bar()
 	super()
 	if not world.has_method("volcano_set"):
 		return
