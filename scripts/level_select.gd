@@ -4045,7 +4045,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 						get_tree().reload_current_scene()
 					else:
 						_esc_t = 2.0
-						_show_toast("再按一次 Esc 返回標題")
+						_show_toast("再按一次 %s 返回標題" % UIStyle.key_label("Esc"))
 
 ## 方向鍵：世界地圖上是換島；島上 ← → 是沿著路走，↑ ↓ 沒有路（頂一下）
 func _arrow(d: Vector2) -> void:
@@ -5527,7 +5527,7 @@ func _paint_tod(c: Control, u: float) -> void:
 		var pl := String(HubTime.PRESETS[i][0])
 		var plw := _font().get_string_size(pl, HORIZONTAL_ALIGNMENT_LEFT, -1, int(24 * u)).x
 		_text(c, br.position + Vector2((bw - plw) * 0.5, 31 * u), pl, 24 * u, INK)
-	_text(c, panel.position + Vector2(28 * u, panel.size.y - 22 * u), "← → 調整（Shift 一次 3 小時）　↑ ↓ 換模式　1～4 快速選　Esc 關上", _fit("← → 調整（Shift 一次 3 小時）　↑ ↓ 換模式　1～4 快速選　Esc 關上", 18.0 * u, pw - 56 * u, 12.0), Color("8a7a6a"))
+	_text(c, panel.position + Vector2(28 * u, panel.size.y - 22 * u), ("← → 調整（Shift 一次 3 小時）　↑ ↓ 換模式　1～4 快速選　%s 關上" % UIStyle.key_label("Esc")), _fit(("← → 調整（Shift 一次 3 小時）　↑ ↓ 換模式　1～4 快速選　%s 關上" % UIStyle.key_label("Esc")), 18.0 * u, pw - 56 * u, 12.0), Color("8a7a6a"))
 
 # ================================================================== 開發用：主島自由走（--freetest 快速驗收、--freeshots=資料夾 截圖）
 

@@ -41,6 +41,41 @@ const KEY_SPLIT := "／"              # key_hint 的按鍵用這個字分開，�
 static var _font: Font
 static var _tex_cache := {}
 
+## 網頁版（itch.io）：瀏覽器把 Esc 拿去「離開全螢幕／放開滑鼠」，那一下 Esc 進不了遊戲。
+## 所以網頁版讓 Backspace 也等於 Esc（_install_web_keys() 在瀏覽器裡把 Backspace 換成 Esc 送進遊戲，
+## 各畫面原本接 Esc 的程式不用改），畫面上寫 Esc 的鍵帽都改畫 ⌫（key_label()）。
+## 用 --webui 啟動可以在電腦版看到網頁版的鍵帽。
+const WEB_ESC_LABEL := "⌫"
+static var _web := -1                # -1 還沒判斷；1 網頁版（或 --webui）；0 電腦版
+
+static func web_ui() -> bool:
+	if _web < 0:
+		_web = 1 if OS.has_feature("web") or "--webui" in OS.get_cmdline_user_args() else 0
+	return _web == 1
+
+## 鍵帽上要寫的字：網頁版的「Esc」改成 ⌫（Backspace）
+static func key_label(key: String) -> String:
+	return WEB_ESC_LABEL if key == "Esc" and web_ui() else key
+
+static func _install_web_keys() -> void:
+	JavaScriptBridge.eval("""
+(function () {
+	if (window.__fbKeys) return;
+	window.__fbKeys = true;
+	// Backspace 換成 Esc：先在最外層攔下來，再對同一個目標（遊戲畫面）送一個 Esc
+	function remap(e) {
+		if (e.code !== 'Backspace') return;
+		e.stopImmediatePropagation();
+		e.preventDefault();
+		e.target.dispatchEvent(new KeyboardEvent(e.type, { key: 'Escape', code: 'Escape', keyCode: 27, which: 27,
+			repeat: e.repeat, bubbles: true, cancelable: true,
+			shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey }));
+	}
+	window.addEventListener('keydown', remap, true);
+	window.addEventListener('keyup', remap, true);
+})();
+""", true)
+
 ## 主題色：各大關的強調色（緞帶、標籤）。形狀、字型、紙張全遊戲一樣，只換這幾個顏色
 const THEMES := {
 	"default": {"accent": Color("e2483d"), "accent_edge": Color("8f231c"), "tag": Color("e2f4ff"), "tag_edge": Color("2c5d8a")},
@@ -92,6 +127,8 @@ static func font() -> Font:
 		if _font and not Engine.is_editor_hint():
 			ThemeDB.get_default_theme().default_font = _font
 			ThemeDB.fallback_font = _font
+		if OS.has_feature("web"):
+			_install_web_keys()
 	return _font
 
 ## 2D 控制項換字型
@@ -215,7 +252,7 @@ static func keycap_box(size := 18) -> StyleBoxFlat:
 ## 鍵帽：一顆按鍵的小方塊（size 是字級）。所有畫面的按鍵提示都用這個，長得才會一樣
 static func keycap(key: String, size := 18) -> Label:
 	var l := Label.new()
-	l.text = key
+	l.text = key_label(key)
 	l.label_settings = ls(size, INK)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.add_theme_stylebox_override("normal", keycap_box(size))
@@ -281,7 +318,7 @@ static func keycap_size(key: String, size := 18.0) -> Vector2:
 	if f == null:
 		f = ThemeDB.fallback_font
 	var fs := int(size)
-	var tw := f.get_string_size(key, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var tw := f.get_string_size(key_label(key), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	return Vector2(maxf(tw + size * 1.1, size * 1.9), size * 1.3 + size * 0.38)
 
 ## 在自己畫的控制項（_draw）裡畫一顆鍵帽；pos 是左上角，回傳它的大小
@@ -295,7 +332,7 @@ static func draw_keycap(c: CanvasItem, pos: Vector2, key: String, size := 18.0) 
 	var fs := int(size)
 	var inner_h := sz.y - sb.border_width_bottom - 2.0
 	var base_y := pos.y + 2.0 + (inner_h - f.get_height(fs)) * 0.5 + f.get_ascent(fs)
-	c.draw_string(f, Vector2(pos.x, base_y), key, HORIZONTAL_ALIGNMENT_CENTER, sz.x, fs, INK)
+	c.draw_string(f, Vector2(pos.x, base_y), key_label(key), HORIZONTAL_ALIGNMENT_CENTER, sz.x, fs, INK)
 	return sz
 
 ## 滑鼠圖示（跟鍵帽同一套線條）：button = "left" / "right" / "wheel"，按的那一顆塗上主題色
