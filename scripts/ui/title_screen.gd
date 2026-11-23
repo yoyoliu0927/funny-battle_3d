@@ -750,6 +750,10 @@ func _finish() -> void:
 		(bit as Node3D).visible = false
 	for n in _notes:
 		(n as Node3D).visible = false
+	# 開場的雲層也收掉：鏡頭已經在農莊、看不到天上的雲；不收的話一進農莊就按 M，
+	# 世界地圖會整片被雲蓋住（北邊的冰雪島、丹穴山最嚴重），要等 7 秒標題整個拿掉才突然消失
+	for cl in _clouds:
+		(cl.node as Node3D).visible = false
 	map._hero_body.rotation = Vector3.ZERO
 	map._hero_body.scale = Vector3.ONE
 	for h in map._hens:
