@@ -401,6 +401,7 @@ func _tick_night() -> void:
 		_hero_card.offset_left = _night_slot.position.x + NIGHT_SLOT + 18.0
 	# 輸了（畫面下半變黑、顯示「家豪被抓去當晚餐了」）的時候技能欄會收起來，這一格也跟著收
 	_night_slot.visible = _hotbar.is_visible_in_tree() and not _leaving and not defeat_shown
+	_night_slot.modulate.a = 1.0 if _night_shown else 0.0        # 還沒介紹到夜晚之前先藏著
 	_night_box.border_color = UIStyle.accent() if held else UIStyle.INK
 	_night_box.set_border_width_all(4 if held else 3)
 	_night_box.border_width_bottom = 6 if held else 5
@@ -1240,6 +1241,13 @@ func _level_setup() -> void:
 	_gift_id = String(Engine.get_meta("liuchiyu_new_item", ""))
 	if _gift_id != "":
 		Engine.remove_meta("liuchiyu_new_item")
+		_gift_queue.append(_gift_id)
+	# 第一小關一開始（島嶼預覽播完之後）：先介紹「風」，再介紹「夜晚」。只在第一次進來的時候演，重來不再演
+	if _stage_no() == 1 and not Engine.get_meta("liuchiyu_intro_gifts", false):
+		Engine.set_meta("liuchiyu_intro_gifts", true)
+		_gift_queue.append("wind")
+		_gift_queue.append("night")
+		_night_shown = false
 	# 敵人腳下的紅色扇形（偵測範圍）不畫了；他們還是看得到家豪，只是畫面上不顯示
 	for f in enemies:
 		if f.cone != null:
@@ -1288,7 +1296,7 @@ func _tick_item_hint(dt: float) -> void:
 	if _hint_t > 0.0:
 		_hint_t -= dt
 	# 位置跟「現在還無法使用」那種提示一樣：畫面最下面中間的一行（那種提示出現的時候這一行先讓位）
-	_hint_label.visible = _hint_t > 0.0 and tutorial_step < 0 and _note_t <= 0.0 and not defeat_shown and not _gift_playing() and _gift_id == ""
+	_hint_label.visible = _hint_t > 0.0 and tutorial_step < 0 and _note_t <= 0.0 and not defeat_shown and not _gift_playing() and _gift_queue.is_empty()
 	if _hint_label.visible:
 		var vs := get_viewport().get_visible_rect().size
 		_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1656,17 +1664,23 @@ func _tick_zaps(dt: float) -> void:
 
 const GIFT_IN := 0.3             # 背景變暗、道具卡片在畫面正中央彈出來
 const GIFT_SPIN := 1.0           # 卡片在中間轉一圈
-const GIFT_HOLD := 0.35          # 轉完停一下
+const GIFT_HOLD := 1.7           # 轉完停一下（底下有一行介紹，要留時間看）
 const GIFT_FLY := 0.65           # 滑到左下角技能欄裡它自己的那一格
 const GIFT_BIG := 3.0            # 在中間的時候是技能欄卡片的幾倍大
 const GIFT_DIM := 0.62           # 背景暗到多暗
 
 var _gift_id := ""               # 這一小關一進來要介紹的新道具（上一小關離開時交代的）
+var _gift_queue: Array = []      # 排隊等著介紹的（道具的 id；"night" = 按住右鍵的夜晚），一個演完才換下一個
+var _night_shown := true         # 「夜晚」那一格現在可不可以露出來（還沒介紹到它之前先藏著）
+## 「夜晚」不是技能欄裡的道具，介紹的時候名字和說明寫在這裡
+const NIGHT_NAME := "夜晚"
+const NIGHT_HINT := "按住右鍵：變成晚上，可以互動的東西會發光"
 var _gift := {}                  # 過場用到的節點和時間
 
 ## 一張跟技能欄一樣的道具卡片（米色紙卡、咖啡色圓貼紙、右上角次數徽章）。回傳 [卡片, 它的外框樣式]
-func _gift_card(layer: Node, i: int, bright: bool) -> Array:
-	var cnt: int = charges[i] if i < charges.size() else 0
+## i < 0 的時候不是技能欄裡的道具（夜晚）：圖示用 tex
+func _gift_card(layer: Node, i: int, bright: bool, tex: Texture2D = null) -> Array:
+	var cnt: int = charges[i] if i >= 0 and i < charges.size() else 0
 	var live: bool = bright or cnt != 0
 	var card := Panel.new()
 	card.size = Vector2(74.0, 74.0)
@@ -1690,7 +1704,7 @@ func _gift_card(layer: Node, i: int, bright: bool) -> Array:
 	sticker.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(sticker)
 	var icon := TextureRect.new()
-	icon.texture = items[i].icon_tex if items[i].icon_tex != null else items[i].icon
+	icon.texture = tex if tex != null else (items[i].icon_tex if items[i].icon_tex != null else items[i].icon)
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -1739,6 +1753,7 @@ func _slot_pos(k: int, sel: bool) -> Vector2:
 ##   卡片滑向技能欄的時候，原本的道具往右挪一格讓位，新道具落進空出來的那一格
 ## 演完再把真的技能欄放出來。
 func _start_gift(i: int) -> void:
+	var night := i < 0
 	var layer := CanvasLayer.new()
 	layer.layer = 30
 	add_child(layer)
@@ -1747,17 +1762,18 @@ func _start_gift(i: int) -> void:
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(dim)
-	# 原本就有的道具：[卡片, 外框, 現在第幾格, 之前第幾格]
+	# 原本就有的道具：[卡片, 外框, 現在第幾格, 之前第幾格]。介紹夜晚的時候技能欄不用動，照常顯示
 	var olds: Array = []
-	for k in items.size():
-		if k == i:
-			continue
-		var made := _gift_card(layer, k, false)
-		olds.append([made[0], made[1], k, k if k < i else k - 1])
-	var big := _gift_card(layer, i, true)
-	_gift_frame(big[1], true)
+	if not night:
+		for k in items.size():
+			if k == i:
+				continue
+			var made := _gift_card(layer, k, false)
+			olds.append([made[0], made[1], k, k if k < i else k - 1])
+	var big := _gift_card(layer, i, true, NightIcon.new().icon if night else null)
+	_gift_frame(big[1], not night)
 	var title := Label.new()
-	title.text = "新的神蹟：%s" % items[i].name
+	title.text = "新的神蹟：%s" % (NIGHT_NAME if night else String(items[i].name))
 	title.add_theme_font_size_override("font_size", 30)
 	title.add_theme_color_override("font_color", Color(1, 1, 1))
 	title.add_theme_color_override("font_outline_color", Color(0.08, 0.08, 0.08))
@@ -1765,8 +1781,19 @@ func _start_gift(i: int) -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(title)
-	_hotbar.modulate.a = 0.0
-	_gift = {"t": 0.0, "i": i, "layer": layer, "dim": dim, "card": big[0], "title": title, "olds": olds}
+	# 名字底下一行介紹：怎麼用、有什麼效果（跟切到這個道具時技能欄上面那行小字一樣）
+	var desc := Label.new()
+	desc.text = NIGHT_HINT if night else _item_hint(i)
+	desc.add_theme_font_size_override("font_size", 22)
+	desc.add_theme_color_override("font_color", Color(1.0, 0.95, 0.78))
+	desc.add_theme_color_override("font_outline_color", Color(0.08, 0.08, 0.08))
+	desc.add_theme_constant_override("outline_size", 6)
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(desc)
+	if not night:
+		_hotbar.modulate.a = 0.0
+	_gift = {"t": 0.0, "i": i, "layer": layer, "dim": dim, "card": big[0], "title": title, "desc": desc, "olds": olds}
 
 func _gift_playing() -> bool:
 	return not _gift.is_empty()
@@ -1774,13 +1801,19 @@ func _gift_playing() -> bool:
 func _tick_gift(dt: float) -> void:
 	if _gift.is_empty():
 		# 等技能欄建好了才開始（要知道卡片最後飛去哪）
-		if _gift_id == "" or _hotbar == null or _intro_t >= 0.0:
+		if _gift_queue.is_empty() or _hotbar == null or _intro_t >= 0.0:
+			return
+		if _gift_queue[0] == "night":
+			if _night_slot == null:
+				return        # 夜晚那一格還沒建好（要知道卡片最後飛去哪）
+			_gift_queue.pop_front()
+			_start_gift(-1)
 			return
 		var idx := -1
 		for k in items.size():
-			if items[k].id == _gift_id:
+			if items[k].id == _gift_queue[0]:
 				idx = k
-		_gift_id = ""
+		_gift_queue.pop_front()
 		if idx >= 0:
 			_start_gift(idx)
 		return
@@ -1802,7 +1835,9 @@ func _tick_gift(dt: float) -> void:
 	var k_spin := clampf((t - GIFT_IN) / GIFT_SPIN, 0.0, 1.0)
 	k_spin = k_spin * k_spin * (3.0 - 2.0 * k_spin)
 	card.rotation = TAU * k_spin
-	card.position = mid.lerp(_slot_pos(i, i == selected), k_fly)
+	# 最後飛到哪：技能欄裡它自己的那一格；夜晚飛到技能欄旁邊它那一格
+	var home: Vector2 = _night_slot.position if i < 0 else _slot_pos(i, i == selected)
+	card.position = mid.lerp(home, k_fly)
 	# 原本的道具：新卡片滑過來的前半段就往右挪好位置（新卡片到的時候那一格已經空出來了）
 	var k_move := clampf((t - t_fly) / (GIFT_FLY * 0.6), 0.0, 1.0)
 	k_move = k_move * k_move * (3.0 - 2.0 * k_move)
@@ -1815,11 +1850,20 @@ func _tick_gift(dt: float) -> void:
 	title.size = Vector2(vs.x, 44.0)
 	title.position = Vector2(0.0, mid.y + card.size.y * 0.5 + 74.0 * GIFT_BIG * 0.5 + 18.0)
 	title.modulate.a = clampf((t - GIFT_IN) / 0.25, 0.0, 1.0) * (1.0 - clampf((t - t_fly) / 0.2, 0.0, 1.0))
+	# 介紹那一行：卡片轉到一半才浮出來，跟著名字一起淡掉
+	var desc: Label = _gift.desc
+	desc.size = Vector2(vs.x, 34.0)
+	desc.position = Vector2(0.0, title.position.y + 50.0)
+	desc.modulate.a = clampf((t - GIFT_IN - GIFT_SPIN * 0.5) / 0.3, 0.0, 1.0) * (1.0 - clampf((t - t_fly) / 0.2, 0.0, 1.0))
 	if t >= t_fly + GIFT_FLY + 0.05:
 		(_gift.layer as Node).queue_free()
 		_gift = {}
-		_hotbar.modulate.a = 1.0        # 真的技能欄放出來，位置和假卡片一模一樣
-		_hint_sel = -1                  # 卡片歸位之後，底下那行道具說明再浮出來一次
+		if i < 0:
+			_night_shown = true         # 夜晚那一格從現在開始露出來
+		else:
+			_hotbar.modulate.a = 1.0    # 真的技能欄放出來，位置和假卡片一模一樣
+		if _gift_queue.is_empty():
+			_hint_sel = -1              # 都介紹完了，底下那行道具說明再浮出來一次
 
 ## 地上那個表示道具範圍的白色大圓圈：這個大關先不顯示（準心和「可以互動的東西變白」就夠了）。
 ## 想再打開就改成 true。
