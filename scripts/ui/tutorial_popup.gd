@@ -145,6 +145,9 @@ func _set_frame(n: int) -> void:
 func _process(dt: float) -> void:
 	if page < 0:
 		return
+	# 開著的時候游標要能點：網頁版進關卡時要求鎖游標要等一下才生效，可能在彈窗打開之後才鎖上，這裡再放開
+	if Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	# 進場：卡片從稍小、透明長到正常大小
 	_open_t += dt
 	var k := clampf(_open_t / 0.22, 0.0, 1.0)

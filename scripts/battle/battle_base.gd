@@ -1998,6 +1998,16 @@ func _build_help_popup() -> void:
 	help_popup.set_pages(_tutorial_pages())
 	help_popup.hotkey_h = not "--autotest" in OS.get_cmdline_user_args()
 	help_popup.can_open = func() -> bool: return not (pause_menu and pause_menu.is_open) and not defeat_shown
+	help_popup.closed.connect(_on_help_closed)
+
+## 教學彈窗關掉：彈窗打開時放開了游標，這裡鎖回去、繼續轉視角。
+## 沒鎖回去的話游標一直露在外面，點畫面放不出道具、移動滑鼠去點東西時視角還會跟著跑。
+## 俯看全場（或鏡頭正在飛）時游標本來就該放開，關卡自己把視角關掉（looking = false）的也不動。
+func _on_help_closed() -> void:
+	if view and (view.overview or view.busy):
+		return
+	if player and player.get("looking") == true and player.has_method("_set_looking"):
+		player.call("_set_looking", true)
 
 func _refresh_slots() -> void:
 	if _hotbar == null:
