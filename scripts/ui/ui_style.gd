@@ -87,6 +87,11 @@ static func font() -> Font:
 		# 粉圓體沒有的符號（▶ ✕ ✓…）改用備用字型。電腦版缺字會去借系統字型，網頁版沒有系統字型可借，會變成方框
 		if _font is FontFile and (_font as FontFile).fallbacks.is_empty() and ResourceLoader.exists(SYMBOL_FONT_PATH):
 			(_font as FontFile).fallbacks = [load(SYMBOL_FONT_PATH)]
+		# 沒有自己指定字型的字（各關自己建的 3D 字、Label）原本用引擎內建的英文字型：電腦版會去借系統字型所以看不出來，
+		# 網頁版沒有系統字型可借，中文全部變方框。把引擎的預設字型也換成粉圓體（只在遊戲執行時換，編輯器不動）
+		if _font and not Engine.is_editor_hint():
+			ThemeDB.get_default_theme().default_font = _font
+			ThemeDB.fallback_font = _font
 	return _font
 
 ## 2D 控制項換字型

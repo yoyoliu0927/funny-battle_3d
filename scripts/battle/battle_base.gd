@@ -277,6 +277,7 @@ func _dry_landing(dest: Vector3) -> Vector3:
 # ================================================================== 初始化
 
 func _ready() -> void:
+	UIStyle.font()   # 先把引擎預設字型換成粉圓體：各關自己建的字（沒指定字型）在網頁版才不會變方框
 	world = get_node("../World")
 	player = get_node("../Player")
 	camera = player.get_node("Head/Camera3D")
