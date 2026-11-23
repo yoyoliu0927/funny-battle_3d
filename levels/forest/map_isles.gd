@@ -1,6 +1,6 @@
 extends RefCounted
-## 選關地圖上的森林島（chapter.gd 的 MAP_SCRIPT；由 scripts/level_select.gd 呼叫）。
-## 一座長滿樹的森林島。目前只排第一關：木屋。
+## 選關地圖上的駁大莖森島（chapter.gd 的 MAP_SCRIPT；由 scripts/level_select.gd 呼叫）。
+## 駁大莖森：一座長滿樹的島。目前只排第一關：木屋。
 ## （合併進 develop 時改過：島的本體換成不規則海岸＋土崖的網格，樹換成整片樹林；天色和三個地標照原樣。）
 
 const Isle := preload("res://levels/ice/art/isle_builder.gd")

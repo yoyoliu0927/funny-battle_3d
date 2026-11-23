@@ -39,7 +39,7 @@ func _tutorial_steps() -> Array:
 	var hero_at := func(): return bird.pos + Vector3(0, 0.6, 0)
 	var chop_at := func(): return tut_enemy("伐木1").pos + Vector3(0, 1.0, 0)
 	return [
-		{"pic": ["hero"], "say": "這是家豪。她會自己衝去打離她最近的人。\n你是森林之神，用道具在旁邊幫她。",
+		{"pic": ["hero"], "say": "這是家豪。她會自己衝去打離她最近的人。\n你是駁大莖森之神，用道具在旁邊幫她。",
 			"spot": [hero_at], "r": 1.3},
 		{"pic": ["who:伐木1", "to", "icon:log"], "say": "伐木工在砍樹。打倒兩個伐木工就過關，\n倒下的樹超過 6 棵就輸。",
 			"spot": [chop_at], "r": 1.6, "look": chop_at},

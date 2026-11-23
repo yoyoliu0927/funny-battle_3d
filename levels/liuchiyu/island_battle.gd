@@ -8,6 +8,13 @@ const BLIND_VISION := 0.9        # 看不見的時候，偵測扇形縮到多短
 const GodHands := preload("res://levels/liuchiyu/god_hands.gd")
 
 var hands: Node3D                # 神的雙手（第一人稱，掛在鏡頭底下；見 god_hands.gd）
+## 畫面下方那雙半透明的神之手：先拿掉（改回 true 就會再出現，程式都還留著）
+const SHOW_HANDS := false
+## 農夫的血量：家豪啄兩下才倒（共用設定是啄一下就倒；啄一下扣 PECK_DAMAGE）
+const FARMER_HP := PECK_DAMAGE * 2.0
+## 農夫踢一下扣多少血：打完 MELEE_SCALE 的折扣之後，一腳剛好一顆心多一點（三腳就倒）。
+## 這樣設是為了「神不出手，家豪自己打不贏」：他啄兩下才倒一個農夫，換不過來
+const FARMER_KICK := HEART_HP * 1.02 / MELEE_SCALE
 
 var _leaving := false
 var _opened := false
@@ -45,8 +52,8 @@ var _star_fx := -1.0             # 星星飛起來的動畫播了幾秒（< 0 = 
 var _cut_t := 0.0                # 過場還剩幾秒（> 0 的時候鏡頭被借走）
 var _cut_back := Transform3D.IDENTITY
 var _cut_head := 0.0
-var _star_label: Label
-var _foe_dots: HBoxContainer        # 右上角的紅色圓點（敵人還剩幾個）
+var _star_rows: VBoxContainer       # 左上角「星星」紙卡裡的三列
+var _star_shown := -1               # 紙卡上現在畫的是「拿到哪幾顆」（位元），變了才重畫
 
 ## 這一小關是第幾關（星星記在第幾關名下）
 func _stage_no() -> int:
@@ -108,50 +115,106 @@ func _star_touch() -> void:
 	if flat_dist(bird.pos, _star_pos()) <= STAR_NEAR:
 		_collect_star(false)
 
-## 每一畫面：星星飛起來的動畫、過場時的鏡頭、左上角的星星數
+## 每一小關三顆星：過關一顆、打倒所有敵人一顆、場上那顆要去拿的星星一顆。
+## 左上角的紙卡上，第三顆旁邊寫它在哪
+const STAR_WHERE := ["風車頂上", "外海的礁石上", "小湖中間的島上"]
+
+## 第 n 小關「打倒所有敵人」「過關」這兩顆拿到了沒（跟場上的星星一樣，記到遊戲關掉為止）
+static func goal_done(n: int, id: String) -> bool:
+	var all: Dictionary = Engine.get_meta("liuchiyu_goals", {})
+	return all.get("%d/%s" % [n, id], false)
+
+static func mark_goal(n: int, id: String) -> void:
+	var all: Dictionary = Engine.get_meta("liuchiyu_goals", {})
+	all["%d/%s" % [n, id]] = true
+	Engine.set_meta("liuchiyu_goals", all)
+
+## 這一小關的三顆星：[[文字, 拿到了沒], ...]
+func _stage_goals() -> Array:
+	var n := _stage_no()
+	var where: String = STAR_WHERE[n - 1] if n >= 1 and n <= STAR_WHERE.size() else ""
+	return [
+		["過關", goal_done(n, "clear")],
+		["打倒所有敵人", goal_done(n, "foes")],
+		["拿到星星：" + where, world.star_taken(n)],
+	]
+
+## 這一小關現在拿到幾顆星
+func stage_star_count() -> int:
+	var c := 0
+	for g in _stage_goals():
+		c += 1 if g[1] else 0
+	return c
+
+## 每一畫面看一次：敵人都倒了就拿到「打倒所有敵人」；出發去下一關（最後一關是打贏）就拿到「過關」
+func _tick_goals() -> void:
+	var n := _stage_no()
+	if not _won():
+		return
+	if not goal_done(n, "foes"):
+		mark_goal(n, "foes")
+		log_event("拿到星星：打倒所有敵人")
+	if not goal_done(n, "clear") and (_leaving or _next_stage() <= 0):
+		mark_goal(n, "clear")
+		log_event("拿到星星：過關")
+
+## 左上角的「星星」紙卡：跟其他大關左上角的目標卡同一種樣式（米色紙片、一列一顆星加一行字），
+## 列出這一小關的三顆星。右上角的敵人欄直接用共用的（一排頭像，倒下打叉），不再自己畫紅點。
+func _build_star_card() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 5
+	add_child(layer)
+	var panel := PanelContainer.new()
+	panel.position = Vector2(20.0, 16.0)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	UIStyle.paper(panel)
+	layer.add_child(panel)
+	_star_rows = VBoxContainer.new()
+	_star_rows.add_theme_constant_override("separation", 4)
+	_star_rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(_star_rows)
+	_star_shown = -1
+
+func _refresh_star_card() -> void:
+	_tick_goals()
+	var goals := _stage_goals()
+	var mask := 0
+	for k in goals.size():
+		if goals[k][1]:
+			mask |= 1 << k
+	if mask == _star_shown:
+		return
+	_star_shown = mask
+	for c in _star_rows.get_children():
+		_star_rows.remove_child(c)
+		c.queue_free()
+	var title := Label.new()
+	title.text = "星星"
+	title.label_settings = UIStyle.ls(20, UIStyle.INK)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_star_rows.add_child(title)
+	for g in goals:
+		var got: bool = g[1]
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_star_rows.add_child(row)
+		var st := Label.new()
+		st.text = "★"
+		st.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		st.label_settings = UIStyle.ls(24, Color("f6c445") if got else Color("fff8e7"), 6, UIStyle.INK if got else Color(UIStyle.INK, 0.45))
+		row.add_child(st)
+		var tx := Label.new()
+		tx.text = String(g[0])
+		tx.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tx.label_settings = UIStyle.ls(22, UIStyle.INK if got else Color(UIStyle.INK, 0.55))
+		row.add_child(tx)
+
+## 每一畫面：星星飛起來的動畫、過場時的鏡頭、左上角的星星紙卡
 func _tick_star_view(dt: float) -> void:
-	if _star_label == null:
-		var layer := CanvasLayer.new()
-		layer.layer = 20
-		add_child(layer)
-		_star_label = Label.new()
-		_star_label.add_theme_font_size_override("font_size", 30)
-		_star_label.add_theme_color_override("font_color", Color(1.0, 0.86, 0.3))
-		_star_label.add_theme_color_override("font_outline_color", Color(0.1, 0.07, 0.03))
-		_star_label.add_theme_constant_override("outline_size", 8)
-		_star_label.position = Vector2(22.0, 12.0)
-		_star_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		layer.add_child(_star_label)
-		# 右上角：敵人還剩幾個，用紅色圓點表示（和左邊的星星同一種樣子）；倒下的變成空心
-		_foe_dots = HBoxContainer.new()
-		_foe_dots.add_theme_constant_override("separation", 4)
-		_foe_dots.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-		_foe_dots.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-		_foe_dots.offset_right = -22
-		_foe_dots.offset_top = 12
-		_foe_dots.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		layer.add_child(_foe_dots)
-		for f in enemies:
-			var dot := Label.new()
-			dot.add_theme_font_size_override("font_size", 30)
-			dot.add_theme_color_override("font_outline_color", Color(0.1, 0.03, 0.03))
-			dot.add_theme_constant_override("outline_size", 8)
-			dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			_foe_dots.add_child(dot)
-		# 共用的敵人欄（頭像＋血條）收起來
-		if not _enemy_rows.is_empty():
-			var n0: Node = _enemy_rows[0]["fill"]
-			while n0.get_parent() is Control:        # 一路往上找到整個敵人欄（直接掛在畫面層底下的那一個）
-				n0 = n0.get_parent()
-			if n0 is VBoxContainer:
-				(n0 as CanvasItem).visible = false
-	for i in mini(_foe_dots.get_child_count(), enemies.size()):
-		var lb: Label = _foe_dots.get_child(i)
-		var alive: bool = enemies[i].alive()
-		lb.text = "●" if alive else "○"
-		lb.add_theme_color_override("font_color", Color(0.90, 0.16, 0.13) if alive else Color(0.55, 0.30, 0.28))
-	var n: int = world.star_count()
-	_star_label.text = "★".repeat(n) + "☆".repeat(world.STAR_TOTAL - n)
+	if _star_rows == null:
+		_build_star_card()
+	_refresh_star_card()
 	var node: Node3D = world.star_node(_stage_no())
 	if _star_fx >= 0.0 and node and is_instance_valid(node):
 		_star_fx += dt
@@ -338,6 +401,7 @@ func _tick_night() -> void:
 		_hero_card.offset_left = _night_slot.position.x + NIGHT_SLOT + 18.0
 	# 輸了（畫面下半變黑、顯示「家豪被抓去當晚餐了」）的時候技能欄會收起來，這一格也跟著收
 	_night_slot.visible = _hotbar.is_visible_in_tree() and not _leaving and not defeat_shown
+	_night_slot.modulate.a = 1.0 if _night_shown else 0.0        # 還沒介紹到夜晚之前先藏著
 	_night_box.border_color = UIStyle.accent() if held else UIStyle.INK
 	_night_box.set_border_width_all(4 if held else 3)
 	_night_box.border_width_bottom = 6 if held else 5
@@ -1154,11 +1218,17 @@ const MELEE_SCALE := 0.6
 ## 家豪啄中敵人、偷襲：統一規則是敵人一到兩下就倒，所以不再打折（只有敵人踢家豪還是打折）
 
 ## 不播開場的黑框道具教學（一進場技能欄上面會浮現一行說明，就夠了）
+## 家豪在這個大關只有三顆心（共用設定是五顆；一顆心 = HEART_HP 點血）
+const BIRD_HEARTS := 3
+
 func _level_setup() -> void:
 	super()
+	if bird:
+		bird.max_hp = BIRD_HEARTS * HEART_HP
+		bird.hp = bird.max_hp
 	show_tutorial = false
 	auto_next = false        # 過關後家豪沿著島上的路走到下一小關（自己的流程），不用共用的自動出發
-	if hands == null and camera:
+	if SHOW_HANDS and hands == null and camera:
 		hands = GodHands.new()
 		hands.name = "GodHands"
 		camera.add_child(hands)
@@ -1171,6 +1241,13 @@ func _level_setup() -> void:
 	_gift_id = String(Engine.get_meta("liuchiyu_new_item", ""))
 	if _gift_id != "":
 		Engine.remove_meta("liuchiyu_new_item")
+		_gift_queue.append(_gift_id)
+	# 第一小關一開始（島嶼預覽播完之後）：先介紹「風」，再介紹「夜晚」。只在第一次進來的時候演，重來不再演
+	if _stage_no() == 1 and not Engine.get_meta("liuchiyu_intro_gifts", false):
+		Engine.set_meta("liuchiyu_intro_gifts", true)
+		_gift_queue.append("wind")
+		_gift_queue.append("night")
+		_night_shown = false
 	# 敵人腳下的紅色扇形（偵測範圍）不畫了；他們還是看得到家豪，只是畫面上不顯示
 	for f in enemies:
 		if f.cone != null:
@@ -1219,7 +1296,7 @@ func _tick_item_hint(dt: float) -> void:
 	if _hint_t > 0.0:
 		_hint_t -= dt
 	# 位置跟「現在還無法使用」那種提示一樣：畫面最下面中間的一行（那種提示出現的時候這一行先讓位）
-	_hint_label.visible = _hint_t > 0.0 and tutorial_step < 0 and _note_t <= 0.0 and not defeat_shown and not _gift_playing() and _gift_id == ""
+	_hint_label.visible = _hint_t > 0.0 and tutorial_step < 0 and _note_t <= 0.0 and not defeat_shown and not _gift_playing() and _gift_queue.is_empty()
 	if _hint_label.visible:
 		var vs := get_viewport().get_visible_rect().size
 		_hint_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -1406,6 +1483,7 @@ func _go_next() -> void:
 	if _leaving:
 		return
 	_leaving = true
+	mark_goal(_stage_no(), "clear")      # 出發去下一關 = 這一關過關了（這一幀就換場景，等不到每一畫面的檢查）
 	var n := _next_stage()
 	_save_state()        # 把這一關的機關現在的樣子記下來，下一關看過來還是這個樣子
 	if world.has_method("remember_camera"):
@@ -1582,17 +1660,23 @@ func _tick_zaps(dt: float) -> void:
 
 const GIFT_IN := 0.3             # 背景變暗、道具卡片在畫面正中央彈出來
 const GIFT_SPIN := 1.0           # 卡片在中間轉一圈
-const GIFT_HOLD := 0.35          # 轉完停一下
+const GIFT_HOLD := 1.7           # 轉完停一下（底下有一行介紹，要留時間看）
 const GIFT_FLY := 0.65           # 滑到左下角技能欄裡它自己的那一格
 const GIFT_BIG := 3.0            # 在中間的時候是技能欄卡片的幾倍大
 const GIFT_DIM := 0.62           # 背景暗到多暗
 
 var _gift_id := ""               # 這一小關一進來要介紹的新道具（上一小關離開時交代的）
+var _gift_queue: Array = []      # 排隊等著介紹的（道具的 id；"night" = 按住右鍵的夜晚），一個演完才換下一個
+var _night_shown := true         # 「夜晚」那一格現在可不可以露出來（還沒介紹到它之前先藏著）
+## 「夜晚」不是技能欄裡的道具，介紹的時候名字和說明寫在這裡
+const NIGHT_NAME := "夜晚"
+const NIGHT_HINT := "按住右鍵：變成晚上，可以互動的東西會發光"
 var _gift := {}                  # 過場用到的節點和時間
 
 ## 一張跟技能欄一樣的道具卡片（米色紙卡、咖啡色圓貼紙、右上角次數徽章）。回傳 [卡片, 它的外框樣式]
-func _gift_card(layer: Node, i: int, bright: bool) -> Array:
-	var cnt: int = charges[i] if i < charges.size() else 0
+## i < 0 的時候不是技能欄裡的道具（夜晚）：圖示用 tex
+func _gift_card(layer: Node, i: int, bright: bool, tex: Texture2D = null) -> Array:
+	var cnt: int = charges[i] if i >= 0 and i < charges.size() else 0
 	var live: bool = bright or cnt != 0
 	var card := Panel.new()
 	card.size = Vector2(74.0, 74.0)
@@ -1616,7 +1700,7 @@ func _gift_card(layer: Node, i: int, bright: bool) -> Array:
 	sticker.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	card.add_child(sticker)
 	var icon := TextureRect.new()
-	icon.texture = items[i].icon_tex if items[i].icon_tex != null else items[i].icon
+	icon.texture = tex if tex != null else (items[i].icon_tex if items[i].icon_tex != null else items[i].icon)
 	icon.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
 	icon.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 	icon.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
@@ -1666,6 +1750,7 @@ func _slot_pos(k: int, sel: bool) -> Vector2:
 ##   卡片滑向技能欄的時候，原本的道具往右挪一格讓位，新道具落進空出來的那一格
 ## 演完再把真的技能欄放出來。
 func _start_gift(i: int) -> void:
+	var night := i < 0
 	var layer := CanvasLayer.new()
 	layer.layer = 30
 	add_child(layer)
@@ -1674,17 +1759,18 @@ func _start_gift(i: int) -> void:
 	dim.set_anchors_preset(Control.PRESET_FULL_RECT)
 	dim.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(dim)
-	# 原本就有的道具：[卡片, 外框, 現在第幾格, 之前第幾格]
+	# 原本就有的道具：[卡片, 外框, 現在第幾格, 之前第幾格]。介紹夜晚的時候技能欄不用動，照常顯示
 	var olds: Array = []
-	for k in items.size():
-		if k == i:
-			continue
-		var made := _gift_card(layer, k, false)
-		olds.append([made[0], made[1], k, k if k < i else k - 1])
-	var big := _gift_card(layer, i, true)
-	_gift_frame(big[1], true)
+	if not night:
+		for k in items.size():
+			if k == i:
+				continue
+			var made := _gift_card(layer, k, false)
+			olds.append([made[0], made[1], k, k if k < i else k - 1])
+	var big := _gift_card(layer, i, true, NightIcon.new().icon if night else null)
+	_gift_frame(big[1], not night)
 	var title := Label.new()
-	title.text = "新的神蹟：%s" % items[i].name
+	title.text = "新的神蹟：%s" % (NIGHT_NAME if night else String(items[i].name))
 	title.add_theme_font_size_override("font_size", 30)
 	title.add_theme_color_override("font_color", Color(1, 1, 1))
 	title.add_theme_color_override("font_outline_color", Color(0.08, 0.08, 0.08))
@@ -1692,8 +1778,19 @@ func _start_gift(i: int) -> void:
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(title)
-	_hotbar.modulate.a = 0.0
-	_gift = {"t": 0.0, "i": i, "layer": layer, "dim": dim, "card": big[0], "title": title, "olds": olds}
+	# 名字底下一行介紹：怎麼用、有什麼效果（跟切到這個道具時技能欄上面那行小字一樣）
+	var desc := Label.new()
+	desc.text = NIGHT_HINT if night else _item_hint(i)
+	desc.add_theme_font_size_override("font_size", 22)
+	desc.add_theme_color_override("font_color", Color(1.0, 0.95, 0.78))
+	desc.add_theme_color_override("font_outline_color", Color(0.08, 0.08, 0.08))
+	desc.add_theme_constant_override("outline_size", 6)
+	desc.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	desc.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	layer.add_child(desc)
+	if not night:
+		_hotbar.modulate.a = 0.0
+	_gift = {"t": 0.0, "i": i, "layer": layer, "dim": dim, "card": big[0], "title": title, "desc": desc, "olds": olds}
 
 func _gift_playing() -> bool:
 	return not _gift.is_empty()
@@ -1701,13 +1798,19 @@ func _gift_playing() -> bool:
 func _tick_gift(dt: float) -> void:
 	if _gift.is_empty():
 		# 等技能欄建好了才開始（要知道卡片最後飛去哪）
-		if _gift_id == "" or _hotbar == null or _intro_t >= 0.0:
+		if _gift_queue.is_empty() or _hotbar == null or _intro_t >= 0.0:
+			return
+		if _gift_queue[0] == "night":
+			if _night_slot == null:
+				return        # 夜晚那一格還沒建好（要知道卡片最後飛去哪）
+			_gift_queue.pop_front()
+			_start_gift(-1)
 			return
 		var idx := -1
 		for k in items.size():
-			if items[k].id == _gift_id:
+			if items[k].id == _gift_queue[0]:
 				idx = k
-		_gift_id = ""
+		_gift_queue.pop_front()
 		if idx >= 0:
 			_start_gift(idx)
 		return
@@ -1729,7 +1832,9 @@ func _tick_gift(dt: float) -> void:
 	var k_spin := clampf((t - GIFT_IN) / GIFT_SPIN, 0.0, 1.0)
 	k_spin = k_spin * k_spin * (3.0 - 2.0 * k_spin)
 	card.rotation = TAU * k_spin
-	card.position = mid.lerp(_slot_pos(i, i == selected), k_fly)
+	# 最後飛到哪：技能欄裡它自己的那一格；夜晚飛到技能欄旁邊它那一格
+	var home: Vector2 = _night_slot.position if i < 0 else _slot_pos(i, i == selected)
+	card.position = mid.lerp(home, k_fly)
 	# 原本的道具：新卡片滑過來的前半段就往右挪好位置（新卡片到的時候那一格已經空出來了）
 	var k_move := clampf((t - t_fly) / (GIFT_FLY * 0.6), 0.0, 1.0)
 	k_move = k_move * k_move * (3.0 - 2.0 * k_move)
@@ -1742,11 +1847,20 @@ func _tick_gift(dt: float) -> void:
 	title.size = Vector2(vs.x, 44.0)
 	title.position = Vector2(0.0, mid.y + card.size.y * 0.5 + 74.0 * GIFT_BIG * 0.5 + 18.0)
 	title.modulate.a = clampf((t - GIFT_IN) / 0.25, 0.0, 1.0) * (1.0 - clampf((t - t_fly) / 0.2, 0.0, 1.0))
+	# 介紹那一行：卡片轉到一半才浮出來，跟著名字一起淡掉
+	var desc: Label = _gift.desc
+	desc.size = Vector2(vs.x, 34.0)
+	desc.position = Vector2(0.0, title.position.y + 50.0)
+	desc.modulate.a = clampf((t - GIFT_IN - GIFT_SPIN * 0.5) / 0.3, 0.0, 1.0) * (1.0 - clampf((t - t_fly) / 0.2, 0.0, 1.0))
 	if t >= t_fly + GIFT_FLY + 0.05:
 		(_gift.layer as Node).queue_free()
 		_gift = {}
-		_hotbar.modulate.a = 1.0        # 真的技能欄放出來，位置和假卡片一模一樣
-		_hint_sel = -1                  # 卡片歸位之後，底下那行道具說明再浮出來一次
+		if i < 0:
+			_night_shown = true         # 夜晚那一格從現在開始露出來
+		else:
+			_hotbar.modulate.a = 1.0    # 真的技能欄放出來，位置和假卡片一模一樣
+		if _gift_queue.is_empty():
+			_hint_sel = -1              # 都介紹完了，底下那行道具說明再浮出來一次
 
 ## 地上那個表示道具範圍的白色大圓圈：這個大關先不顯示（準心和「可以互動的東西變白」就夠了）。
 ## 想再打開就改成 true。
