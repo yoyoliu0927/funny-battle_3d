@@ -368,6 +368,10 @@ func _build_help_popup() -> void:
 	pop.board = _hint_board
 	pop.seen = _hint_mark_seen
 	pop.set_pages(_tutorial_pages())
+	# 關掉說明卡時把游標鎖回去（共用的那張在 super() 裡接好了，換掉之後要再接一次；
+	# 沒接的話游標一直露在外面：點畫面放不出道具、滑鼠一動視角就跟著跑）
+	if has_method("_on_help_closed"):
+		pop.closed.connect(Callable(self, "_on_help_closed"))
 	help_popup = pop
 
 # ---------------------------------------------------------------- 建立、重置
