@@ -1169,8 +1169,14 @@ const MELEE_SCALE := 0.6
 ## 家豪啄中敵人、偷襲：統一規則是敵人一到兩下就倒，所以不再打折（只有敵人踢家豪還是打折）
 
 ## 不播開場的黑框道具教學（一進場技能欄上面會浮現一行說明，就夠了）
+## 家豪在這個大關只有三顆心（共用設定是五顆；一顆心 = HEART_HP 點血）
+const BIRD_HEARTS := 3
+
 func _level_setup() -> void:
 	super()
+	if bird:
+		bird.max_hp = BIRD_HEARTS * HEART_HP
+		bird.hp = bird.max_hp
 	show_tutorial = false
 	auto_next = false        # 過關後家豪沿著島上的路走到下一小關（自己的流程），不用共用的自動出發
 	if hands == null and camera:
