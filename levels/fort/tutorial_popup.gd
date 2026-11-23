@@ -93,7 +93,7 @@ func _show_page(i: int) -> void:
 		d.color = UIStyle.accent() if k == i else Color(UIStyle.INK, 0.2)
 		d.custom_minimum_size = Vector2(26 if k == i else 10, 10)
 	_prev_btn.disabled = i == 0
-	_next_btn.text = "開始吧 ▶" if i == pages.size() - 1 else "下一頁 ▶"
+	_next_btn.text = "開始吧 →" if i == pages.size() - 1 else "下一頁 →"
 
 func _sheet(clip: String) -> Texture2D:
 	if clip == "":
@@ -217,7 +217,7 @@ func _build() -> void:
 	_kicker.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_kicker.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	top.add_child(_kicker)
-	var x := _btn("✕", 16)
+	var x := _btn("×", 16)
 	x.pressed.connect(close)
 	x.tooltip_text = "關閉（Esc）"
 	top.add_child(x)
@@ -281,7 +281,7 @@ func _build() -> void:
 	var bottom := HBoxContainer.new()
 	bottom.add_theme_constant_override("separation", 16)
 	col.add_child(bottom)
-	_prev_btn = _btn("◀ 上一頁", 18)
+	_prev_btn = _btn("← 上一頁", 18)
 	_prev_btn.pressed.connect(_prev)
 	bottom.add_child(_prev_btn)
 	var mid := CenterContainer.new()
@@ -300,7 +300,7 @@ func _build() -> void:
 	hints.add_child(UIStyle.key_hint("A／D", "換頁", 13))
 	hints.add_child(UIStyle.key_hint("Space", "繼續", 13))
 	hints.add_child(UIStyle.key_hint("Esc", "跳過", 13))
-	_next_btn = _btn("下一頁 ▶", 18, true)
+	_next_btn = _btn("下一頁 →", 18, true)
 	_next_btn.pressed.connect(_next)
 	bottom.add_child(_next_btn)
 

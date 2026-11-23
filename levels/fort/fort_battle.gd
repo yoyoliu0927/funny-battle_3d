@@ -222,7 +222,7 @@ var _crew_label: Label
 var _tower_pips = null         # TowerPips：右上角敵人欄最後面的敵方炮塔小圖示（打掉的變灰打叉）
 var _bird_bar: PaperBar
 var _hearts: HeartBar          # 統一介面：家豪的血改用愛心顯示
-var _start_btn: Control        # 右下角「開始 ▶ Enter」
+var _start_btn: Control        # 右下角「開始 → Enter」
 var _edge_arrow: EdgeArrow
 var _first_hint: PanelContainer
 var _phase_retry_key: Control
@@ -276,8 +276,6 @@ const TUT_PAGES := [
 衝空了他會頭暈，這時候啄他才有用；讓他衝過香蕉皮也會摔一跤。"},
 	{"id": "wind", "title": "風", "keys": [["4", "選擇"], ["LMB", "朝準心吹"]],
 		"body": "開打後才能用。在準心的位置，朝你看的方向吹起一陣風（2.5 秒）。\n\n風吹到炮塔，砲口會轉向下風、固定一陣子，改轟那一邊（守衛也會被自己人炸到）；風吹到停住的巨石，巨石會順風再滾起來。走在風裡的人會被推，滑倒的人會被一路吹著滑。"},
-	{"id": "chest", "title": "寶箱",
-		"body": "家豪走過去不會自己打開。在寶箱旁邊撒飼料，家豪過去吃的時候會順便打開：補滿血、神蹟冷卻全部清空；有次數限制的香蕉皮和巨石各多 2 次。"},
 ]
 var tutorial_step: int:       # 教學彈窗現在在第幾頁（-1 = 沒開）
 	get:
@@ -1012,6 +1010,7 @@ func _build_preview() -> void:
 func reset() -> void:
 	if _cut_t >= 0.0:
 		_end_cut()
+	_hide_win_card()
 	_death_cause = ""
 	_tower_ways.clear()
 	_shell_hit = false
@@ -1169,12 +1168,12 @@ func _end(result: String) -> void:
 				Progress.mark_cleared("fort/%d" % (int(st) + 1))   # 選關地圖：這一小關過了（選關的編號 = 內部小關 + 1，因為第一個是教學關 0）
 				FortProgress.mark_fort_stage(int(st))
 				_record_stars()
-				_toast(("教學過關！" if st == 0 else "第 %d 小關過關！" % st) + "通往下一關的門打開了" if st < 3 else ("第 3 小關過關！要塞攻下了" if st == 3 else "第 %d 小關過關！" % st), 3.0)
 		bird.set_state("cheer")
 		if climb_k < 0:
 			bird.air = 0.0   # 站在塔頂上過關就留在塔頂歡呼（不然會掉進塔裡面）
-		# 2-1、2-2：歡呼一下之後開門，家豪走進下一小關（自動驗收不播，除非帶 --doortest）
-		if world.get("next_door") != null and (not _auto_run() or "--doortest" in OS.get_cmdline_user_args()):
+		# 過關卡停在畫面上，玩家按 Enter 才開門走進下一小關（_win_continue）；
+		# 自動驗收帶 --doortest 時照舊自己開門
+		if world.get("next_door") != null and _auto_run() and "--doortest" in OS.get_cmdline_user_args():
 			_exit_delay = EXIT_WAIT
 	else:
 		for f in farmers:
@@ -1204,6 +1203,7 @@ var EXIT_FADE_AT: float:
 		return EXIT_FLY_AT + _exit_fly + EXIT_WALK * 0.5
 
 func _start_exit() -> void:
+	_hide_win_card()
 	var door: Node3D = world.next_door
 	_exit_t = 0.0
 	_summary_panel.visible = false
@@ -1315,6 +1315,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		if event.is_action_pressed("battle_reset"):
 			get_viewport().set_input_as_handled()
 			return
+	if event.is_action_pressed("battle_start") and phase == Phase.ENDED and outcome == "win" and _win_card != null:
+		_win_continue()
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("battle_start"):
 		start()
 	elif event.is_action_pressed("battle_reset"):
@@ -3667,7 +3671,7 @@ func _refresh_goal_panel() -> void:
 	var key := String(get_parent().scene_file_path)
 	var best: Dictionary = best_stars.get(key, {})
 	var won := outcome == "win"
-	var clear_text: String = ["打倒守衛", "打倒兩個農夫", "拿下三座炮塔", "打倒指揮官", "打倒所有守衛"][clampi(int(world.get("stage")), 0, 4)]
+	var clear_text := _clear_text()
 	var rows: Array = [["clear", clear_text, won, false]]
 	for g in _star_goals():
 		rows.append([g[0], g[1], won and g[2], _star_failed(g[0])])
@@ -4916,6 +4920,16 @@ func _build_hud() -> void:
 	add_child(_tut)
 	_tut.set_pages(_tut_pages())
 	_tut.closed.connect(_on_tut_closed)
+	# 共用教學卡的按鈕用了字型裡沒有的符號（✕、▶、◀ 會變成方框）：建好之後換成字型有的 ×、→、←
+	_tut_btns = _tut.find_children("*", "Button", true, false)
+	_fix_tut_glyphs()
+	# 換頁時共用程式會把「下一頁 ▶」再設回去：卡片開著（遊戲暫停中）也每 0.1 秒換一次
+	var gt := Timer.new()
+	gt.wait_time = 0.1
+	gt.process_mode = Node.PROCESS_MODE_ALWAYS
+	gt.autostart = true
+	gt.timeout.connect(func(): if _tut.is_open(): _fix_tut_glyphs())
+	add_child(gt)
 
 	# 右上角敵人欄（米色小紙片）：老闆一張（頭像＋血條，他是過關目標）；
 	# 農夫合成一張，只排一排小頭像，被打倒就打紅叉——用陷阱一次就倒，血量沒什麼好看的
@@ -5336,7 +5350,7 @@ func _make_start_button() -> Control:
 	h.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	p.add_child(h)
 	var t := Label.new()
-	t.text = "開始 ▶"
+	t.text = "開始 →"
 	t.label_settings = UIStyle.ls(30, Color(1, 1, 1))
 	h.add_child(t)
 	h.add_child(UIStyle.keycap("Enter", 18))
@@ -5424,7 +5438,112 @@ func _toast(text: String, dur: float) -> void:
 	_toast_label.offset_bottom = -140.0 + sz.y * 0.5
 	_toast_t = dur
 
+## 這一小關「過關」那一顆星的條件
+func _clear_text() -> String:
+	return ["打倒守衛", "打倒兩個農夫", "拿下三座炮塔", "打倒指揮官", "打倒所有守衛"][clampi(int(world.get("stage")), 0, 4)]
+
+# ------------------------------------------------------------------ 過關卡
+# 版型跟冰雪島的結算卡一樣：三顆大星星一顆一顆亮起來、每顆星一行條件、按 Enter 才繼續。
+# 不再跳「第 N 小關過關！」的字、也不列秒數和歷次嘗試：星星本身就是成績。
+var _win_card: PanelContainer
+var _win_hidden: Array = []    # 過關卡出現時收起來的戰鬥介面（同樣的條件不要同時出現兩份）
+
+func _show_win_card() -> void:
+	_hide_win_card()
+	_summary_panel.visible = false
+	# 左上角的目標紙條跟卡片列的是同一份條件、神蹟欄和敵人欄也用不到了：先收起來，畫面只留卡片
+	for c in [_goal_rows.get_parent() if _goal_rows else null, _enemy_col, _hotbar, _hearts.get_parent() if _hearts else null, _notice]:
+		if c is Control and (c as Control).visible:
+			(c as Control).visible = false
+			_win_hidden.append(c)
+	var goals: Array = [["clear", _clear_text(), true]] + _star_goals()
+	var n := 0
+	for g in goals:
+		if g[2]:
+			n += 1
+	var card := PanelContainer.new()
+	UIStyle.paper(card, 0.0)
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	card.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	card.grow_vertical = Control.GROW_DIRECTION_BOTH
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 12)
+	card.add_child(v)
+	# 三顆大星星：拿到的金色，沒拿到的同樣外框、紙色的底；依序彈出來
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 18)
+	v.add_child(row)
+	var gold := Color("f6c445")
+	var dull := Color("f4ebd3")
+	var stars: Array = []
+	for i in goals.size():
+		var st := Label.new()
+		st.text = "★"
+		st.label_settings = UIStyle.ls(84, gold if goals[i][2] else dull, 10, UIStyle.INK)
+		st.resized.connect(func(): st.pivot_offset = st.size * 0.5)
+		st.scale = Vector2.ZERO
+		row.add_child(st)
+		stars.append(st)
+	# 每顆星一行條件
+	for g in goals:
+		var got: bool = g[2]
+		var h := HBoxContainer.new()
+		h.add_theme_constant_override("separation", 10)
+		v.add_child(h)
+		var mk := Label.new()
+		mk.text = "★"
+		mk.label_settings = UIStyle.ls(24, gold if got else dull, 6, UIStyle.INK if got else Color(UIStyle.INK, 0.35))
+		h.add_child(mk)
+		var t := Label.new()
+		t.text = String(g[1])
+		t.label_settings = UIStyle.ls(24, UIStyle.INK if got else Color(UIStyle.INK, 0.45))
+		h.add_child(t)
+	var gap := Control.new()
+	gap.custom_minimum_size = Vector2(0, 4)
+	v.add_child(gap)
+	var keys := HBoxContainer.new()
+	keys.alignment = BoxContainer.ALIGNMENT_CENTER
+	keys.add_theme_constant_override("separation", 28)
+	v.add_child(keys)
+	keys.add_child(UIStyle.key_hint("Enter", "下一關" if world.get("next_door") != null else "回地圖", 18))
+	keys.add_child(UIStyle.key_hint("R", "再挑戰", 18))
+	_summary_panel.get_parent().add_child(card)
+	_win_card = card
+	# 先讓玩家看家豪歡呼一下，卡片再浮上來；星星一顆一顆彈出
+	card.modulate.a = 0.0
+	var tw := card.create_tween()
+	tw.tween_interval(0.7)
+	tw.tween_property(card, "modulate:a", 1.0, 0.25)
+	for i in stars.size():
+		var st: Label = stars[i]
+		var big := 1.25 if goals[i][2] else 1.0
+		tw.tween_property(st, "scale", Vector2.ONE * big, 0.16).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		tw.tween_property(st, "scale", Vector2.ONE, 0.1)
+
+func _hide_win_card() -> void:
+	if _win_card and is_instance_valid(_win_card):
+		_win_card.queue_free()
+	_win_card = null
+	for c in _win_hidden:
+		if is_instance_valid(c) and c != _notice:
+			(c as Control).visible = true
+	_win_hidden.clear()
+
+## 過關卡上按 Enter：有通往下一小關的門就開門走過去，沒有就回地圖
+func _win_continue() -> void:
+	_hide_win_card()
+	if world.get("next_door") != null:
+		_exit_delay = 0.01
+	else:
+		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+		get_tree().change_scene_to_file("res://scenes/level_select.tscn")
+
 func _show_summary() -> void:
+	if outcome == "win":
+		_show_win_card()
+		return
 	var lines: PackedStringArray = []
 	var left := farmers.filter(func(f): return f.alive()).size()
 	if outcome == "win":
@@ -5459,7 +5578,6 @@ func _tut_pages() -> Array:
 		"commander": boss != null and boss.cone != null,
 		"commander_rage": boss != null and boss.cone != null,
 		"wind": SKILLS.any(func(sk): return sk.id == "wind"),
-		"chest": not (world.get("chests") if world.get("chests") != null else []).is_empty(),
 	}
 	var keys := "／".join(range(1, SKILLS.size() + 1).map(func(n): return str(n)))   # 這關有幾個神蹟就列幾個數字鍵
 	return TUT_PAGES.filter(func(pg):
@@ -5713,8 +5831,25 @@ func _tick_later(dt: float) -> void:
 	_tut_fresh = [it.id]
 	_tut.set_pages(pg)
 	_set_tut_step(0)
+	_fix_tut_glyphs()
 
-## 第一次選到某個神蹟：跳出它那一頁說明（只有一頁，看完就記成學會了）
+var _tut_btns: Array = []
+
+func _fix_tut_glyphs() -> void:
+	for b in _tut_btns:
+		var btn := b as Button
+		if btn and (btn.text.contains("✕") or btn.text.contains("▶") or btn.text.contains("◀")):
+			btn.text = btn.text.replace("✕", "×").replace("▶", "→").replace("◀", "←")
+
+## 戰鬥中第一次選到神蹟：不暫停、不跳卡片，只淡淡提示一句（完整說明留到準備階段、或按 H）
+const SKILL_TIPS := {
+	"feed": "飼料：撒在地上，家豪會跑過去吃",
+	"banana": "香蕉皮：丟在路上，誰踩到都會滑倒",
+	"rock": "巨石：斜坡上會滾，平地上當路障",
+	"wind": "風：朝準心吹，能吹偏炮塔、吹動巨石",
+}
+
+## 第一次選到某個神蹟：準備階段跳出它那一頁說明（只有一頁，看完就記成學會了）；戰鬥中只提示一句
 func _explain_skill(id: String) -> void:
 	if _scripted() or _tut == null or _tut.is_open() or _intro_i >= 0 or phase == Phase.ENDED:
 		return
@@ -5723,6 +5858,10 @@ func _explain_skill(id: String) -> void:
 	_asked["skill_" + id] = true
 	if FortProgress.known(id):
 		return
+	if phase == Phase.RUNNING:
+		if SKILL_TIPS.has(id):
+			_toast(SKILL_TIPS[id], 2.6)
+		return
 	var pg := TUT_PAGES.filter(func(p): return p.id == id)
 	if pg.is_empty():
 		return
@@ -5730,6 +5869,7 @@ func _explain_skill(id: String) -> void:
 	_tut.set_pages(pg)
 	_show_first_hint(false)
 	_tut.open(0)
+	_fix_tut_glyphs()
 
 ## 沒看說明就直接用了：也算學會（不再跳說明頁）
 func _learned_skill(id: String) -> void:
