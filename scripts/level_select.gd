@@ -3787,6 +3787,8 @@ func _move_dir(dir: Vector2) -> void:
 		if along < 0.38:
 			continue
 		var s := d.length() / (along * along)
+		if side == "" and String(entries[e].ch.get("id", "")) in FINAL_IDS:
+			s *= 1000.0                  # 主島往北先到冰雪島：最終章（丹穴山）排在北方最高處，從冰雪島再往上；那個方向沒別的島才直接去
 		if s < best_s:
 			best_s = s
 			best = e
