@@ -347,6 +347,8 @@ func _ready() -> void:
 	add_child(_dj)
 	for e in entries.size():
 		worlds.append(_build_world(e))
+		if not _is_hub(e):
+			_flatten_pieces(worlds[e].root)
 	_hub_build = false
 	_free.map = self
 	_free.build()
@@ -900,6 +902,76 @@ func _fit_map_camera() -> void:
 	var d_h := (half.x + 3.0) / tan(fh) + half.y * cos(MAP_PITCH)
 	var d := maxf(d_v, d_h)
 	_map_cam = Vector3(0, sin(MAP_PITCH), cos(MAP_PITCH)) * d
+
+## 效能：把島上不會動的模型（.glb 拆成很多小零件的那種，一棵樹可能有 80 幾個零件）
+## 每個模型合併成「一種材質一個面」，繪製次數從幾千降到幾百。
+## 有腳本、動畫、骨架、形狀鍵的模型不動（可能會被搖晃、換材質、開關），藏起來的零件也不合併。
+func _flatten_pieces(root: Node) -> void:
+	for c in root.get_children():
+		if c is Node3D and String(c.scene_file_path) != "" and _static_piece(c):
+			_merge_piece(c)
+		else:
+			_flatten_pieces(c)
+
+func _static_piece(n: Node) -> bool:
+	if n.get_script() != null or n is AnimationPlayer or n is AnimationTree or n is Skeleton3D:
+		return false
+	if n is MeshInstance3D:
+		var mesh := (n as MeshInstance3D).mesh
+		if mesh and (mesh.get_blend_shape_count() > 0 or (n as MeshInstance3D).skin != null):
+			return false
+	for c in n.get_children():
+		if not _static_piece(c):
+			return false
+	return true
+
+func _merge_piece(piece: Node3D) -> void:
+	var inv := piece.global_transform.affine_inverse()
+	var groups := {}      # 材質＋影子設定 → [SurfaceTool, 材質, 影子]
+	var done: Array = []
+	for m in piece.find_children("*", "MeshInstance3D", true, false):
+		var mi := m as MeshInstance3D
+		if mi.mesh == null or not mi.is_visible_in_tree() or mi.get_child_count() > 0:
+			continue
+		var tris := true
+		for s in mi.mesh.get_surface_count():
+			tris = tris and mi.mesh.surface_get_primitive_type(s) == Mesh.PRIMITIVE_TRIANGLES
+		if not tris:
+			continue
+		var xf := inv * mi.global_transform
+		for s in mi.mesh.get_surface_count():
+			var mat: Material = mi.material_override
+			if mat == null:
+				mat = mi.get_surface_override_material(s)
+			if mat == null:
+				mat = mi.mesh.surface_get_material(s)
+			var key := "%d|%d|%d" % [mat.get_instance_id() if mat else 0, mi.cast_shadow, mi.layers]
+			if not groups.has(key):
+				var st := SurfaceTool.new()
+				groups[key] = [st, mat, mi.cast_shadow, mi.layers]
+			(groups[key][0] as SurfaceTool).append_from(mi.mesh, s, xf)
+		done.append(mi)
+	if done.size() < 2:
+		return
+	# 影子設定、圖層一樣的放進同一個網格（通常整個模型只有一種），每種材質一個面
+	var meshes := {}      # "影子|圖層" → MeshInstance3D
+	for key in groups:
+		var g: Array = groups[key]
+		var nk := "%d|%d" % [g[2], g[3]]
+		if not meshes.has(nk):
+			var mi := MeshInstance3D.new()
+			mi.name = "Merged"
+			mi.mesh = ArrayMesh.new()
+			mi.cast_shadow = g[2]
+			mi.layers = g[3]
+			piece.add_child(mi)
+			meshes[nk] = mi
+		var am: ArrayMesh = (meshes[nk] as MeshInstance3D).mesh
+		(g[0] as SurfaceTool).commit(am)
+		am.surface_set_material(am.get_surface_count() - 1, g[1])
+	for mi in done:
+		mi.get_parent().remove_child(mi)
+		mi.queue_free()
 
 ## 蓋第 e 座島：一整座大島，島上有每個站點的地標、圓墊、路、旗子。還沒做好的大關是一座被雲蓋住的小島。
 ## 島先蓋在自己的座標裡（root 底下），再把 root 搬到世界地圖上的位置。

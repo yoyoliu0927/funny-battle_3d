@@ -22,7 +22,6 @@ const CLOUD := "res://levels/ice/assets/blender/cloud_puff_%s.glb"
 const TITLE := "天選之雞"
 const SUBTITLE := "家豪的大冒險"
 const TAGLINE := "一隻不會飛的雞，要去看看更好的地方"
-const CREDIT := "115-1 遊戲設計 期末專題"
 const STORY := "一根羽毛，從很高很高的地方飄了下來……"
 const STORY2 := "它要找的，是一隻不會飛的雞。"
 
@@ -671,15 +670,13 @@ func _paint_band(c: Control) -> void:
 	if not got.is_empty():
 		c.draw_string(f, Vector2(fx, y0 + h * 0.5 - 6.0 * u), "%d/%d" % [have, got.size()], HORIZONTAL_ALIGNMENT_LEFT, -1, int(26 * u), INK)
 	c.draw_string(f, Vector2(34.0 * u, y0 + h * 0.5 + 34.0 * u), TAGLINE, HORIZONTAL_ALIGNMENT_LEFT, -1, int(23 * u), Color(INK, 0.92))
-	# 右邊：聲音鍵、製作資訊
+	# 右邊：聲音鍵（製作資訊拿掉了，聲音鍵移到中間的高度）
 	var ks := 15.0 * u
 	var ksz := UIStyle.keycap_size("V", ks)
 	var rw := f.get_string_size("聲音", HORIZONTAL_ALIGNMENT_LEFT, -1, int(19 * u)).x
 	var rx := vs.x - 40.0 * u - rw
-	c.draw_string(f, Vector2(rx, y0 + h * 0.5 + 8.0 * u), "聲音", HORIZONTAL_ALIGNMENT_LEFT, -1, int(20 * u), Color(INK, 0.9))
-	UIStyle.draw_keycap(c, Vector2(rx - ksz.x - 8.0 * u, y0 + h * 0.5 - 13.0 * u), "V", ks)
-	var cw := f.get_string_size(CREDIT, HORIZONTAL_ALIGNMENT_LEFT, -1, int(21 * u)).x
-	c.draw_string(f, Vector2(vs.x - 40.0 * u - cw, y0 + h * 0.5 + 34.0 * u), CREDIT, HORIZONTAL_ALIGNMENT_LEFT, -1, int(21 * u), Color(INK, 0.9))
+	c.draw_string(f, Vector2(rx, y0 + h * 0.5 + 21.0 * u), "聲音", HORIZONTAL_ALIGNMENT_LEFT, -1, int(20 * u), Color(INK, 0.9))
+	UIStyle.draw_keycap(c, Vector2(rx - ksz.x - 8.0 * u, y0 + h * 0.5), "V", ks)
 	var alt := "Enter 或點一下滑鼠也可以"
 	var aw := f.get_string_size(alt, HORIZONTAL_ALIGNMENT_LEFT, -1, int(22 * u)).x
 	c.draw_string(f, Vector2(vs.x * 0.5 - aw * 0.5, y0 + h - 14.0 * u), alt, HORIZONTAL_ALIGNMENT_LEFT, -1, int(22 * u), INK)
