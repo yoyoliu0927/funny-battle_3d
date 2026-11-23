@@ -1,3 +1,8 @@
 jf open 粉圓 2.1（jf-openhuninn-2.1.ttf）by justfont — https://github.com/justfont/open-huninn-font
 授權：SIL Open Font License 1.1（見 OFL-LICENSE.txt），可免費使用，可以跟遊戲一起散布。
 用途：全遊戲共用的介面字型（scripts/ui/ui_style.gd）。
+
+Noto Sans Symbols 2 2.008（NotoSansSymbols2-Regular.ttf）by The Noto Project Authors — https://github.com/notofonts/symbols
+授權：SIL Open Font License 1.1（條文跟 OFL-LICENSE.txt 一樣），可免費使用，可以跟遊戲一起散布。
+用途：粉圓體沒有的符號（▶ ◀ ✕ ✓ ✦ ⚠ ☐ ☑ ⏪）的備用字型（scripts/ui/ui_style.gd 的 font()）。
+電腦版缺字會去借系統字型，網頁版借不到會變成方框，所以要自己帶。

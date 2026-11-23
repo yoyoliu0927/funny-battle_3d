@@ -18,6 +18,7 @@ extends RefCounted
 ##   Skin.plate(label3d, "bubble" / "wood" / "ice" / "red")   3D 字後面加底板（每畫面呼叫 Skin.refresh 更新大小）
 
 const FONT_PATH := "res://assets/fonts/jf-openhuninn-2.1.ttf"
+const SYMBOL_FONT_PATH := "res://assets/fonts/NotoSansSymbols2-Regular.ttf"   # 粉圓體缺的符號（▶ ✕ ✓ ✦ ⚠…）
 
 const INK := Color("3b2a20")
 const PAPER := Color("fff8e7")
@@ -83,6 +84,9 @@ static func apply_theme(root: Control) -> void:
 static func font() -> Font:
 	if _font == null and ResourceLoader.exists(FONT_PATH):
 		_font = load(FONT_PATH)
+		# 粉圓體沒有的符號（▶ ✕ ✓…）改用備用字型。電腦版缺字會去借系統字型，網頁版沒有系統字型可借，會變成方框
+		if _font is FontFile and (_font as FontFile).fallbacks.is_empty() and ResourceLoader.exists(SYMBOL_FONT_PATH):
+			(_font as FontFile).fallbacks = [load(SYMBOL_FONT_PATH)]
 	return _font
 
 ## 2D 控制項換字型
