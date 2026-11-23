@@ -46,12 +46,111 @@ func _enemy_specs() -> Array:
 		{"name": "農夫1", "route": [Vector3(0, 0, 3), Vector3(4, 0, 0)], "loop": false, "pause": 1.2},
 		{"name": "農夫2", "route": [Vector3(-1, 0, -6), Vector3(4.5, 0, -7.5), Vector3(-9, 0, -7)], "loop": false, "pause": 1.4},
 		{"name": "農夫3", "route": [Vector3(9, 0, 3), Vector3(3, 0, 6), Vector3(8, 0, -4)], "loop": true, "pause": 0.8},
+		# 農夫4 的路線會踩過西南邊那一灘水（可以趁他踩進去的時候劈水灘）
+		{"name": "農夫4", "route": [Vector3(-5, 0, 3), Vector3(-5, 0, -7)], "loop": false, "pause": 1.0},
 		# 兩個守門員：守在石階腳下，面朝場地，不巡邏、不追人、聽到聲音也不動
 		{"name": "守門員1", "kind": "gate", "model": "merchant", "route": [world.GATE_GUARDS[0]], "yaw": PI * 0.5,
 			"hp": 20.0, "immune_peck": true, "has_cone": false, "hears_noise": false, "can_slip": false},
 		{"name": "守門員2", "kind": "gate", "model": "merchant", "route": [world.GATE_GUARDS[1]], "yaw": PI * 0.5,
 			"hp": 20.0, "immune_peck": true, "has_cone": false, "hears_noise": false, "can_slip": false},
 	]
+
+var _guard_tex: Texture2D
+
+## 守門員在右上角敵人欄的頭像：戴藍灰色的頭盔（正中間一顆金色徽章）、皺著眉頭，
+## 跟戴草帽的農夫一眼就分得出來。跟農夫頭像一樣是用程式畫成一張圖
+func _guard_portrait() -> Texture2D:
+	if _guard_tex:
+		return _guard_tex
+	var n := 96
+	var img := Image.create(n, n, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+	var skin := Color(0.96, 0.78, 0.62)
+	var steel := Color(0.36, 0.46, 0.62)
+	var steel_dark := Color(0.22, 0.29, 0.42)
+	var gold := Color(0.98, 0.80, 0.28)
+	var dark := Color(0.12, 0.10, 0.10)
+	for y in n:
+		for x in n:
+			var p := Vector2(x + 0.5, y + 0.5)
+			var c := Color(0, 0, 0, 0)
+			if p.distance_to(Vector2(48, 58)) <= 30.0:
+				c = skin
+			# 眼睛、往中間壓低的眉毛、往下撇的嘴
+			if p.distance_to(Vector2(36, 58)) <= 4.0 or p.distance_to(Vector2(60, 58)) <= 4.0:
+				c = dark
+			var bl := absf((p.y - 48.0) - (p.x - 28.0) * 0.30)
+			var br := absf((p.y - 48.0) - (68.0 - p.x) * 0.30)
+			if (p.x >= 28.0 and p.x <= 44.0 and bl <= 2.2) or (p.x >= 52.0 and p.x <= 68.0 and br <= 2.2):
+				c = dark
+			if Rect2(38, 74, 20, 4).has_point(p):
+				c = Color(0.55, 0.30, 0.25)
+			# 頭盔：圓頂（只留上半）加一圈帽沿，兩側護頰
+			if p.distance_to(Vector2(48, 40)) <= 34.0 and p.y <= 40.0:
+				c = steel
+			if Rect2(12, 36, 72, 8).has_point(p):
+				c = steel_dark
+			if Rect2(12, 44, 9, 26).has_point(p) or Rect2(75, 44, 9, 26).has_point(p):
+				c = steel
+			# 正中間的金色徽章
+			if p.distance_to(Vector2(48, 24)) <= 8.0:
+				c = gold
+			if c.a > 0.0:
+				img.set_pixel(x, y, c)
+	_guard_tex = ImageTexture.create_from_image(img)
+	return _guard_tex
+
+var _guard_label: Label        # 右上角守門員那一排前面的「守門員 2/2」
+
+## 右上角的敵人欄：守門員換成頭盔那一張頭像，而且自己一排（一張紙片），不跟農夫排在一起。
+## （共用的 "portrait" 只收圖片路徑，所以建好角色之後自己指定）
+func _set_guard_faces() -> void:
+	for f in enemies:
+		if f.kind == "gate":
+			f.portrait = _guard_portrait()
+	if _enemy_col == null or _guard_label != null:
+		return
+	var card := PanelContainer.new()
+	UIStyle.slip(card, Vector2(12, 8))
+	card.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.size_flags_horizontal = Control.SIZE_SHRINK_END
+	_enemy_col.add_child(card)
+	var line := HBoxContainer.new()
+	line.add_theme_constant_override("separation", 8)
+	line.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	card.add_child(line)
+	_guard_label = Label.new()
+	_guard_label.label_settings = UIStyle.ls(17, UIStyle.INK)
+	_guard_label.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	line.add_child(_guard_label)
+	for row in _enemy_rows:
+		if row.fighter.kind != "gate":
+			continue
+		row.face.portrait = _guard_portrait()
+		(row.face as CanvasItem).queue_redraw()
+		(row.face as Control).get_parent().reparent(line)        # 頭像外面那一層整個搬到守門員這一排
+
+## 共用程式每一畫面會把農夫那一排的字寫成「敵人 幾/幾」（守門員也算進去）：這裡改成兩排各算各的
+func _process(dt: float) -> void:
+	super(dt)
+	if _guard_label == null:
+		_set_guard_faces()        # 敵人欄是在 _level_setup() 之後才建的：建好了再分排
+	if _guard_label == null:
+		return
+	var farm_up := 0
+	var farm_n := 0
+	var gate_up := 0
+	var gate_n := 0
+	for f in enemies:
+		if f.kind == "gate":
+			gate_n += 1
+			gate_up += 1 if f.alive() else 0
+		else:
+			farm_n += 1
+			farm_up += 1 if f.alive() else 0
+	if _crew_label:
+		_crew_label.text = "農夫 %d/%d" % [farm_up, farm_n]
+	_guard_label.text = "守門員 %d/%d" % [gate_up, gate_n]
 
 ## 守門員：站著不動（不叫一般敵人的行為）；倒下之後才交給共用程式處理
 func _tick_enemy(f: Fighter, dt: float) -> void:
@@ -165,6 +264,7 @@ func _wheel_step(d: int) -> void:
 
 func _level_setup() -> void:
 	super()
+	_set_guard_faces()
 	_enter_ms = Time.get_ticks_msec()
 	_select_default()
 	for k in world.GROVE_TREES.size():

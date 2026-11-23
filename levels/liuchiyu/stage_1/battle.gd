@@ -65,6 +65,7 @@ func _enemy_specs() -> Array:
 	return [
 		{"name": "農夫1", "route": [Vector3(-4, 0, 1), Vector3(4, 0, 1)], "loop": false, "pause": 1.5},
 		{"name": "農夫2", "route": [Vector3(3, 0, -6), Vector3(-3, 0, -7), Vector3(0, 0, -3)], "loop": true, "pause": 1.0},
+		{"name": "農夫3", "route": [Vector3(6, 0, 5), Vector3(7, 0, -2)], "loop": false, "pause": 1.2},
 	]
 
 ## 開場只有一句（每個道具的說明在切換道具時會出現在技能欄上面）

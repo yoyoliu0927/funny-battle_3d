@@ -45,8 +45,8 @@ var _star_fx := -1.0             # 星星飛起來的動畫播了幾秒（< 0 = 
 var _cut_t := 0.0                # 過場還剩幾秒（> 0 的時候鏡頭被借走）
 var _cut_back := Transform3D.IDENTITY
 var _cut_head := 0.0
-var _star_label: Label
-var _foe_dots: HBoxContainer        # 右上角的紅色圓點（敵人還剩幾個）
+var _star_rows: VBoxContainer       # 左上角「星星」紙卡裡的三列
+var _star_shown := -1               # 紙卡上現在畫的是「拿到哪幾顆」（位元），變了才重畫
 
 ## 這一小關是第幾關（星星記在第幾關名下）
 func _stage_no() -> int:
@@ -108,50 +108,65 @@ func _star_touch() -> void:
 	if flat_dist(bird.pos, _star_pos()) <= STAR_NEAR:
 		_collect_star(false)
 
-## 每一畫面：星星飛起來的動畫、過場時的鏡頭、左上角的星星數
+## 整座島的三顆星各在哪（左上角的紙卡上，每顆星旁邊寫這一行）
+const STAR_TEXTS := ["第一關　風車頂上", "第二關　外海的礁石上", "第三關　小湖中間的島上"]
+
+## 左上角的「星星」紙卡：跟其他大關左上角的目標卡同一種樣式（米色紙片、一列一顆星加一行字），
+## 寫的是整座島三顆星各在哪。右上角的敵人欄直接用共用的（一排頭像，倒下打叉），不再自己畫紅點。
+func _build_star_card() -> void:
+	var layer := CanvasLayer.new()
+	layer.layer = 5
+	add_child(layer)
+	var panel := PanelContainer.new()
+	panel.position = Vector2(20.0, 16.0)
+	panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	UIStyle.paper(panel)
+	layer.add_child(panel)
+	_star_rows = VBoxContainer.new()
+	_star_rows.add_theme_constant_override("separation", 4)
+	_star_rows.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	panel.add_child(_star_rows)
+	_star_shown = -1
+
+func _refresh_star_card() -> void:
+	var mask := 0
+	for k in world.STAR_TOTAL:
+		if world.star_taken(k + 1):
+			mask |= 1 << k
+	if mask == _star_shown:
+		return
+	_star_shown = mask
+	for c in _star_rows.get_children():
+		_star_rows.remove_child(c)
+		c.queue_free()
+	var title := Label.new()
+	title.text = "星星"
+	title.label_settings = UIStyle.ls(20, UIStyle.INK)
+	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_star_rows.add_child(title)
+	for k in world.STAR_TOTAL:
+		var got: bool = mask & (1 << k) != 0
+		var here: bool = k + 1 == _stage_no()        # 現在這一關的那一顆：字比較深
+		var row := HBoxContainer.new()
+		row.add_theme_constant_override("separation", 8)
+		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_star_rows.add_child(row)
+		var st := Label.new()
+		st.text = "★"
+		st.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		st.label_settings = UIStyle.ls(24, Color("f6c445") if got else Color("fff8e7"), 6, UIStyle.INK if got else Color(UIStyle.INK, 0.45))
+		row.add_child(st)
+		var tx := Label.new()
+		tx.text = STAR_TEXTS[k] if k < STAR_TEXTS.size() else ""
+		tx.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		tx.label_settings = UIStyle.ls(22, UIStyle.INK if (got or here) else Color(UIStyle.INK, 0.55))
+		row.add_child(tx)
+
+## 每一畫面：星星飛起來的動畫、過場時的鏡頭、左上角的星星紙卡
 func _tick_star_view(dt: float) -> void:
-	if _star_label == null:
-		var layer := CanvasLayer.new()
-		layer.layer = 20
-		add_child(layer)
-		_star_label = Label.new()
-		_star_label.add_theme_font_size_override("font_size", 30)
-		_star_label.add_theme_color_override("font_color", Color(1.0, 0.86, 0.3))
-		_star_label.add_theme_color_override("font_outline_color", Color(0.1, 0.07, 0.03))
-		_star_label.add_theme_constant_override("outline_size", 8)
-		_star_label.position = Vector2(22.0, 12.0)
-		_star_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		layer.add_child(_star_label)
-		# 右上角：敵人還剩幾個，用紅色圓點表示（和左邊的星星同一種樣子）；倒下的變成空心
-		_foe_dots = HBoxContainer.new()
-		_foe_dots.add_theme_constant_override("separation", 4)
-		_foe_dots.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
-		_foe_dots.grow_horizontal = Control.GROW_DIRECTION_BEGIN
-		_foe_dots.offset_right = -22
-		_foe_dots.offset_top = 12
-		_foe_dots.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		layer.add_child(_foe_dots)
-		for f in enemies:
-			var dot := Label.new()
-			dot.add_theme_font_size_override("font_size", 30)
-			dot.add_theme_color_override("font_outline_color", Color(0.1, 0.03, 0.03))
-			dot.add_theme_constant_override("outline_size", 8)
-			dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			_foe_dots.add_child(dot)
-		# 共用的敵人欄（頭像＋血條）收起來
-		if not _enemy_rows.is_empty():
-			var n0: Node = _enemy_rows[0]["fill"]
-			while n0.get_parent() is Control:        # 一路往上找到整個敵人欄（直接掛在畫面層底下的那一個）
-				n0 = n0.get_parent()
-			if n0 is VBoxContainer:
-				(n0 as CanvasItem).visible = false
-	for i in mini(_foe_dots.get_child_count(), enemies.size()):
-		var lb: Label = _foe_dots.get_child(i)
-		var alive: bool = enemies[i].alive()
-		lb.text = "●" if alive else "○"
-		lb.add_theme_color_override("font_color", Color(0.90, 0.16, 0.13) if alive else Color(0.55, 0.30, 0.28))
-	var n: int = world.star_count()
-	_star_label.text = "★".repeat(n) + "☆".repeat(world.STAR_TOTAL - n)
+	if _star_rows == null:
+		_build_star_card()
+	_refresh_star_card()
 	var node: Node3D = world.star_node(_stage_no())
 	if _star_fx >= 0.0 and node and is_instance_valid(node):
 		_star_fx += dt
