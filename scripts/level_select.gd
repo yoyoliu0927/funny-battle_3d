@@ -480,6 +480,9 @@ func _ready() -> void:
 	if _title == null and not testing:
 		_growth_check.call_deferred()
 		_journal_check.call_deferred()
+	# 第一幀就把鏡頭和地圖文字擺好（dt＝0，時間不會往前走）：新場景的第一幀會在 _process 跑之前先畫出來，
+	# 沒先跑一次的話那一幀用的是場景檔裡的預設鏡頭（農莊正上方），晚上看起來就是一片灰，劇情結束、從關卡回來都會閃一下
+	_process(0.0)
 
 ## 標題畫面收掉了：介面拿出來，開始收按鍵
 func _title_end() -> void:
@@ -3769,10 +3772,14 @@ func _move_dir(dir: Vector2) -> void:
 	if _busy() or _starting:
 		return
 	var here: Vector3 = worlds[selected].center
+	# 南北兩區之間要經過主島（航線都是從主島拉出去的）：在南方島按上、北方島按下，不會直接跳到另一區
+	var side := _side(selected)
 	var best := -1
 	var best_s := INF
 	for e in entries.size():
 		if e == selected:
+			continue
+		if side != "" and _side(e) != "" and _side(e) != side:
 			continue
 		var c: Vector3 = worlds[e].center
 		var d := Vector2(c.x - here.x, c.z - here.z)
@@ -3783,10 +3790,22 @@ func _move_dir(dir: Vector2) -> void:
 		if s < best_s:
 			best_s = s
 			best = e
+	if best < 0 and side != "":
+		# 同一區那個方向沒有島了：大致朝著主島就回主島（駁大莖森在主島右下，按上也要能回去）
+		var hub: Vector3 = worlds[0].center
+		if Vector2(hub.x - here.x, hub.z - here.z).normalized().dot(dir) > 0.0:
+			best = 0
 	if best < 0:
 		_bump(Vector3(dir.x, 0, dir.y))
 		return
 	_jump_to(best, _first_open_stage_of(best))
+
+## 世界地圖的南北分區：主島回傳 ""；開發版的範例島排在最南邊，跟南方算同一區
+func _side(e: int) -> String:
+	var r := _region(e)
+	if r == "hub":
+		return ""
+	return "north" if r == "north" else "south"
 
 ## 飛到第 e 座島的第 k 個站點
 func _jump_to(e: int, k: int) -> void:
