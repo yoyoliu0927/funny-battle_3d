@@ -54,6 +54,10 @@ func _next_scene() -> String:
 ## 這個場景是專案的主場景，所以一開遊戲會先到這裡：還沒經過標題畫面就先轉過去
 ## （標題畫面掛在選關場景上；第一次玩按下開始才會回來播這段劇情）
 func _ready() -> void:
+	# 換場景的空檔（舊場景拿掉了、新場景還在建）畫面上什麼都沒有，會露出引擎預設的灰底：
+	# 劇情淡出成黑之後會卡一格灰畫面，網頁版建主畫面要好幾秒，特別明顯。改成黑底，淡出的黑就直接接到新場景。
+	# （每個場景都有自己的天空或背景色，平常看不到這個底色）
+	RenderingServer.set_default_clear_color(Color.BLACK)
 	var args := OS.get_cmdline_user_args()
 	var testing := "--autotest" in args
 	for a in args:
