@@ -637,7 +637,7 @@ func reset_cage() -> void:
 	if _cage_label:
 		_cage_label.text = goal_text
 	for g in _goal_glow:
-		(g.mat as ShaderMaterial).set_shader_parameter("emission_c", g.base)
+		_set_toon_param(g.mat, "emission_c", g.base)
 
 # ================================================================== 外圍：雲海、遠山、月亮；天色
 
@@ -1306,7 +1306,7 @@ func _process(dt: float) -> void:
 		# 結局時光環只比平常亮一點點：太亮會整片過曝，鳳凰和家豪反而看不到
 		var k2 := clampf(_free_t / 1.2, 0.0, 1.0)
 		for g in _goal_glow:
-			(g.mat as ShaderMaterial).set_shader_parameter("emission_c", (g.base as Color) * ((0.55 + 0.25 * k2) if _fin_on else (1.0 + 2.2 * k2)))
+			_set_toon_param(g.mat, "emission_c", (g.base as Color) * ((0.55 + 0.25 * k2) if _fin_on else (1.0 + 2.2 * k2)))
 	if _fin_on:
 		_fin_t += dt
 		# 前 2.4 秒家豪在打碟：唱盤來回搓；之後唱盤自己轉起來，鳳凰金光升起、百鳥飛起，引路的靈光併進去

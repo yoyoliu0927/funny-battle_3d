@@ -19,7 +19,9 @@ uniform float dark_body = 0.0;
 uniform vec3 body_color : source_color = vec3(0.07, 0.08, 0.12);
 uniform float rim = 0.0;
 uniform vec3 rim_color : source_color = vec3(0.75, 0.88, 1.0);
-instance uniform float base_y = -1000.0;   // 這個模型站的地面高度（ice_world.gd 放模型時填）
+// 這個模型站的地面高度：ice_world.gd／map_isles.gd 放模型時，同一個高度的東西共用一份材質複本，填在複本上。
+// 不用 instance uniform：網頁版（Compatibility 渲染）整個畫面最多只有 64 個物件能用，場上的模型零件多太多了。
+uniform float base_y = -1000.0;
 
 varying vec3 wp;
 varying vec3 wn;
