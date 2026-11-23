@@ -45,6 +45,9 @@ static var _tex_cache := {}
 ## 所以網頁版讓 Backspace 也等於 Esc（_install_web_keys() 在瀏覽器裡把 Backspace 換成 Esc 送進遊戲，
 ## 各畫面原本接 Esc 的程式不用改），畫面上寫 Esc 的鍵帽都改畫 ⌫（key_label()）。
 ## 用 --webui 啟動可以在電腦版看到網頁版的鍵帽。
+## 網頁版也順便處理輸入法：開著注音（或其他中文輸入法）時，瀏覽器送進來的字母鍵會變成注音符號（W →「ㄊ」）
+## 或「Process」，只有實體按鍵（e.code）還是對的，遊戲裡看 keycode 的地方（劇情 Enter、主島的 B／T／M…）就收不到。
+## 所以這種按鍵一律照實體按鍵換回「沒開輸入法時」的按鍵再送進遊戲。電腦版 Godot 本來就會照實體按鍵算，不用處理。
 const WEB_ESC_LABEL := "⌫"
 static var _web := -1                # -1 還沒判斷；1 網頁版（或 --webui）；0 電腦版
 
@@ -62,17 +65,46 @@ static func _install_web_keys() -> void:
 (function () {
 	if (window.__fbKeys) return;
 	window.__fbKeys = true;
-	// Backspace 換成 Esc：先在最外層攔下來，再對同一個目標（遊戲畫面）送一個 Esc
-	function remap(e) {
-		if (e.code !== 'Backspace') return;
+	// 照實體按鍵（e.code）推回「沒開輸入法時」會送出的 key
+	var NAMED = { Space: ' ', Enter: 'Enter', NumpadEnter: 'Enter', Escape: 'Escape', Tab: 'Tab',
+		ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
+		ShiftLeft: 'Shift', ShiftRight: 'Shift', ControlLeft: 'Control', ControlRight: 'Control',
+		AltLeft: 'Alt', AltRight: 'Alt', MetaLeft: 'Meta', MetaRight: 'Meta',
+		Minus: '-', Equal: '=', Comma: ',', Period: '.', Slash: '/', Semicolon: ';', Quote: "'",
+		BracketLeft: '[', BracketRight: ']', Backslash: '\\\\', Backquote: '`' };
+	function plainKey(e) {
+		var c = e.code || '';
+		if (/^Key[A-Z]$/.test(c)) return e.shiftKey ? c.charAt(3) : c.charAt(3).toLowerCase();
+		if (/^Digit[0-9]$/.test(c)) return c.charAt(5);
+		if (/^Numpad[0-9]$/.test(c)) return c.charAt(6);
+		return NAMED.hasOwnProperty(c) ? NAMED[c] : null;
+	}
+	// 先在最外層攔下來，再對同一個目標（遊戲畫面）送一個換好的按鍵
+	function fix(e) {
+		if (e.__fbFixed) return;
+		var code = e.code, key;
+		if (code === 'Backspace') {
+			// Backspace 換成 Esc
+			code = 'Escape';
+			key = 'Escape';
+		} else {
+			// 輸入法開著：key 變成注音符號、Process、Unidentified 之類的，照實體按鍵換回來
+			var k = e.key || '';
+			var odd = e.isComposing || e.keyCode === 229 || k === 'Process' || k === 'Unidentified' ||
+				(k.length === 1 && k.charCodeAt(0) > 127);
+			if (!odd) return;
+			key = plainKey(e);
+			if (key === null) return;
+		}
 		e.stopImmediatePropagation();
 		e.preventDefault();
-		e.target.dispatchEvent(new KeyboardEvent(e.type, { key: 'Escape', code: 'Escape', keyCode: 27, which: 27,
-			repeat: e.repeat, bubbles: true, cancelable: true,
-			shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey }));
+		var n = new KeyboardEvent(e.type, { key: key, code: code, repeat: e.repeat, bubbles: true, cancelable: true,
+			shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey });
+		n.__fbFixed = true;
+		e.target.dispatchEvent(n);
 	}
-	window.addEventListener('keydown', remap, true);
-	window.addEventListener('keyup', remap, true);
+	window.addEventListener('keydown', fix, true);
+	window.addEventListener('keyup', fix, true);
 })();
 """, true)
 
