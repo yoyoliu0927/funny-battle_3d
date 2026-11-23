@@ -104,10 +104,11 @@ func _glow_nodes() -> Array:
 
 func _enemy_specs() -> Array:
 	return [
-		# 兩個農夫在場地南半邊巡邏，離家豪的起點（北邊石階頂）遠一點：玩家來得及先劈一次火山
-		{"name": "農夫1", "hp": FARMER_HP, "kick_damage": FARMER_KICK, "route": [Vector3(2, 0, 6), Vector3(6, 0, 10)], "loop": false, "pause": 1.2},
-		{"name": "農夫2", "hp": FARMER_HP, "kick_damage": FARMER_KICK, "route": [Vector3(-2, 0, 5), Vector3(-6, 0, 9)], "loop": false, "pause": 1.0},
-		{"name": "農夫3", "hp": FARMER_HP, "kick_damage": FARMER_KICK, "route": [Vector3(-9, 0, 6), Vector3(-7, 0, 11)], "loop": false, "pause": 1.1},
+		# 三個農夫在場地南半邊巡邏，離家豪的起點（北邊石階頂）遠一點：玩家來得及先劈一次火山。
+		# 他們都是從南往北走（面朝家豪過來的方向）：家豪沒辦法從背後一個一個偷襲，神不幫忙就打不贏
+		{"name": "農夫1", "hp": FARMER_HP, "kick_damage": FARMER_KICK, "route": [Vector3(6, 0, 10), Vector3(2, 0, 6)], "loop": false, "pause": 1.2},
+		{"name": "農夫2", "hp": FARMER_HP, "kick_damage": FARMER_KICK, "route": [Vector3(-6, 0, 9), Vector3(-2, 0, 5)], "loop": false, "pause": 1.0},
+		{"name": "農夫3", "hp": FARMER_HP, "kick_damage": FARMER_KICK, "route": [Vector3(-7, 0, 11), Vector3(-9, 0, 6)], "loop": false, "pause": 1.1},
 		# 最終 Boss：穿盔甲的騎士。一開始不在場上，農夫都倒下之後才從飛機上跳下來（route 是他的落點：場地南邊、離石階最遠的那塊空地）。
 		# 走得慢、打得重，啄他完全沒用，要用岩漿砸，或是等他走進湖裡用雷劈湖
 		# is_boss：右上角敵人欄給他自己一張卡（頭像＋名字＋血條），跟其他大關的 Boss 一樣
