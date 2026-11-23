@@ -43,11 +43,11 @@ func _make_items() -> Array:
 
 func _enemy_specs() -> Array:
 	return [
-		{"name": "農夫1", "route": [Vector3(0, 0, 3), Vector3(4, 0, 0)], "loop": false, "pause": 1.2},
-		{"name": "農夫2", "route": [Vector3(-1, 0, -6), Vector3(4.5, 0, -7.5), Vector3(-9, 0, -7)], "loop": false, "pause": 1.4},
-		{"name": "農夫3", "route": [Vector3(9, 0, 3), Vector3(3, 0, 6), Vector3(8, 0, -4)], "loop": true, "pause": 0.8},
+		{"name": "農夫1", "hp": FARMER_HP, "route": [Vector3(0, 0, 3), Vector3(4, 0, 0)], "loop": false, "pause": 1.2},
+		{"name": "農夫2", "hp": FARMER_HP, "route": [Vector3(-1, 0, -6), Vector3(4.5, 0, -7.5), Vector3(-9, 0, -7)], "loop": false, "pause": 1.4},
+		{"name": "農夫3", "hp": FARMER_HP, "route": [Vector3(9, 0, 3), Vector3(3, 0, 6), Vector3(8, 0, -4)], "loop": true, "pause": 0.8},
 		# 農夫4 的路線會踩過西南邊那一灘水（可以趁他踩進去的時候劈水灘）
-		{"name": "農夫4", "route": [Vector3(-5, 0, 3), Vector3(-5, 0, -7)], "loop": false, "pause": 1.0},
+		{"name": "農夫4", "hp": FARMER_HP, "route": [Vector3(-5, 0, 3), Vector3(-5, 0, -7)], "loop": false, "pause": 1.0},
 		# 兩個守門員：守在石階腳下，面朝場地，不巡邏、不追人、聽到聲音也不動
 		{"name": "守門員1", "kind": "gate", "model": "merchant", "route": [world.GATE_GUARDS[0]], "yaw": PI * 0.5,
 			"hp": 20.0, "immune_peck": true, "has_cone": false, "hears_noise": false, "can_slip": false},

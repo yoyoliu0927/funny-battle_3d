@@ -8,6 +8,10 @@ const BLIND_VISION := 0.9        # 看不見的時候，偵測扇形縮到多短
 const GodHands := preload("res://levels/liuchiyu/god_hands.gd")
 
 var hands: Node3D                # 神的雙手（第一人稱，掛在鏡頭底下；見 god_hands.gd）
+## 畫面下方那雙半透明的神之手：先拿掉（改回 true 就會再出現，程式都還留著）
+const SHOW_HANDS := false
+## 農夫的血量：家豪啄兩下才倒（共用設定是啄一下就倒；啄一下扣 PECK_DAMAGE）
+const FARMER_HP := PECK_DAMAGE * 2.0
 
 var _leaving := false
 var _opened := false
@@ -108,11 +112,51 @@ func _star_touch() -> void:
 	if flat_dist(bird.pos, _star_pos()) <= STAR_NEAR:
 		_collect_star(false)
 
-## 整座島的三顆星各在哪（左上角的紙卡上，每顆星旁邊寫這一行）
-const STAR_TEXTS := ["第一關　風車頂上", "第二關　外海的礁石上", "第三關　小湖中間的島上"]
+## 每一小關三顆星：過關一顆、打倒所有敵人一顆、場上那顆要去拿的星星一顆。
+## 左上角的紙卡上，第三顆旁邊寫它在哪
+const STAR_WHERE := ["風車頂上", "外海的礁石上", "小湖中間的島上"]
+
+## 第 n 小關「打倒所有敵人」「過關」這兩顆拿到了沒（跟場上的星星一樣，記到遊戲關掉為止）
+static func goal_done(n: int, id: String) -> bool:
+	var all: Dictionary = Engine.get_meta("liuchiyu_goals", {})
+	return all.get("%d/%s" % [n, id], false)
+
+static func mark_goal(n: int, id: String) -> void:
+	var all: Dictionary = Engine.get_meta("liuchiyu_goals", {})
+	all["%d/%s" % [n, id]] = true
+	Engine.set_meta("liuchiyu_goals", all)
+
+## 這一小關的三顆星：[[文字, 拿到了沒], ...]
+func _stage_goals() -> Array:
+	var n := _stage_no()
+	var where: String = STAR_WHERE[n - 1] if n >= 1 and n <= STAR_WHERE.size() else ""
+	return [
+		["過關", goal_done(n, "clear")],
+		["打倒所有敵人", goal_done(n, "foes")],
+		["拿到星星：" + where, world.star_taken(n)],
+	]
+
+## 這一小關現在拿到幾顆星
+func stage_star_count() -> int:
+	var c := 0
+	for g in _stage_goals():
+		c += 1 if g[1] else 0
+	return c
+
+## 每一畫面看一次：敵人都倒了就拿到「打倒所有敵人」；出發去下一關（最後一關是打贏）就拿到「過關」
+func _tick_goals() -> void:
+	var n := _stage_no()
+	if not _won():
+		return
+	if not goal_done(n, "foes"):
+		mark_goal(n, "foes")
+		log_event("拿到星星：打倒所有敵人")
+	if not goal_done(n, "clear") and (_leaving or _next_stage() <= 0):
+		mark_goal(n, "clear")
+		log_event("拿到星星：過關")
 
 ## 左上角的「星星」紙卡：跟其他大關左上角的目標卡同一種樣式（米色紙片、一列一顆星加一行字），
-## 寫的是整座島三顆星各在哪。右上角的敵人欄直接用共用的（一排頭像，倒下打叉），不再自己畫紅點。
+## 列出這一小關的三顆星。右上角的敵人欄直接用共用的（一排頭像，倒下打叉），不再自己畫紅點。
 func _build_star_card() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 5
@@ -129,9 +173,11 @@ func _build_star_card() -> void:
 	_star_shown = -1
 
 func _refresh_star_card() -> void:
+	_tick_goals()
+	var goals := _stage_goals()
 	var mask := 0
-	for k in world.STAR_TOTAL:
-		if world.star_taken(k + 1):
+	for k in goals.size():
+		if goals[k][1]:
 			mask |= 1 << k
 	if mask == _star_shown:
 		return
@@ -144,9 +190,8 @@ func _refresh_star_card() -> void:
 	title.label_settings = UIStyle.ls(20, UIStyle.INK)
 	title.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_star_rows.add_child(title)
-	for k in world.STAR_TOTAL:
-		var got: bool = mask & (1 << k) != 0
-		var here: bool = k + 1 == _stage_no()        # 現在這一關的那一顆：字比較深
+	for g in goals:
+		var got: bool = g[1]
 		var row := HBoxContainer.new()
 		row.add_theme_constant_override("separation", 8)
 		row.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -157,9 +202,9 @@ func _refresh_star_card() -> void:
 		st.label_settings = UIStyle.ls(24, Color("f6c445") if got else Color("fff8e7"), 6, UIStyle.INK if got else Color(UIStyle.INK, 0.45))
 		row.add_child(st)
 		var tx := Label.new()
-		tx.text = STAR_TEXTS[k] if k < STAR_TEXTS.size() else ""
+		tx.text = String(g[0])
 		tx.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		tx.label_settings = UIStyle.ls(22, UIStyle.INK if (got or here) else Color(UIStyle.INK, 0.55))
+		tx.label_settings = UIStyle.ls(22, UIStyle.INK if got else Color(UIStyle.INK, 0.55))
 		row.add_child(tx)
 
 ## 每一畫面：星星飛起來的動畫、過場時的鏡頭、左上角的星星紙卡
@@ -1179,7 +1224,7 @@ func _level_setup() -> void:
 		bird.hp = bird.max_hp
 	show_tutorial = false
 	auto_next = false        # 過關後家豪沿著島上的路走到下一小關（自己的流程），不用共用的自動出發
-	if hands == null and camera:
+	if SHOW_HANDS and hands == null and camera:
 		hands = GodHands.new()
 		hands.name = "GodHands"
 		camera.add_child(hands)
@@ -1427,6 +1472,7 @@ func _go_next() -> void:
 	if _leaving:
 		return
 	_leaving = true
+	mark_goal(_stage_no(), "clear")      # 出發去下一關 = 這一關過關了（這一幀就換場景，等不到每一畫面的檢查）
 	var n := _next_stage()
 	_save_state()        # 把這一關的機關現在的樣子記下來，下一關看過來還是這個樣子
 	if world.has_method("remember_camera"):

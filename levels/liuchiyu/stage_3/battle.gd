@@ -105,9 +105,9 @@ func _glow_nodes() -> Array:
 func _enemy_specs() -> Array:
 	return [
 		# 兩個農夫在場地南半邊巡邏，離家豪的起點（北邊石階頂）遠一點：玩家來得及先劈一次火山
-		{"name": "農夫1", "route": [Vector3(2, 0, 6), Vector3(6, 0, 10)], "loop": false, "pause": 1.2},
-		{"name": "農夫2", "route": [Vector3(-2, 0, 5), Vector3(-6, 0, 9)], "loop": false, "pause": 1.0},
-		{"name": "農夫3", "route": [Vector3(-9, 0, 6), Vector3(-7, 0, 11)], "loop": false, "pause": 1.1},
+		{"name": "農夫1", "hp": FARMER_HP, "route": [Vector3(2, 0, 6), Vector3(6, 0, 10)], "loop": false, "pause": 1.2},
+		{"name": "農夫2", "hp": FARMER_HP, "route": [Vector3(-2, 0, 5), Vector3(-6, 0, 9)], "loop": false, "pause": 1.0},
+		{"name": "農夫3", "hp": FARMER_HP, "route": [Vector3(-9, 0, 6), Vector3(-7, 0, 11)], "loop": false, "pause": 1.1},
 		# 最終 Boss：穿盔甲的騎士。一開始不在場上，農夫都倒下之後才從飛機上跳下來（route 是他的落點：場地南邊、離石階最遠的那塊空地）。
 		# 走得慢、打得重，啄他完全沒用，要用岩漿砸，或是等他走進湖裡用雷劈湖
 		# is_boss：右上角敵人欄給他自己一張卡（頭像＋名字＋血條），跟其他大關的 Boss 一樣
@@ -306,10 +306,18 @@ func _knight_strike(f: Fighter) -> void:
 func _tutorial_texts() -> Array:
 	return ["用雷劈火山口，岩漿球飛出來之後按住風，把它吹到敵人身上或湖裡。雷和風都不能直接對人用；對著沙地吹風，沙子會讓下風處的敵人看不見。敵人站在湖水裡的時候用雷劈湖，也能把他電倒。"]
 
-## 最後一關過了：整個大關拿到幾顆星星
+## 最後一關過了：整個大關拿到幾顆星星（每一小關三顆：過關、打倒所有敵人、場上那顆星星）
 func _win_line() -> String:
-	var n: int = world.star_count()
-	return "過關！星星 %s%s（%d / %d）" % ["★".repeat(n), "☆".repeat(world.STAR_TOTAL - n), n, world.STAR_TOTAL]
+	# 打贏最後一關的這一刻，「打倒所有敵人」和「過關」兩顆就都到手了
+	mark_goal(3, "foes")
+	mark_goal(3, "clear")
+	var total: int = world.STAR_TOTAL * 3
+	var n := 0
+	for k in range(1, world.STAR_TOTAL + 1):
+		for id in ["clear", "foes"]:
+			n += 1 if goal_done(k, id) else 0
+		n += 1 if world.star_taken(k) else 0
+	return "過關！星星 %d / %d" % [n, total]
 
 func _prepare_hint() -> String:
 	return "準備中：開打後用雷劈火山口，再用風把岩漿塊吹向敵人　按 Enter 開始"
