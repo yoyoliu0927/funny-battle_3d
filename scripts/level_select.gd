@@ -132,6 +132,7 @@ const CARD_CYCLE := [Color("7cc6ec"), Color("8fcf6f"), Color("f0a35a"), Color("c
 ## 這裡沒列到的大關算南方；大關也可以在自己的 chapter.gd 寫 const REGION := "north" 或 "south" 指定。
 const NORTH_IDS := ["ice", "heaven"]
 const FINAL_IDS := ["heaven"]       # 最終章：其他大關都破完（帶回所有羽毛）才能上去；排在北方最高的地方
+const FINAL_GATE := false            # 最終章要不要等羽毛集齊才開：預覽版先關掉，大家不用集齊羽毛也能上丹穴山（改回 true 就恢復上鎖）
 const REGION_INFO := {
 	"north": {"name": "北方諸國", "sub": "神獸與冰雪的國度", "col": Color("e6f6ff"), "cap": Color("4a9fe0")},
 	"south": {"name": "南方島嶼", "sub": "被人類佔領的島", "col": Color("fff1d6"), "cap": Color("e8483a")},
@@ -590,7 +591,7 @@ func _feather_col(ch: Dictionary) -> Color:
 
 ## 最終章還差幾根羽毛才能上去（不是最終章、或已經玩過了，都是 0：舊存檔不會被鎖回去）
 func _gate_need(ch: Dictionary) -> int:
-	if ch.is_empty() or not String(ch.id) in FINAL_IDS:
+	if not FINAL_GATE or ch.is_empty() or not String(ch.id) in FINAL_IDS:
 		return 0
 	if ch.stages.any(func(st): return _cleared(st.id)):
 		return 0
