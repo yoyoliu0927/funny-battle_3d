@@ -346,12 +346,20 @@ func _set_help(on: bool) -> void:
 static func _key_of(e: InputEventKey) -> Key:
 	return e.physical_keycode if e.physical_keycode != KEY_NONE else e.keycode
 
+## 還沒開：Esc 或 P 打開選單。
+## 用 _unhandled_input（不是 _input）：教學卡、按 H 的說明卡這些彈窗都在 _input 先接 Esc（關掉／跳過），
+## 它們接走了就輪不到這裡；以前這裡用 _input 會搶在彈窗前面，按 Esc 想關說明卡卻跳出暫停選單，按繼續再按 Esc 又跳出來。
+## 彈窗開著時遊戲已經停了（get_tree().paused），也不開。
+## 這個節點在戰局（Battle）底下、比玩家和戰局自己的 _unhandled_input 早拿到，Esc 不會再被它們處理一次。
+func _unhandled_input(event: InputEvent) -> void:
+	if is_open or not hotkey or get_tree().paused:
+		return
+	if event is InputEventKey and event.pressed and not event.echo and _key_of(event) in [KEY_ESCAPE, KEY_P]:
+		open()
+		get_viewport().set_input_as_handled()
+
 func _input(event: InputEvent) -> void:
 	if not is_open:
-		# 還沒開：Esc 或 P 打開選單（用 _input，比玩家和戰局的 _unhandled_input 早拿到，不會再被別人處理一次）
-		if hotkey and event is InputEventKey and event.pressed and not event.echo and _key_of(event) in [KEY_ESCAPE, KEY_P]:
-			open()
-			get_viewport().set_input_as_handled()
 		return
 	if event is InputEventKey:
 		var vp := get_viewport()   # 先拿好：選了「回地圖」之後這個節點就不在場景樹上了
@@ -450,7 +458,8 @@ func _process(_dt: float) -> void:
 			player.call("_set_looking", false)
 
 func _auto_open() -> void:
-	if is_open or not hotkey:
+	# 彈窗開著（遊戲已經停了）就不用再疊一層暫停選單
+	if is_open or not hotkey or get_tree().paused:
 		return
 	open()
 	_auto_at = Time.get_ticks_msec()
