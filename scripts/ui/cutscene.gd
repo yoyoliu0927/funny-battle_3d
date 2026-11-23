@@ -16,6 +16,7 @@ extends Node3D
 ##   _next_scene()       播完去哪個場景
 
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術
+const LoadingCard := preload("res://scripts/ui/loading_card.gd")   # 換場景時的「載入中」
 const TYPE_SPEED := 30.0        # 每秒打幾個字
 const RATE := 22050             # 合成音效的取樣率
 const FARM := "res://assets/farm/"
@@ -832,6 +833,11 @@ func skip() -> void:
 	var tw := create_tween()
 	tw.tween_property(_fade, "color", Color(0, 0, 0, 1), 0.4)
 	await tw.finished
+	# 下一個場景（主畫面）要建一兩秒、網頁版更久，建好之前畫面完全不會動：
+	# 先蓋上「載入中」（掛在 root，換場景不會被拿掉）再換，新場景畫出來之後它自己淡掉
+	var card := LoadingCard.new()
+	get_tree().root.add_child(card)
+	await card.shown
 	get_tree().change_scene_to_file(_next_scene())
 
 func _next() -> void:
