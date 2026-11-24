@@ -31,7 +31,7 @@ const WIND_KEEP := 0.2                   # 放開風之後，風還算在吹幾�
 const BOMB_SIZE := 1.25                  # 岩漿球看起來多大（半徑）
 const BOMB_RADIUS := 3.4                 # 落地時燙到多大一圈
 const BOMB_DAMAGE := 8.0                 # 農夫被燙到扣多少血（農夫 8、守衛 12）
-const BOMB_BIRD_DAMAGE := 3.0            # 家豪被燙到扣多少血（最多燙到剩 1 滴）
+const BOMB_BIRD_DAMAGE := HIT_HALF       # 家豪被燙到扣多少血（半顆心；最多燙到剩半顆）
 const POOL_TIME := 3.5                   # 落地的岩漿過幾秒冷掉消失
 
 const PLANE_TIME := 6.0                  # 飛機飛過場地要幾秒
@@ -48,7 +48,7 @@ const STONE_TOP := 0.22                  # 鵝卵石頂面比水面高多少
 const KNIGHT_SCALE := 1.25               # 騎士比一般農夫大多少
 const KNIGHT_SPEED := 1.7                # 騎士走多快（比家豪慢）
 const KNIGHT_REACH := 1.7                # 騎士離家豪多近就出手
-const KNIGHT_HIT := 1.0                  # 騎士打家豪一下扣多少血
+const KNIGHT_HIT := HIT_HALF             # 騎士打家豪一下扣多少血（半顆心）
 const KNIGHT_CD := 2.2                   # 騎士打完一下要等幾秒才能再打
 const KNOCK_BACK := 5.0                  # 家豪被打到往後飛多遠
 const KNOCK_TIME := 0.7                  # 飛幾秒
@@ -1002,6 +1002,15 @@ func _star_back() -> Array[Vector3]:
 	return p.slice(1)
 
 # ---------------------------------------------------------------- 瞄準、畫面
+
+## 拿著雷指著火山或湖（會變白的時候）：就算視線上有人也照樣可以劈（敵人站在湖裡的時候就是要劈湖）
+func _aim_on_interactive() -> bool:
+	if super():
+		return true
+	if _held_id() != "thunder":
+		return false
+	var p := _aim_p()
+	return flat_dist(p, world.volcano_top()) <= VOLCANO_REACH or world.in_pool(3, p.x, p.z, 0.8, true)
 
 ## 火山可以用雷劈（準心指在它身上就算指到）。只有手上拿著雷的時候才算：
 ## 拿著風的時候如果也算，視線只要經過火山附近（半徑 6 公尺、高 11 公尺的範圍，岩漿球剛噴出來就在這裡），

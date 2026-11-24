@@ -15,8 +15,8 @@ const SHELF_R := 11.2                   # 滾石停在平台上的半徑
 const ROCK_R := 1.7                     # 滾石多大（要跟 island_world.gd 的 ROCK_RADIUS 一樣）
 const ROCK_HIT := 2.2                   # 離滾石多近會被撞
 const ROCK_DAMAGE := 6.0                # 撞一下扣多少血（農夫有 8）
-const ROCK_BIRD_DAMAGE := 3.0           # 滾石撞到家豪扣多少血（家豪有 10）
-const WHEEL_BIRD_DAMAGE := 4.0          # 風車葉片砸到家豪扣多少血
+const ROCK_BIRD_DAMAGE := HIT_HALF      # 滾石撞到家豪扣多少血（半顆心）
+const WHEEL_BIRD_DAMAGE := HIT_HALF     # 風車葉片砸到家豪扣多少血（半顆心）
 const ROCK_GUST := 5.0                  # 風要吹在離滾石多近才吹得動
 const MILL_GUST := 8.0                  # 風要吹在離風車多近才算
 const MILL_NEED := 3.0                  # 轉到這個速度，葉片就飛出去
@@ -301,6 +301,17 @@ func _glow_nodes() -> Array:
 		[world.windmill_node(), not _mill_gone],
 		[world.dead_tree_node(), world.tree_struck() and not world.bridge_ready()],      # 被雷劈過之後才亮
 	]
+
+## 準心指著吹得動的東西（會變白的那幾樣）的時候，就算視線上有人也照樣可以吹
+func _aim_on_interactive() -> bool:
+	if super():
+		return true
+	if _held_id() != "wind":
+		return false
+	var p := _aim_p()
+	return (not _rock_rolling and Vector2(p.x, p.z).distance_to(_rock_pos) <= ROCK_GUST) \
+		or (not _mill_gone and flat_dist(p, world.windmill_pos()) <= MILL_GUST) \
+		or (not _closeup and world.tree_in_reach(p))
 
 ## 可以用風吹的三樣東西（準心指在它們身上就算指到）
 func _aim_targets() -> Array:

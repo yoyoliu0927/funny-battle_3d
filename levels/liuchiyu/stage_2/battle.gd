@@ -15,7 +15,7 @@ const WindItem := preload("res://levels/liuchiyu/items/wind_item.gd")
 ## 枯樹的位置和高度在 island_world.gd 的 GROVE_TREES、GROVE_H（別的小關也要照樣種出來，所以放在那邊）
 const BRIDGE_TREE := 3          # 第幾棵枯樹可以當橋（GROVE_TREES 裡的編號）：長在東邊海岸，朝外海的礁石倒就搭得上去
 const TREE_H := 12.0           # 枯樹多高（倒下來可以壓到這麼遠；要跟 island_world.gd 的 GROVE_H 一樣）
-const POOL_BIRD_DAMAGE := 4.0  # 家豪站在水灘裡被電到扣多少血（2 顆心；最多電到剩 1 滴，不會被自己人電死）
+const POOL_BIRD_DAMAGE := HIT_HALF  # 家豪站在水灘裡被電到扣多少血（半顆心；最多電到剩半顆，不會被自己人電死）
 ## 家豪被電到的時候說的話
 const ZAP_LINE := "要變烤雞了..."
 const BRIDGE_ANGLE := 60.0     # 風的方向和「樹到礁石」的方向差幾度以內，樹就會倒在礁石上
@@ -25,7 +25,7 @@ const WIND_REACH := 4.5        # 風吹在離樹多近才吹得倒
 const FALL_TIME := 0.9         # 樹倒下去要幾秒
 const CRUSH_WIDTH := 1.7       # 倒下來的樹幹兩邊多寬會被壓到
 const LOG_BLOCK := 0.85        # 倒在地上的樹幹擋路的半徑
-const TREE_BIRD_DAMAGE := 4.0  # 家豪被壓到扣多少血（最多壓到剩 1 滴）
+const TREE_BIRD_DAMAGE := HIT_HALF  # 家豪被壓到扣多少血（半顆心；最多壓到剩半顆）
 
 var _trees: Array = []         # 每棵：{pos, node, mat, struck, fall, dir, done, yaw}
 var _gate: Dictionary = {}     # 崖壁上那棵枯樹：{node, mat, fall, done}
@@ -46,8 +46,6 @@ func _enemy_specs() -> Array:
 		{"name": "農夫1", "hp": FARMER_HP, "kick_damage": FARMER_KICK, "route": [Vector3(0, 0, 3), Vector3(4, 0, 0)], "loop": false, "pause": 1.2},
 		{"name": "農夫2", "hp": FARMER_HP, "kick_damage": FARMER_KICK, "route": [Vector3(-1, 0, -6), Vector3(4.5, 0, -7.5), Vector3(-9, 0, -7)], "loop": false, "pause": 1.4},
 		{"name": "農夫3", "hp": FARMER_HP, "kick_damage": FARMER_KICK, "route": [Vector3(9, 0, 3), Vector3(3, 0, 6), Vector3(8, 0, -4)], "loop": true, "pause": 0.8},
-		# 農夫4 的路線會踩過西南邊那一灘水（可以趁他踩進去的時候劈水灘）
-		{"name": "農夫4", "hp": FARMER_HP, "kick_damage": FARMER_KICK, "route": [Vector3(-5, 0, 3), Vector3(-5, 0, -7)], "loop": false, "pause": 1.0},
 		# 兩個守門員：守在石階腳下，面朝場地，不巡邏、不追人、聽到聲音也不動
 		{"name": "守門員1", "kind": "gate", "model": "merchant", "route": [world.GATE_GUARDS[0]], "yaw": PI * 0.5,
 			"hp": 20.0, "immune_peck": true, "has_cone": false, "hears_noise": false, "can_slip": false},
@@ -560,6 +558,21 @@ func _aim_on_gate() -> bool:
 		if along > 0.0 and ((q - o) - d * along).length() <= GATE_AIM_R:
 			return true
 		y += 0.5
+	return false
+
+## 拿著雷指著崖壁那棵樹或水灘（會變白的時候）：就算視線上有人也照樣可以劈——
+## 敵人踩進水灘的時候本來就是要劈水灘電他，準心一定會碰到他
+func _aim_on_interactive() -> bool:
+	if super():
+		return true
+	if _held_id() != "thunder":
+		return false
+	if _aim_on_gate():
+		return true
+	var p := _aim_p()
+	for pool in world.zone_pools(2):
+		if flat_dist(p, pool.center) <= float(pool.r) * 1.3 + 0.8:
+			return true
 	return false
 
 ## 準心指著那棵樹的時候，雷就劈在它身上（回傳樹中段底下的位置）；其他情況照舊
