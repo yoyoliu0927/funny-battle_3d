@@ -9,6 +9,7 @@ uniform vec3 cloud_lit : source_color = vec3(1.0, 0.98, 0.93);
 uniform vec3 cloud_mid : source_color = vec3(0.80, 0.88, 0.94);
 uniform vec3 cloud_shade : source_color = vec3(0.64, 0.76, 0.82);
 uniform float night = 0.0;          // 0 = 白天，1 = 有極光的夜晚
+uniform float night_gamma = 1.0;    // 夜空的明暗曲線（1 = 不變，越小暗部越亮）
 uniform float coverage = 0.50;      // 雲量，越大雲越多
 uniform float dab = 105.0;          // 雲邊緣的筆觸大小，越大筆觸越小
 uniform float shade_dab = 48.0;     // 雲裡面明暗色塊的大小
@@ -152,7 +153,8 @@ void sky() {
 		col = mix(col, c, smoothstep(0.02, 0.30, h));
 	}
 	if (night > 0.001) {
-		col = mix(col, night_sky(dir), night);
+		// night_gamma < 1：把夜空暗的部分提亮（Compatibility 渲染器底下夜空的底色會變成全黑，見 oil_world.gd）
+		col = mix(col, pow(max(night_sky(dir), vec3(0.0)), vec3(night_gamma)), night);
 	}
 	COLOR = col;
 }

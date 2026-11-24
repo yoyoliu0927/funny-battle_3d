@@ -1063,9 +1063,9 @@ class PaperBar extends Control:
 		draw_style_box(edge, r)
 
 var _boss_bar: PaperBar
-var _boss_card: Control        # 右上角豪王那一整張卡（他從飛機上跳下來之後才出現）
+var _boss_slot: Control        # 右上角敵人欄裡豪王那一格（頭像＋底下的小血條；他從飛機上跳下來之後才出現）
 
-## 右上角豪王那張卡：名字底下加一條血條（共用的敵人欄只畫頭像和名字）
+## 右上角敵人欄：豪王的頭像底下加一條小小的血條（共用的敵人欄只畫頭像；血條的節點有建但不顯示）
 func _tick_boss_bar() -> void:
 	var knight: Fighter = null
 	for f in enemies:
@@ -1077,26 +1077,22 @@ func _tick_boss_bar() -> void:
 		for row in _enemy_rows:
 			if row.fighter != knight:
 				continue
-			# 卡片裡原本是「頭像｜名字」：把名字換成「名字在上、血條在下」
-			var holder := (row.face as Control).get_parent().get_parent() as BoxContainer
-			var nm := holder.get_child(holder.get_child_count() - 1) as Label
-			if holder == null or nm == null:
+			# 每個頭像外面包著一格直排的容器：血條接在頭像底下，跟頭像一樣寬
+			var face := row.face as Control
+			var slot := face.get_parent() as BoxContainer
+			if slot == null:
 				return
-			var info := VBoxContainer.new()
-			info.alignment = BoxContainer.ALIGNMENT_CENTER
-			info.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			holder.add_child(info)
-			nm.reparent(info)
 			_boss_bar = PaperBar.new()
-			_boss_bar.custom_minimum_size = Vector2(170, 16)
+			_boss_bar.custom_minimum_size = Vector2(maxf(face.custom_minimum_size.x, 52.0), 10.0)
 			_boss_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-			info.add_child(_boss_bar)
-			_boss_card = holder.get_parent() as Control
+			slot.add_child(_boss_bar)
+			slot.move_child(_boss_bar, face.get_index() + 1)
+			_boss_slot = slot
 		if _boss_bar == null:
 			return
-	# 豪王還沒登場（還在飛機上、或是農夫還沒打完）的時候，右上角不先露出他的卡
-	if _boss_card:
-		_boss_card.visible = phase != Phase.PREPARE and (knight.data.get("landed", false) or _drop_t >= DROP_AT)
+	# 豪王還沒登場（還在飛機上、或是農夫還沒打完）的時候，右上角不先露出他的頭像
+	if _boss_slot:
+		_boss_slot.visible = phase != Phase.PREPARE and (knight.data.get("landed", false) or _drop_t >= DROP_AT)
 	_boss_bar.set_values(knight.ratio() if knight.alive() else 0.0, knight.chip)
 
 func _level_visuals() -> void:

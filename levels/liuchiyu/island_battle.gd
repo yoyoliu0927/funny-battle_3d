@@ -1223,6 +1223,11 @@ func _input(event: InputEvent) -> void:
 		elif event is InputEventMouseMotion:
 			get_viewport().set_input_as_handled()        # 預覽時滑鼠不轉視角
 		return
+	# 道具介紹卡正在演（或還有下一張在排隊）：按 Enter 是跳過這一張介紹，不是直接開打
+	if event.is_action_pressed("battle_start") and phase == Phase.PREPARE and (_gift_playing() or not _gift_queue.is_empty()):
+		_skip_gift()
+		get_viewport().set_input_as_handled()
+		return
 	if event.is_action_pressed("move_forward") and not event.is_echo():
 		var now := float(Time.get_ticks_msec()) / 1000.0
 		if now - _w_last <= SPRINT_TAP:
@@ -1297,6 +1302,7 @@ func _level_setup() -> void:
 		Engine.set_meta("liuchiyu_intro_gifts", true)
 		_gift_queue.append("wind")
 		_gift_queue.append("night")
+		_gift_plain = 2             # 一開始這兩張只寫名字，不寫「新的神蹟」（本來就有的，不是新拿到的）
 		_night_shown = false
 	# 敵人腳下的紅色扇形（偵測範圍）不畫了；他們還是看得到家豪，只是畫面上不顯示
 	for f in enemies:
@@ -1721,6 +1727,7 @@ var _night_shown := true         # 「夜晚」那一格現在可不可以露出
 ## 「夜晚」不是技能欄裡的道具，介紹的時候名字和說明寫在這裡
 const NIGHT_NAME := "夜晚"
 const NIGHT_HINT := "按住右鍵：變成晚上，可以互動的東西會發光"
+var _gift_plain := 0             # 接下來幾張介紹卡只寫道具的名字（一開始的風和夜晚）
 var _gift := {}                  # 過場用到的節點和時間
 
 ## 一張跟技能欄一樣的道具卡片（米色紙卡、咖啡色圓貼紙、右上角次數徽章）。回傳 [卡片, 它的外框樣式]
@@ -1820,7 +1827,12 @@ func _start_gift(i: int) -> void:
 	var big := _gift_card(layer, i, true, NightIcon.new().icon if night else null)
 	_gift_frame(big[1], not night)
 	var title := Label.new()
-	title.text = "新的神蹟：%s" % (NIGHT_NAME if night else String(items[i].name))
+	var gift_name: String = NIGHT_NAME if night else String(items[i].name)
+	if _gift_plain > 0:
+		_gift_plain -= 1
+		title.text = gift_name
+	else:
+		title.text = "新的神蹟：%s" % gift_name
 	title.add_theme_font_size_override("font_size", 30)
 	title.add_theme_color_override("font_color", Color(1, 1, 1))
 	title.add_theme_color_override("font_outline_color", Color(0.08, 0.08, 0.08))
@@ -1844,6 +1856,12 @@ func _start_gift(i: int) -> void:
 
 func _gift_playing() -> bool:
 	return not _gift.is_empty()
+
+## 跳過正在演的這一張介紹卡：直接快轉到「卡片滑進技能欄」那一段（不是整張消失，玩家還是看得到它去了哪一格）
+func _skip_gift() -> void:
+	if _gift.is_empty():
+		return
+	_gift.t = maxf(float(_gift.t), GIFT_IN + GIFT_SPIN + GIFT_HOLD)
 
 func _tick_gift(dt: float) -> void:
 	if _gift.is_empty():

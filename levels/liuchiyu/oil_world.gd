@@ -52,13 +52,24 @@ func _input(event: InputEvent) -> void:
 		_apply_time()
 
 ## 依白天／晚上設定光線、霧、天空和葉子的色調
+## Compatibility 渲染器（網頁版用的那一種）底下夜晚會比 Forward+ 黑很多：天空的底色變全黑、樹幹全黑、地面卻整片發白。
+## 這幾個數字只在 Compatibility 底下生效，把夜晚調回跟原本 Forward+ 看到的差不多（深藍綠的天空、藍色的地面）。
+const COMPAT_NIGHT_SKY_GAMMA := 0.5      # 夜空暗部提亮（1 = 不調）
+const COMPAT_NIGHT_GROUND_IN := 0.18     # 地面晚上挑顏色之前先壓暗（1 = 不調），不然整片被挑成最淺的那一色
+const COMPAT_NIGHT_AMBIENT := 1.25        # 晚上的環境光（原本 1.0），樹幹和樹冠才不會黑成一片
+
+func _is_compat() -> bool:
+	return RenderingServer.get_current_rendering_method() == "gl_compatibility"
+
 func _apply_time() -> void:
+	var compat := _is_compat()
 	if _sky_mat:
 		_sky_mat.set_shader_parameter("night", 1.0 if night else 0.0)
+		_sky_mat.set_shader_parameter("night_gamma", COMPAT_NIGHT_SKY_GAMMA if compat else 1.0)
 	if _env:
 		if night:
 			_env.ambient_light_color = Color(0.30, 0.48, 0.52)     # 極光映下來的藍綠色
-			_env.ambient_light_energy = 1.0
+			_env.ambient_light_energy = COMPAT_NIGHT_AMBIENT if compat else 1.0
 			_env.fog_light_color = Color(0.04, 0.14, 0.16)
 			_env.fog_density = 0.0055
 			_env.fog_sun_scatter = 0.0
@@ -78,6 +89,7 @@ func _apply_time() -> void:
 		_sun.light_energy = 1.15 if night else 2.2
 	for m in _leaf_mats:
 		(m as ShaderMaterial).set_shader_parameter("night", 1.0 if night else 0.0)
+		(m as ShaderMaterial).set_shader_parameter("night_in", COMPAT_NIGHT_GROUND_IN if compat else 1.0)      # 只有地面的 shader 有這個參數
 	if _grass_mat:
 		_grass_mat.set_shader_parameter("root_color", Color(0.10, 0.24, 0.32) if night else Color(0.20, 0.13, 0.06))
 		_grass_mat.set_shader_parameter("tip_color", Color(0.62, 0.86, 0.88) if night else Color(0.74, 0.60, 0.22))
