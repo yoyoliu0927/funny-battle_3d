@@ -50,13 +50,13 @@ func _go() -> void:
 	steps(6.0)
 	bt._fell(bt._nearest_tree(Vector3(9, 0, -4), 99.0), Vector3(8, 0, -4))
 	bt._ignite_tree(bt._nearest_tree(Vector3(-7, 0, 8), 99.0), "測試")
-	bt.cast(bt.skill_index("basket"), bt.ground(bt.escape_point + Vector3(1.2, 0, -0.6)))
+	bt.cast(bt.skill_index("decoy"), bt.ground(bt.escape_point + Vector3(1.2, 0, -0.6)))   # 門口的假獵物引開狼外婆
 	steps(4.0)
 	for f in bt.enemies:
 		if f.kind == "smoker":
 			f.hp = 0.0
 			f.set_state("dead")
-	bt.bird.pos = bt.ground(bt.escape_point + Vector3(0, 0, -1.4))
+	bt.hood_saved = true                     # 直接算救出（只是要拍結算卡，救人的流程有 mechanics／play 測）
 	steps(1.0)
 	print("  過關：", bt.outcome)
 	await frames(80)
