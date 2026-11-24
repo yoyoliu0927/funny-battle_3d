@@ -471,6 +471,7 @@ func _on_thin(x: float, z: float, margin := 0.7) -> bool:
 func _restyle(n: Node3D, shadows := true) -> void:
 	if n == null:
 		return
+	var base_y := n.global_position.y if n.is_inside_tree() else -1000.0
 	for m in n.find_children("*", "MeshInstance3D", true, false):
 		var mi := m as MeshInstance3D
 		if mi.mesh == null:

@@ -3706,7 +3706,7 @@ func _round_button(c: Control, u: float, ctr: Vector2, key: String, _label: Stri
 	UIStyle.draw_keycap(c, Vector2(ctr.x - ks.x * 0.5, y), key, 14 * u)
 	return r
 
-## 右上角三顆圓按鈕（由右到左）：聲音 V、商店 B、世界地圖 M
+## 右上角的圓按鈕（由右到左）：聲音 V、商店 B、世界地圖 M、時間 T（天色跟著時間走的時候才有）
 func _paint_buttons(c: Control, u: float) -> void:
 	var vs := get_viewport().get_visible_rect().size
 	# ---- 聲音：喇叭有聲波＝開、打叉＝關
@@ -3742,8 +3742,28 @@ func _paint_buttons(c: Control, u: float) -> void:
 	ctr += Vector2(-118.0 * u, 0)
 	_map_rect = Rect2(ctr - Vector2(48, 44) * u, Vector2(96, 88) * u)
 	_round_button(c, u, ctr, "M", "世界地圖", Color("ffe98a") if _map else PAPER, Color("d9b84a") if _map else PAPER_EDGE)
-	# 時間按鈕拿掉了：天色本來就跟著電腦的時間走。T 鍵還留著（隱藏，給測試和展示用）
-	_time_rect = Rect2()
+	# ---- 時間：白天是太陽、晚上是月亮；下面掛現在幾點（點一下或按 T 打開時間面板）
+	if _tod_on:
+		var tc := ctr + Vector2(-118.0 * u, 0)
+		_time_rect = Rect2(tc - Vector2(48, 44) * u, Vector2(96, 88) * u)
+		var tbg := Color("ffe98a") if _tod_open else PAPER
+		_round_button(c, u, tc, "T", "時間", tbg, Color("d9b84a") if _tod_open else PAPER_EDGE)
+		var night := _tod_hour < 5.5 or _tod_hour >= 19.0
+		if not night:
+			c.draw_circle(tc, 9.5 * u, Color("f0a81c"))
+			for ri in 8:
+				var ra := ri * TAU / 8.0
+				c.draw_line(tc + Vector2(cos(ra), sin(ra)) * 14.0 * u, tc + Vector2(cos(ra), sin(ra)) * 20.0 * u, Color("f0a81c"), 3.2 * u, true)
+		else:
+			c.draw_circle(tc + Vector2(-2, 0) * u, 14.0 * u, Color("5d6fb8"))
+			c.draw_circle(tc + Vector2(4, -4) * u, 12.0 * u, tbg)
+		var tl := HubTime.label(_tod_hour)
+		var tw2 := _font().get_string_size(tl, HORIZONTAL_ALIGNMENT_LEFT, -1, int(17 * u)).x
+		var tchip := Rect2(tc + Vector2(-tw2 * 0.5 - 16 * u, 12 * u), Vector2(tw2 + 28 * u, 26 * u))
+		c.draw_style_box(_box(Color("e3e8ff") if night else Color("fff1bf"), Color("a9b4e0") if night else Color("d9b84a"), 13 * u, 2.0, false), tchip)
+		_text(c, tchip.position + Vector2(14 * u, 19 * u), tl, 17 * u, INK)
+	else:
+		_time_rect = Rect2()
 	var m := PackedVector2Array([Vector2(-18, -10), Vector2(-6, -14), Vector2(6, -9), Vector2(18, -13),
 		Vector2(18, 10), Vector2(6, 14), Vector2(-6, 9), Vector2(-18, 13), Vector2(-18, -10)])
 	for i in m.size():

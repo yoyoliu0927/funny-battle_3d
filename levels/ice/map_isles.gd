@@ -240,6 +240,7 @@ func _prop(parent: Node3D, path: String, pos: Vector3, yaw := 0.0, scale := 1.0,
 	return n
 
 func _restyle(n: Node3D, shadows := true) -> void:
+	var base_y := n.global_position.y if n.is_inside_tree() else -1000.0
 	for m in n.find_children("*", "MeshInstance3D", true, false):
 		var mi := m as MeshInstance3D
 		if mi.mesh == null:
