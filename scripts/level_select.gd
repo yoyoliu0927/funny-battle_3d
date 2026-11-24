@@ -3741,7 +3741,17 @@ func _paint_buttons(c: Control, u: float) -> void:
 	# ---- 世界地圖：一張摺起來的地圖；正在看地圖時按鈕是亮的
 	ctr += Vector2(-118.0 * u, 0)
 	_map_rect = Rect2(ctr - Vector2(48, 44) * u, Vector2(96, 88) * u)
-	_round_button(c, u, ctr, "M", "世界地圖", Color("ffe98a") if _map else PAPER, Color("d9b84a") if _map else PAPER_EDGE)
+	# 卡在主島太久（一直沒打開地圖）：地圖按鈕輕輕跳、發亮，掛上跟島牌一樣的驚嘆號（_map_nudge）
+	var nudge := _map_nudge()
+	var mbg: Color = Color("ffe98a") if _map else PAPER
+	if nudge > 0.0:
+		var beat := absf(sin(_t * 3.2))
+		ctr.y -= beat * 7.0 * u * nudge
+		c.draw_circle(ctr, (44.0 + beat * 8.0) * u, Color(GOLD, 0.35 * nudge * (1.0 - beat * 0.5)))
+		mbg = PAPER.lerp(Color("ffe98a"), beat * nudge)
+	_round_button(c, u, ctr, "M", "世界地圖", mbg, Color("d9b84a") if (_map or nudge > 0.0) else PAPER_EDGE)
+	var map_ctr := ctr            # 地圖圖示跟著按鈕一起跳（在時間按鈕後面才畫）
+	ctr.y = 62.0 * u
 	# ---- 時間：白天是太陽、晚上是月亮；下面掛現在幾點（點一下或按 T 打開時間面板）
 	if _tod_on:
 		var tc := ctr + Vector2(-118.0 * u, 0)
@@ -3767,16 +3777,53 @@ func _paint_buttons(c: Control, u: float) -> void:
 	var m := PackedVector2Array([Vector2(-18, -10), Vector2(-6, -14), Vector2(6, -9), Vector2(18, -13),
 		Vector2(18, 10), Vector2(6, 14), Vector2(-6, 9), Vector2(-18, 13), Vector2(-18, -10)])
 	for i in m.size():
-		m[i] = ctr + m[i] * u
+		m[i] = map_ctr + m[i] * u
 	c.draw_polyline(m, INK, 3.2 * u, true)
-	c.draw_line(ctr + Vector2(-6, -14) * u, ctr + Vector2(-6, 9) * u, INK, 2.6 * u, true)
-	c.draw_line(ctr + Vector2(6, -9) * u, ctr + Vector2(6, 14) * u, INK, 2.6 * u, true)
-	c.draw_circle(ctr + Vector2(0.5, 1.0) * u, 3.4 * u, SHOP_RED)
+	c.draw_line(map_ctr + Vector2(-6, -14) * u, map_ctr + Vector2(-6, 9) * u, INK, 2.6 * u, true)
+	c.draw_line(map_ctr + Vector2(6, -9) * u, map_ctr + Vector2(6, 14) * u, INK, 2.6 * u, true)
+	c.draw_circle(map_ctr + Vector2(0.5, 1.0) * u, 3.4 * u, SHOP_RED)
+	if nudge > 0.0:
+		_next_mark(c, map_ctr + Vector2(30, -30) * u, u)   # 跟島牌上「建議去這裡」同一個驚嘆號
 
 ## 島上的按鍵提示用過就收：記在 Engine 的 meta（這次開遊戲都記得，進關卡再回來也不會又跳出來）
 ## 卡住才提示：IDLE_HINT 秒沒有任何按鍵或滑鼠點擊，用過的提示也全部叫回來
 const KEYS_USED_META := "hub_keys_used"
 const IDLE_HINT := 20.0
+
+## 地圖按鈕的提醒：在主島待了 MAP_NUDGE 秒都沒打開過世界地圖（也沒開船出航），右上角的地圖按鈕開始跳動發亮。
+## 打開過一次地圖（或出航過）就記在存檔的 [map] map_known，之後不再提醒。
+const MAP_NUDGE := 20.0
+var _hub_stay := 0.0
+var _map_known := false
+var _map_known_loaded := false
+var _nudge_sounded := false
+
+func _map_nudge() -> float:
+	if _map_known or _map or _hub_stay < MAP_NUDGE:
+		return 0.0
+	return clampf((_hub_stay - MAP_NUDGE) / 0.6, 0.0, 1.0)
+
+func _tick_map_nudge(dt: float) -> void:
+	if not _map_known_loaded:
+		_map_known_loaded = true
+		var cf := ConfigFile.new()
+		cf.load(Progress.PATH)
+		_map_known = bool(cf.get_value("map", "map_known", false))
+	if _map_known:
+		return
+	if _map or not _sail.is_empty():
+		# 找到路了：記起來，不再提醒
+		_map_known = true
+		var cf2 := ConfigFile.new()
+		cf2.load(Progress.PATH)
+		cf2.set_value("map", "map_known", true)
+		cf2.save(Progress.PATH)
+		return
+	if _free_active():
+		_hub_stay += dt
+		if _hub_stay >= MAP_NUDGE and not _nudge_sounded:
+			_nudge_sounded = true
+			_play("pop")   # 畫面和聲音一起提示
 
 func _key_used(id: String) -> bool:
 	return (Engine.get_meta(KEYS_USED_META, {}) as Dictionary).has(id)
@@ -4283,6 +4330,7 @@ func _step(d: int) -> void:
 func _process(dt: float) -> void:
 	_t += dt
 	_idle_t += dt
+	_tick_map_nudge(dt)
 	_tick_hero(dt)
 	_sail_housekeeping(dt)
 	_tod_tick(dt)
