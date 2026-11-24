@@ -17,6 +17,9 @@ uniform vec3 su5 : source_color = vec3(0.62, 0.64, 0.24);
 uniform vec3 rock : source_color = vec3(0.24, 0.13, 0.14);
 
 uniform float night = 0.0;           // 1 = 晚上：不管原本什麼顏色，都換成同一組由深到淺的藍綠色
+// 晚上換色的時候，原本的顏色先乘上多少再去挑深淺（1 = 不變）。
+// Compatibility 渲染器底下地面原本的顏色算出來比較亮，會整片被挑成最淺的那一色（地面變成白的），所以那邊調低
+uniform float night_in = 1.0;
 uniform vec3 night_dark : source_color = vec3(0.40, 0.56, 0.66);
 uniform vec3 night_mid : source_color = vec3(0.66, 0.81, 0.87);
 uniform vec3 night_light : source_color = vec3(0.94, 0.99, 0.99);
@@ -84,7 +87,7 @@ void fragment() {
 
 	// 整體壓暗、降一點彩度，站在上面的角色才看得清楚
 	float luma = dot(col, vec3(0.3, 0.55, 0.15));
-	ALBEDO = mix(mix(col, vec3(luma), 0.08) * 0.72, night_ramp(col * 2.6), night);
+	ALBEDO = mix(mix(col, vec3(luma), 0.08) * 0.72, night_ramp(col * 2.6 * night_in), night);
 	ROUGHNESS = 1.0;
 	SPECULAR = 0.0;
 }
