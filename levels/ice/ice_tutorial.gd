@@ -122,6 +122,10 @@ func _ready() -> void:
 func active() -> bool:
 	return i >= 0
 
+## 卡片上現在寫的那一句（戰局用它決定哪些人掛名牌：教學說到「阿土」，阿土頭上就有名牌）
+func say_text() -> String:
+	return _say.text if _say and visible else ""
+
 func begin(battle: Node, list: Array) -> void:
 	bt = battle
 	steps = list

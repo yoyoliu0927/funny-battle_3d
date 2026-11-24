@@ -18,6 +18,7 @@ const SHOTS := {
 	"log": ["log_down", 0.35, 0.55, 6],
 	"hood": ["hood", 0.45, 0.18, 6],
 	"flame": ["flame", 0.3, 0.2, 6],
+	"bucket": ["bucket", 0.6, 0.38, 7],
 }
 
 var vp: SubViewport
@@ -73,6 +74,7 @@ func _shoot(id: String, cfg: Array) -> void:
 		"log_down": Models.log_down(model)
 		"hood": Models.hood(model)
 		"flame": Models.flame(model)
+		"bucket": Models.bucket(model)
 	# 把整個模型框進畫面：用包圍盒的中心和大小決定鏡頭距離
 	var box := _bounds(model)
 	var center := box.get_center()
@@ -96,12 +98,11 @@ func _shoot(id: String, cfg: Array) -> void:
 func _bounds(n: Node3D) -> AABB:
 	var out := AABB()
 	var first := true
-	for c in n.get_children():
-		if c is MeshInstance3D:
-			var mi := c as MeshInstance3D
-			var a: AABB = mi.transform * mi.get_aabb()
-			out = a if first else out.merge(a)
-			first = false
+	for c in n.find_children("*", "MeshInstance3D", true, false):
+		var mi := c as MeshInstance3D
+		var a: AABB = mi.global_transform * mi.get_aabb()
+		out = a if first else out.merge(a)
+		first = false
 	return out
 
 ## 不透明的地方往外長 w 個像素，塗成深色墊在底下

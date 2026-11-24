@@ -96,6 +96,9 @@ var _wall_mat: ShaderMaterial      # 冰洞口的斷面（比較藍、比較亮�
 var _water_mat: ShaderMaterial     # 冰洞裡的水
 var _cloud_mat: ShaderMaterial
 var _toon_cache := {}              # 模型原本的材質 → 卡通材質（kit_prop.gdshader）
+var _toon_at := {}                 # 「卡通材質|站的高度」→ 那個高度用的複本（見 _pin_height）
+var _toon_base := {}               # 高度複本 → 原本的卡通材質
+var _toon_copies := {}             # 卡通材質 → 它在各個高度的複本（改參數要一起改，見 _set_toon_param）
 var _tree_cache := {}              # 雪松原本的網格 → 加了頂點色（每層深淺）的網格
 var _tree_mats := {}
 var _penguin_mats := {}
@@ -492,6 +495,48 @@ func _restyle(n: Node3D, shadows := true) -> void:
 					var tm := _toon_mat(mat)
 					if tm:
 						mi.set_surface_override_material(i, tm)
+		_pin_height(mi, base_y)       # 卡通材質用：離地面越近越暗
+
+## 卡通材質「這個模型站的地面高度」（離地面越近越暗）寫進材質裡：
+## 同一種卡通材質、站在同一個高度（每 5 公分一格）的東西共用一份複本，base_y 是複本的參數。
+## 不用 instance uniform：網頁版（Compatibility 渲染）整個畫面最多只有 64 個物件能用 instance uniform，
+## 冰雪島一關就有一兩百個模型零件、丹穴山兩千多個，超過的會一直報錯，而且讀到錯的高度。
+func _pin_height(mi: MeshInstance3D, base_y: float) -> void:
+	if mi == null or mi.mesh == null:
+		return
+	for i in mi.mesh.get_surface_count():
+		var cur := mi.get_surface_override_material(i)
+		if cur == null:
+			cur = mi.mesh.surface_get_material(i)
+		var sm := cur as ShaderMaterial
+		if sm == null or sm.shader != _kit_shader():
+			continue
+		mi.set_surface_override_material(i, _toon_at_height(_toon_base.get(sm, sm), base_y))
+
+func _kit_shader() -> Shader:
+	return load(SH + "kit_prop.gdshader")
+
+## 某種卡通材質在某個高度用的複本（同一個高度只做一份）
+func _toon_at_height(m: ShaderMaterial, base_y: float) -> ShaderMaterial:
+	var y := snappedf(base_y, 0.05)
+	var key := "%d|%.2f" % [m.get_instance_id(), y]
+	if not _toon_at.has(key):
+		var c := m.duplicate() as ShaderMaterial
+		c.set_shader_parameter("base_y", y)
+		_toon_at[key] = c
+		_toon_base[c] = m
+		if not _toon_copies.has(m):
+			_toon_copies[m] = []
+		(_toon_copies[m] as Array).append(c)
+	return _toon_at[key]
+
+## 改卡通材質的參數（燈籠閃爍、終點亮起來）：原本的材質和它在各個高度的複本一起改，
+## 跟以前「大家共用同一份材質、改一次全部跟著變」的效果一樣。m 給原本的材質或複本都可以。
+func _set_toon_param(m: ShaderMaterial, pname: String, value: Variant) -> void:
+	var base: ShaderMaterial = _toon_base.get(m, m)
+	base.set_shader_parameter(pname, value)
+	for c in _toon_copies.get(base, []):
+		(c as ShaderMaterial).set_shader_parameter(pname, value)
 
 ## 一般模型的卡通材質（同一個來源材質只做一份）。半透明的材質（冰晶）不換。
 func _toon_mat(src: Material) -> ShaderMaterial:
@@ -863,6 +908,7 @@ func _tree(root: Node3D, kind: int, pos: Vector3, yaw: float, scale: float) -> N
 func _shade_tree(n: Node3D) -> void:
 	if n == null:
 		return
+	var base_y := n.global_position.y if n.is_inside_tree() else -1000.0
 	for m in n.find_children("*", "MeshInstance3D", true, false):
 		var mi := m as MeshInstance3D
 		var src := mi.mesh
@@ -873,6 +919,7 @@ func _shade_tree(n: Node3D) -> void:
 		for i in src.get_surface_count():
 			mi.set_surface_override_material(i, null)
 		mi.mesh = _tree_cache[src]
+		_pin_height(mi, base_y)
 
 func _tree_mesh(src: Mesh) -> Mesh:
 	var out := ArrayMesh.new()
@@ -932,6 +979,7 @@ func make_penguin(parent: Node3D, pos: Vector3, yaw := 0.0) -> Node3D:
 	parent.add_child(node)
 	var m := _prop(node, KC + "animal-penguin.glb", Vector3.ZERO, 0.0, 0.6)
 	if m:
+		var base_y := m.global_position.y if m.is_inside_tree() else -1000.0
 		for c in m.find_children("*", "MeshInstance3D", true, false):
 			var mi := c as MeshInstance3D
 			for i in mi.mesh.get_surface_count():
@@ -948,6 +996,7 @@ func make_penguin(parent: Node3D, pos: Vector3, yaw := 0.0) -> Node3D:
 					_penguin_mats[src] = pm
 				if _penguin_mats[src]:
 					mi.set_surface_override_material(i, _penguin_mats[src])
+			_pin_height(mi, base_y)
 		penguin_anim(node, "idle")
 	return node
 
@@ -1501,7 +1550,7 @@ func finale_show(on: bool) -> void:
 		_sliders.clear()
 		_bumpers.clear()
 		for g in _glow_mats:
-			(g.mat as ShaderMaterial).set_shader_parameter("emission_c", g.base)
+			_set_toon_param(g.mat, "emission_c", g.base)
 		return
 	_finale_root = Node3D.new()
 	_finale_root.name = "Finale"
@@ -1602,7 +1651,7 @@ func _tick_finale(dt: float) -> void:
 	var t := _finale_t
 	for i in _glow_mats.size():
 		var g: Dictionary = _glow_mats[i]
-		(g.mat as ShaderMaterial).set_shader_parameter("emission_c", (g.base as Color) * (0.80 + 0.55 * sin(t * 7.0 + i * 2.1)))
+		_set_toon_param(g.mat, "emission_c", (g.base as Color) * (0.80 + 0.55 * sin(t * 7.0 + i * 2.1)))
 	if not lakes.is_empty():
 		var l: Dictionary = lakes[0]
 		var c: Vector2 = l.center

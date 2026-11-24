@@ -237,16 +237,24 @@ func _journey_card(c: Control, u: float, r: Rect2, row: Dictionary) -> void:
 	HubUI.text(c, r.position + Vector2(136, 56) * u, title, HubUI.fit(title, 36 * u, r.size.x - 136 * u - 150 * u), HubUI.INK)
 	# 星星
 	HubUI.star(c, r.position + Vector2(150, 90) * u, 14 * u, HubUI.GOLD, HubUI.GOLD_EDGE)
-	HubUI.text(c, r.position + Vector2(172, 99) * u, "%d/%d" % [int(row.stars), int(row.stars_max)], 26 * u, HubUI.INK)
-	# 每個小關：圓點（過了是綠色）
-	var sx := r.position.x + 312 * u
-	for j in int(row.stages):
+	var count := "%d/%d" % [int(row.stars), int(row.stars_max)]
+	HubUI.text(c, r.position + Vector2(172, 99) * u, count, 26 * u, HubUI.INK)
+	# 每個小關：圓點（過了是綠色）。接在星星數字後面，最後一顆要停在羽毛左邊；
+	# 小關多的大關（冰雪島 6 關）間距自動縮小，不會畫進羽毛底下。起點照「00/00」的寬度算，同一欄的卡片圓點對齊。
+	var feather_x := r.position.x + r.size.x - 118 * u
+	var n := int(row.stages)
+	var first := r.position.x + 172 * u + maxf(HubUI.text_w("00/00", 26 * u), HubUI.text_w(count, 26 * u)) + 31 * u
+	var last_max := feather_x - 23 * u
+	var step := 26 * u if n <= 1 else minf(26 * u, (last_max - first) / (n - 1))
+	var dr := minf(9 * u, step * 0.4)
+	for j in n:
 		var done: bool = j < int(row.done)
-		c.draw_circle(Vector2(sx + j * 26 * u, r.position.y + 90 * u), 9 * u, HubUI.GREEN if done else Color("e2dccb"))
-		c.draw_arc(Vector2(sx + j * 26 * u, r.position.y + 90 * u), 9 * u, 0, TAU, 16, HubUI.GREEN.darkened(0.3) if done else HubUI.PAPER_EDGE, 2.0 * u, true)
+		var dp := Vector2(first + j * step, r.position.y + 90 * u)
+		c.draw_circle(dp, dr, HubUI.GREEN if done else Color("e2dccb"))
+		c.draw_arc(dp, dr, 0, TAU, 16, HubUI.GREEN.darkened(0.3) if done else HubUI.PAPER_EDGE, 2.0 * u, true)
 	# 羽毛和蓋章
 	var fc: Color = row.feather
-	map._feather(c, r.position + Vector2(r.size.x - 118 * u, 128 * u), 62 * u, 0.32, fc, bool(row.cleared))
+	map._feather(c, Vector2(feather_x, r.position.y + 128 * u), 62 * u, 0.32, fc, bool(row.cleared))
 	if bool(row.cleared):
 		var sc := r.position + Vector2(r.size.x - 70 * u, 52 * u)
 		c.draw_set_transform(sc, -0.22, Vector2.ONE)

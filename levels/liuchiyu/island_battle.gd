@@ -12,9 +12,14 @@ var hands: Node3D                # 神的雙手（第一人稱，掛在鏡頭底
 const SHOW_HANDS := false
 ## 農夫的血量：家豪啄兩下才倒（共用設定是啄一下就倒；啄一下扣 PECK_DAMAGE）
 const FARMER_HP := PECK_DAMAGE * 2.0
-## 農夫踢一下扣多少血：打完 MELEE_SCALE 的折扣之後，一腳剛好一顆心多一點（三腳就倒）。
+## 這個大關家豪挨打的傷害只有兩種，血量永遠是整顆或半顆心：
+##   一顆心：農夫踢一腳（普通踢和重踢都一樣）
+##   半顆心：豪王打一下、被自己這邊的機關波及（滾石、風車葉片、倒樹、水灘的電、岩漿球）
+const HIT_FULL := HEART_HP
+const HIT_HALF := HEART_HP * 0.5
+## 農夫踢一下扣多少血：剛好一顆心（三腳就倒）。
 ## 這樣設是為了「神不出手，家豪自己打不贏」：他啄兩下才倒一個農夫，換不過來
-const FARMER_KICK := HEART_HP * 1.02 / MELEE_SCALE
+const FARMER_KICK := HIT_FULL
 
 var _leaving := false
 var _opened := false
@@ -146,9 +151,28 @@ func stage_star_count() -> int:
 		c += 1 if g[1] else 0
 	return c
 
+## 選關地圖讀的星星紀錄表：{小關場景路徑: {條件 id: true}}（chapter.gd 的 STARS_SCRIPT 指到這個檔案）。
+## 地圖上每一小關的泡泡和關卡徽章會照這張表畫三顆星（跟其他大關一樣）
+static var best_stars := {}
+
+## 把這一小關現在拿到的星星抄進 best_stars（拿到一顆就馬上記，中途回地圖也看得到）
+func _sync_best_stars() -> void:
+	var root := get_parent()
+	var key := String(root.scene_file_path) if root else ""
+	if key == "":
+		return
+	var n := _stage_no()
+	var got := {"clear": goal_done(n, "clear"), "foes": goal_done(n, "foes"), "star": world != null and world.star_taken(n)}
+	for id in got:
+		if got[id]:
+			if not best_stars.has(key):
+				best_stars[key] = {}
+			best_stars[key][id] = true
+
 ## 每一畫面看一次：敵人都倒了就拿到「打倒所有敵人」；出發去下一關（最後一關是打贏）就拿到「過關」
 func _tick_goals() -> void:
 	var n := _stage_no()
+	_sync_best_stars()
 	if not _won():
 		return
 	if not goal_done(n, "foes"):
@@ -923,11 +947,44 @@ func _aimed_person() -> Fighter:
 			y += 0.3
 	return best
 
-## 手上的道具不能直接對人用、而且準心正指著人
+## 手上的道具不能直接對人用、而且準心正指著人。
+## 可以互動的東西優先：準心同時指到（或視線穿過人之後落在）樹、水池、沙地、火山這類東西，
+## 就當成是對著那個東西用，不算直接干預——不然敵人剛好站在樹前面、站在水裡的時候都用不了。
 func _direct_blocked() -> bool:
 	if selected < 0 or selected >= items.size() or items[selected].get("no_direct") != true:
 		return false
-	return _aimed_person() != null
+	if _aimed_person() == null:
+		return false
+	return not _aim_on_interactive()
+
+## 手上的道具叫什麼（沒拿就是空字串）
+func _held_id() -> String:
+	return String(items[selected].id) if selected >= 0 and selected < items.size() else ""
+
+## 視線有沒有經過 _aim_targets() 裡的某一樣東西（跟 _aim_p() 同一套算法）
+func _aim_hits_target() -> bool:
+	if camera == null:
+		return false
+	_update_aim()
+	var o := camera.global_position
+	var d := -camera.global_basis.z
+	var ground_t: float = (aim_point - o).length() if aim_point != null else INF
+	for t in _aim_targets():
+		var y := 0.0
+		while y <= float(t.h):
+			var q: Vector3 = t.pos + Vector3(0.0, y, 0.0)
+			var along := clampf((q - o).dot(d), 0.0, 80.0)
+			if along < ground_t + 3.0 and ((q - o) - d * along).length() <= float(t.r):
+				return true
+			y += 0.5
+	return false
+
+## 準心現在是不是指著手上這個道具可以互動的東西（指到的話，就算視線上有人也照樣可以用）。
+## 這裡管共用的：_aim_targets() 列的東西、拿著風指到沙地。小關自己的水池之類的就覆寫，記得 or super()
+func _aim_on_interactive() -> bool:
+	if _aim_hits_target():
+		return true
+	return _held_id() == "wind" and _sand_at(_aim_p()) >= 0
 
 # ---------------------------------------------------------------- 沙地（風吹沙子，沙子吹進眼睛）
 
@@ -1048,7 +1105,7 @@ func _in_sand_cloud(s: Dictionary, dir: Vector3, at: Vector3) -> bool:
 	return (v - dir * along).length() <= float(s.r) + maxf(along, 0.0) * SAND_WIDEN
 
 ## 風道具每 1/60 秒叫一次：風正吹在 p、風向 dir。吹到沙地（而且沙子已經落定）就揚起一陣沙，
-## 下風處的敵人和家豪被沙子吹進眼睛。風沒有直接碰到人：沒有沙地就什麼事都不會發生。
+## 下風處的敵人被沙子吹進眼睛（家豪不受影響）。風沒有直接碰到人：沒有沙地就什麼事都不會發生。
 func blow_sand(p: Vector3, dir: Vector3) -> void:
 	var k := _sand_at(p)
 	if k < 0 or _sand[k].cd > 0.0:
@@ -1067,12 +1124,7 @@ func blow_sand(p: Vector3, dir: Vector3) -> void:
 			f.data["blind_t"] = SAND_BLIND
 			log_event("%s被沙子吹進眼睛" % f.name)
 			on_blinded(f)
-	var b := bird
-	if b.alive() and b.air < 0.5 and b.state != "linger" and not _sand_immune.has(b) and _in_sand_cloud(s, dir, b.pos):
-		_sand_immune[b] = 3.0 + SAND_IMMUNE
-		b.set_state("linger")
-		log_event("家豪也被沙子吹進眼睛")
-		on_blinded(b)
+	# 家豪不受沙子影響：站在下風處也照常行動（沙子只會吹進敵人的眼睛）
 
 ## 一陣沙順著風飛出去（只是畫面效果）
 func _sand_burst(s: Dictionary, dir: Vector3) -> void:
@@ -1211,9 +1263,7 @@ func _hide_dead_bars() -> void:
 
 # ---------------------------------------------------------------- 家豪和敵人互打：每一下扣得比較少
 
-## 雙方近身互打（家豪啄人、敵人踢家豪）的傷害只有共用設定的這麼多倍，打鬥的節奏才不會太快。
-## 道具和機關（滾石、風車、倒樹、雷擊水池、岩漿、鐵桶）造成的傷害不受影響。
-const MELEE_SCALE := 0.6
+## 敵人踢家豪：普通踢和重踢都剛好扣一顆心（HIT_FULL），在 _level_setup() 裡統一設定
 
 ## 家豪啄中敵人、偷襲：統一規則是敵人一到兩下就倒，所以不再打折（只有敵人踢家豪還是打折）
 
@@ -1232,10 +1282,10 @@ func _level_setup() -> void:
 		hands = GodHands.new()
 		hands.name = "GodHands"
 		camera.add_child(hands)
-	# 敵人打家豪的傷害調低（家豪啄敵人的在 _hit_enemy() / _sneak()）；機關造成的傷害不變
+	# 敵人踢家豪一律扣一顆心（共用設定的重踢是普通踢的兩倍，這裡拉成一樣，才不會出現奇怪的零頭）
 	for f in enemies:
-		f.kick_damage *= MELEE_SCALE
-		f.heavy_damage *= MELEE_SCALE
+		f.kick_damage = HIT_FULL
+		f.heavy_damage = HIT_FULL
 	_build_sand()
 	# 上一小關交代要介紹的新道具（只介紹這一次）
 	_gift_id = String(Engine.get_meta("liuchiyu_new_item", ""))

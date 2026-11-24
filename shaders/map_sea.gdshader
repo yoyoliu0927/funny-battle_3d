@@ -121,11 +121,12 @@ void fragment() {
 	// 浪花：海面後面的東西離海面很近的地方
 	float zd = texture(depth_tex, SCREEN_UV).r;
 #if CURRENT_RENDERER == RENDERER_COMPATIBILITY
-	// Compatibility（OpenGL）的深度範圍是 -1~1，要跟螢幕座標一起換算
-	vec4 up = INV_PROJECTION_MATRIX * vec4(vec3(SCREEN_UV, zd) * 2.0 - 1.0, 1.0);
+	// 網頁版（Compatibility）的深度值是 0～1、要換成 -1～1 才對；沒換的話整片海都算成「離岸很近」，全部變成浪花的顏色（灰白）
+	vec3 ndc = vec3(SCREEN_UV, zd) * 2.0 - 1.0;
 #else
-	vec4 up = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, zd, 1.0);
+	vec3 ndc = vec3(SCREEN_UV * 2.0 - 1.0, zd);
 #endif
+	vec4 up = INV_PROJECTION_MATRIX * vec4(ndc, 1.0);
 	float gap = -up.z / up.w + VERTEX.z;
 	float n = vnoise(vec3(p * 1.4, TIME * 0.7));
 	float foam = 1.0 - smoothstep(0.10, 0.35 + n * 0.55, gap);

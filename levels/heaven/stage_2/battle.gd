@@ -28,6 +28,16 @@ func _checklist() -> Array:
 func _how_to() -> String:
 	return "陸吾只吹一口氣：先到先吹"
 
+## 按 H 的說明卡「這一關」：規則（右邊）和兩層提示（左邊，輸 1 次、3 次才打開；後面那張比較直白）
+func _level_rule() -> String:
+	return "陸吾只吹一口氣：誰先走進牠面前的金光，就吹走誰，家豪也一樣。\n\n吹完一口氣，牠就睡著了。"
+
+func _level_hints() -> Array:
+	return [
+		"讓別人比家豪先走進金光：哪一條紅線的延長線通到金光？",
+		"一片丟在阿土的紅線上（撞上守衛、一起掉進錦鯉池），一片丟在阿水的第一段（滑進金光被吹走）。",
+	]
+
 func _defeat_tip() -> String:
 	return "陸吾只吹一口氣：讓別人先走進金光"
 
@@ -42,5 +52,6 @@ func _level_setup() -> void:
 	super()
 	preview_full = false
 	show_names_always = true
+	intro_tags = ["陸吾", "金光"]     # 這一關新登場：陸吾和牠的金光名牌常駐（其他名牌指到才出現）
 	win_line = "……牠睡了"
 	caught_line = "……又是你們"

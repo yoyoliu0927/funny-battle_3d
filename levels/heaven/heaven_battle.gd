@@ -32,7 +32,7 @@ var _disc_wait := 0.0
 var _gaze_line: MeshInstance3D
 var _gaze_label: Label3D
 var _door_labels: Array = []
-var _disc_label: Label3D
+var _disc_icon: Sprite3D       # 唱盤上方浮著一張飼料貼紙：「這裡要放飼料」（字只在指到或提示提到時出現）
 var doors_used := 0            # 這一局有幾個人次穿過畫門
 var _rock_hits := 0
 
@@ -83,7 +83,19 @@ func _level_setup() -> void:
 	for di in dn:
 		_door_labels.append(_tag("畫門" if dn <= 2 else "畫門" + "甲乙丙丁戊己"[di]))
 	if _needs_turntable():
-		_disc_label = _tag("唱盤上要放飼料")
+		_disc_icon = Sprite3D.new()
+		_disc_icon.texture = _sticker(FEED_ICON, false, true)     # 米色圓貼紙＋飼料，底下的尖角指著唱盤
+		_disc_icon.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_disc_icon.no_depth_test = true
+		_disc_icon.fixed_size = true
+		_disc_icon.pixel_size = 0.0004
+		_disc_icon.centered = false
+		_disc_icon.offset = Vector2(-80, 0)                       # 尖端（貼圖的最下面）對著唱盤
+		_disc_icon.render_priority = 3
+		_disc_icon.shaded = false
+		_disc_icon.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		_disc_icon.visible = false
+		world.add_child(_disc_icon)
 	for p in world.snow_piles:
 		var pl := _tag(_word("pile_word", "落葉堆"))
 		pl.position = ground(p) + Vector3(0, 1.9, 0)
@@ -101,6 +113,7 @@ func _tag(text: String) -> Label3D:
 	world.add_child(l)
 	_plate(l, "bubble")
 	_beige(l)
+	bubble_role(l, "tag", text)       # 歸冰雪島那邊的對話框總管管（同一時間最多幾個、疊在一起只留重要的）
 	l.visible = false
 	return l
 
@@ -718,6 +731,18 @@ func _defeat_tip_for(who: String) -> String:
 		"唱盤": return "黃線只到唱盤前面：唱盤上要放飼料"
 	return super(who)
 
+## 按 H 的說明卡：「家豪會自己行動」那一頁換成仙境的說法（冰雪島寫的是籠子和冰）
+func _hero_logic_text() -> String:
+	return "家豪會沿著地上的黃色虛線，自己走去%s。\n\n人沿紅色虛線衝過來，碰到家豪就把他抓走。\n雞在白玉地上不會滑，人會。" % String(world.get("goal_text"))
+
+## 按 H 的說明卡：香蕉皮那一頁照這一關的地形講（水潭／錦鯉池／星洞、畫門）
+func _item_help(it) -> String:
+	if String(it.id) == "banana":
+		var door := "滑進畫門，會從另一扇門出來繼續滑；" if not (world.get("door_specs") as Array).is_empty() else ""
+		return "丟在紅線上：人踩到，就沿著那一段紅線的方向直直滑出去。\n\n滑進%s就出局；撞到別人會一起撞走；%s滑到%s就停。\n家豪是雞，踩到不會滑。" % [
+			String(world.get("hole_word")), door, String(world.get("rough_word"))]
+	return super(it)
+
 ## 泡在雲洞裡的人不會結霜
 func _set_frost(_f: Fighter, _on: bool) -> void:
 	pass
@@ -725,6 +750,9 @@ func _set_frost(_f: Fighter, _on: bool) -> void:
 func _process(dt: float) -> void:
 	super(dt)
 	_draw_gaze()
+
+## 名牌在冰雪島的 _process 最後、對話框總管之前更新
+func _late_tags() -> void:
 	_update_tags()
 
 ## 陸吾的視線：地上一塊金色的光（醒著才有）；黃線穿過去的那一段畫成紅色
@@ -786,33 +814,62 @@ func _draw_gaze() -> void:
 					run_a = null
 	_flush(im)
 
+## 終點對話框在指到唱盤、或提示提到時換成這幾個字（失敗提示寫的也是這幾個字，輸過一次之後就會一直這樣寫）
+const DISC_WORD := "唱盤上要放飼料"
+
+## 名牌照冰雪島的規則（rescue_battle.gd 的 tag_shown）：清單、提示提到或這一關新登場的常駐，其他的準心指到才出現
 func _update_tags() -> void:
 	var cut := _cut_cam != null and _cut_cam.current
 	var prep := phase == Phase.PREPARE and not cut
 	if _gaze_label:
-		_gaze_label.visible = prep and luwu_awake
+		_gaze_label.visible = prep and luwu_awake and tag_shown("陸吾")
 		if _gaze_label.visible:
 			var l := _luwu()
 			_gaze_label.position = ground(l.pos as Vector3) + Vector3(0, 2.9, 0)       # 名牌掛在陸吾身上
 	if _beam_label:
-		_beam_label.visible = prep and luwu_awake
+		_beam_label.visible = prep and luwu_awake and tag_shown("金光")
 		if _beam_label.visible:
 			var l2 := _luwu()
 			_beam_label.position = ground((l2.pos as Vector3) + (l2.face as Vector3) * (GAZE_FAR + 0.5)) + Vector3(0, 0.7, 0)
 	var ds := _doors()
 	for i in _door_labels.size():
 		var lb: Label3D = _door_labels[i]
-		lb.visible = prep and i < ds.size()
+		lb.visible = prep and i < ds.size() and tag_shown(lb.text)
 		if lb.visible:
 			# 名牌掛在門的背面那一側（正面那邊常常站著人，名牌才不會疊在一起）
 			lb.position = (ds[i].pos as Vector3) - (ds[i].face as Vector3) * 1.1 + Vector3(0, 4.3, 0)
 	for pl in _pile_labels:
-		(pl as Label3D).visible = prep
-	if _disc_label:
-		_disc_label.visible = prep and not disc_fed
-		if _disc_label.visible:
-			var lastp: Vector3 = ground(path.back()) if not path.is_empty() else bird.pos
-			_disc_label.position = lastp + Vector3(-2.2, 0.9, 0)
+		(pl as Label3D).visible = prep and tag_shown((pl as Label3D).text)
+	if _disc_icon:
+		# 飼料的貼紙一直浮在唱盤上（放了就收掉），慢慢上下彈；字只在指到或提示提到時出現（掛在貼紙上面）
+		var dp: Vector3 = _turntable()
+		var bob := 0.5 + 0.5 * sin(_clock * 3.2)
+		_disc_icon.visible = prep and not disc_fed
+		_disc_icon.position = dp + Vector3(0, 0.35 + 0.12 * bob, 0)
+		# 字不另外掛一個牌子（會跟終點的「唱盤」疊在一起）：終點那個對話框自己換成「唱盤上要放飼料」
+		var cl = world.get("_cage_label")
+		if cl and phase == Phase.PREPARE and not world.get("_freed"):
+			(cl as Label3D).text = DISC_WORD if (not disc_fed and tag_shown(DISC_WORD)) else String(world.goal_text)
+
+## 準心可以指的東西：冰雪島的（人、薄冰）＋陸吾、金光、畫門、落葉堆、唱盤
+func _hover_targets() -> Array:
+	var out := super()
+	var l := _luwu()
+	if not l.is_empty() and luwu_awake:
+		var lp := ground(l.pos as Vector3)
+		out.append({"word": "陸吾", "a": lp, "b": lp + Vector3(0, 2.0, 0)})
+		out.append({"word": "金光", "area": in_gaze})
+	var ds := _doors()
+	for i in mini(ds.size(), _door_labels.size()):
+		var dp: Vector3 = ds[i].pos
+		out.append({"word": (_door_labels[i] as Label3D).text, "a": dp, "b": dp + Vector3(0, 3.4, 0)})
+	for pl in _pile_labels:
+		var pp := (pl as Label3D).position - Vector3(0, 1.9, 0)
+		out.append({"word": (pl as Label3D).text, "a": pp, "b": pp + Vector3(0, 0.9, 0)})
+	if _needs_turntable() and not disc_fed:
+		var tp: Vector3 = _turntable()
+		out.append({"word": DISC_WORD, "area": func(p: Vector3) -> bool: return flat_dist(p, tp) <= DISC_R + 0.4})
+	return out
 
 # ================================================================== 全章收尾
 
@@ -873,15 +930,120 @@ func _setup_mini(f: Fighter, i: int) -> void:
 			if f.anim.has_animation(a):
 				f.anim.get_animation(a).loop_mode = Animation.LOOP_LINEAR
 
-## 名牌：大老闆的寫上「不怕滑」，而且掛高一點，不跟旁邊的阿金疊在一起
+## 名牌：大老闆的旁邊掛一個「香蕉皮＋紅叉」的小圖（不怕滑；跟冰雪島教學說守衛不怕香蕉皮的圖一樣），
+## 而且掛高一點，不跟旁邊的阿金疊在一起
 func _update_intents() -> void:
 	super()
 	for f in enemies:
 		if f.get_meta("boss", false) and _intents.has(f):
 			var l: Label3D = _intents[f]
 			if l.visible:
-				l.text = "大老闆（不怕滑）"
 				l.position += Vector3(0, 0.85, 0)
+				_boss_badge(l)
+
+## 名牌左邊貼一個小貼紙（跟名牌一樣固定在畫面上的大小）
+func _boss_badge(l: Label3D) -> void:
+	var b := l.get_node_or_null("Badge") as Sprite3D
+	if b == null:
+		b = Sprite3D.new()
+		b.name = "Badge"
+		b.texture = _sticker(BANANA_ICON, true)
+		b.billboard = l.billboard
+		b.no_depth_test = true
+		b.fixed_size = true
+		b.shaded = false
+		b.render_priority = 4
+		b.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR_WITH_MIPMAPS
+		l.add_child(b)
+	# 貼紙比名牌的框高一點，貼在框的左邊（右邊常常是唱盤的大對話框）
+	var plate := l.get_node_or_null("Plate") as Sprite3D
+	var pw := 120.0
+	var ph := 48.0
+	if plate and plate.texture:
+		pw = plate.texture.get_width()
+		ph = plate.texture.get_height() * 0.8
+	var k := ph * 1.45 / float(b.texture.get_height())
+	b.pixel_size = l.pixel_size * k
+	b.offset = Vector2(-(pw * 0.5 + ph * 0.62) / k, 0.0)
+
+const BANANA_ICON := "res://levels/ice/assets/blender/rescue/banana_peel_icon.png"
+const FEED_ICON := "res://levels/ice/assets/blender/rescue/feed_icon.png"
+static var _stickers := {}
+
+## 圓形的米色貼紙、咖啡色框（跟場上的對話框同一套），中間放一個道具圖示。
+## no＝右下角掛一個紅底白叉的小圓（畫法照 ice_tutorial.gd 的 "+no"）；tail＝底下一個小尖角，指著下面的東西
+static func _sticker(icon_path: String, no := false, tail := false) -> ImageTexture:
+	var key := "%s|%s|%s" % [icon_path, no, tail]
+	if _stickers.has(key):
+		return _stickers[key]
+	const S := 160
+	var h := S + (28 if tail else 0)
+	var img := Image.create(S, h, false, Image.FORMAT_RGBA8)
+	var ink := Color("3b2a20")
+	var paper := Color("fff1cf")
+	var c := Vector2(S * 0.5, S * 0.5)
+	var r := S * 0.5 - 4.0
+	var edge := 6.0
+	var ta := Vector2(c.x - 22.0, c.y + r - 16.0)       # 尖角：上面兩點藏在圓裡，尖端在最下面
+	var tb := Vector2(c.x + 22.0, c.y + r - 16.0)
+	var tc := Vector2(c.x, h - 3.0)
+	for y in h:
+		for x in S:
+			var p := Vector2(x + 0.5, y + 0.5)
+			var d := r - p.distance_to(c)                     # 離圓邊多遠（裡面是正的）
+			var dt := _tri_in(p, ta, tb, tc) if tail else -99.0
+			var out_a := clampf(maxf(d, dt) + 0.5, 0.0, 1.0)
+			if out_a <= 0.0:
+				continue
+			var in_a := clampf(maxf(d - edge, dt - edge) + 0.5, 0.0, 1.0)
+			img.set_pixel(x, y, Color(ink.lerp(paper, in_a), out_a))
+	# 圖示：裁掉透明的邊，縮到貼紙中間
+	var src := (load(icon_path) as Texture2D).get_image()
+	src.decompress()
+	src.convert(Image.FORMAT_RGBA8)
+	src = src.get_region(src.get_used_rect())
+	var fit := 104.0 / maxf(src.get_width(), src.get_height())
+	src.resize(maxi(int(src.get_width() * fit), 1), maxi(int(src.get_height() * fit), 1), Image.INTERPOLATE_LANCZOS)
+	# 圖示本身是淡黃色，貼在米色上看不清楚：先用咖啡色的剪影往八個方向各蓋一次，當成卡通的描邊
+	var sil := src.duplicate() as Image
+	for y in sil.get_height():
+		for x in sil.get_width():
+			sil.set_pixel(x, y, Color(ink, sil.get_pixel(x, y).a))
+	var at := Vector2i(c) - src.get_size() / 2
+	for o in [Vector2i(-3, 0), Vector2i(3, 0), Vector2i(0, -3), Vector2i(0, 3), Vector2i(-2, -2), Vector2i(2, -2), Vector2i(-2, 2), Vector2i(2, 2)]:
+		img.blend_rect(sil, Rect2i(Vector2i.ZERO, sil.get_size()), at + o)
+	img.blend_rect(src, Rect2i(Vector2i.ZERO, src.get_size()), at)
+	if no:
+		var bc := c + Vector2(r, r) * 0.62
+		var br := 25.0
+		var q := br * 0.45
+		for y in range(int(bc.y - br - 5), mini(int(bc.y + br + 5), h)):
+			for x in range(int(bc.x - br - 5), mini(int(bc.x + br + 5), S)):
+				var p := Vector2(x + 0.5, y + 0.5)
+				var dd := p.distance_to(bc)
+				var col := Color(1, 1, 1, clampf(br + 3.5 - dd + 0.5, 0.0, 1.0))
+				if dd <= br:
+					col = Color(0.85, 0.22, 0.2)
+					var rel := p - bc
+					if absf(rel.x) <= q + 1.5 and absf(rel.y) <= q + 1.5 \
+							and minf(absf(rel.x - rel.y), absf(rel.x + rel.y)) / sqrt(2.0) <= br * 0.13:
+						col = Color(1, 1, 1)
+				if col.a > 0.0:
+					img.set_pixel(x, y, img.get_pixel(x, y).blend(col))
+	img.generate_mipmaps()
+	var tex := ImageTexture.create_from_image(img)
+	_stickers[key] = tex
+	return tex
+
+## 點 p 在三角形 abc 裡面多深（離最近的邊幾像素；外面是負的）
+static func _tri_in(p: Vector2, a: Vector2, b: Vector2, c: Vector2) -> float:
+	var m := INF
+	var s := signf((b - a).cross(c - a))
+	for e in [[a, b], [b, c], [c, a]]:
+		var u: Vector2 = e[0]
+		var v: Vector2 = e[1]
+		m = minf(m, s * (v - u).cross(p - u) / (v - u).length())
+	return m
 
 ## 掉進洞裡的人：仙境的水不冰，不發抖——泡在裡面暈頭轉向、慢慢地浮沉（星洞裡是飄著慢慢晃）
 func _mini_state(f: Fighter) -> Array:

@@ -10,6 +10,8 @@ const DESC := "一座秋天的油畫小島：南岸、北岸、中間的岩石�
 ## 選關地圖：一座秋天的油畫島（風車、水池、火山），島的上空懸著神之手；三個小關是午後、黃昏、夜晚
 const MAP_SCRIPT := "res://levels/liuchiyu/map_isles.gd"
 const ICON := "神"
+## 選關地圖上每一小關顯示三顆星：紀錄表在 island_battle.gd 的 static var best_stars
+const STARS_SCRIPT := "res://levels/liuchiyu/island_battle.gd"
 ## 小關（至少 3 個）。scene 寫相對於這個資料夾的路徑
 const STAGES := [
 	{"title": "第一小關：南岸", "desc": "島南邊的低地：兩個敵人、一道圍欄、飼料和香蕉皮。", "scene": "stage_1/stage.tscn"},

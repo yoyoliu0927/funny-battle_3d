@@ -132,6 +132,9 @@ const CARD_CYCLE := [Color("7cc6ec"), Color("8fcf6f"), Color("f0a35a"), Color("c
 ## 這裡沒列到的大關算南方；大關也可以在自己的 chapter.gd 寫 const REGION := "north" 或 "south" 指定。
 const NORTH_IDS := ["ice", "heaven"]
 const FINAL_IDS := ["heaven"]       # 最終章：其他大關都破完（帶回所有羽毛）才能上去；排在北方最高的地方
+const FINAL_GATE := false            # 最終章要不要等羽毛集齊才開：預覽版先關掉，大家不用集齊羽毛也能上丹穴山（改回 true 就恢復上鎖）
+const SHOW_EXAMPLES := false         # 範例關（examples/ 的「農場大門」）要不要在地圖上多一座島：先拿掉（檔案都還在，改回 true 開發版就會再出現）
+const ALL_OPEN := true               # 預覽版封測：每個大關的每一小關都直接開放，不用照順序一關一關破（改回 false 就恢復照順序解鎖）
 const REGION_INFO := {
 	"north": {"name": "北方諸國", "sub": "神獸與冰雪的國度", "col": Color("e6f6ff"), "cap": Color("4a9fe0")},
 	"south": {"name": "南方島嶼", "sub": "被人類佔領的島", "col": Color("fff1d6"), "cap": Color("e8483a")},
@@ -485,6 +488,9 @@ func _ready() -> void:
 	if _title == null and not testing:
 		_growth_check.call_deferred()
 		_journal_check.call_deferred()
+	# 第一幀就把鏡頭和地圖文字擺好（dt＝0，時間不會往前走）：新場景的第一幀會在 _process 跑之前先畫出來，
+	# 沒先跑一次的話那一幀用的是場景檔裡的預設鏡頭（農莊正上方），晚上看起來就是一片灰，劇情結束、從關卡回來都會閃一下
+	_process(0.0)
 
 ## 標題畫面收掉了：介面拿出來，開始收按鍵
 func _title_end() -> void:
@@ -502,7 +508,7 @@ func _load_chapters() -> void:
 	# 底線開頭的大關（_template 範本）不上地圖：它只是開新大關時複製用的。主島上不放關卡
 	var drafts: Array = LEVELS.filter(func(c): return _is_example(c) and not String(c.id).begins_with("_"))
 	var cli := OS.get_cmdline_user_args()
-	if not ("--autotest" in cli or "--dev" in cli):
+	if not ("--autotest" in cli or "--dev" in cli or (SHOW_EXAMPLES and OS.is_debug_build())):
 		drafts.clear()
 	entries.clear()
 	_stations.clear()
@@ -594,7 +600,7 @@ func _feather_col(ch: Dictionary) -> Color:
 
 ## 最終章還差幾根羽毛才能上去（不是最終章、或已經玩過了，都是 0：舊存檔不會被鎖回去）
 func _gate_need(ch: Dictionary) -> int:
-	if ch.is_empty() or not String(ch.id) in FINAL_IDS:
+	if not FINAL_GATE or ch.is_empty() or not String(ch.id) in FINAL_IDS:
 		return 0
 	if ch.stages.any(func(st): return _cleared(st.id)):
 		return 0
@@ -3825,6 +3831,8 @@ func unlocked(i: int, n := 1) -> bool:
 func _unlocked_ch(ch: Dictionary, n: int) -> bool:
 	if ch.is_empty() or n < 1 or n > ch.stages.size() or String(ch.stages[n - 1].scene) == "":
 		return false
+	if ALL_OPEN:
+		return true
 	if _fresh:
 		return n == 1
 	return Progress.unlocked(ch.id, n)
@@ -3947,10 +3955,14 @@ func _move_dir(dir: Vector2) -> void:
 	if _busy() or _starting:
 		return
 	var here: Vector3 = worlds[selected].center
+	# 南北兩區之間要經過主島（航線都是從主島拉出去的）：在南方島按上、北方島按下，不會直接跳到另一區
+	var side := _side(selected)
 	var best := -1
 	var best_s := INF
 	for e in entries.size():
 		if e == selected:
+			continue
+		if side != "" and _side(e) != "" and _side(e) != side:
 			continue
 		var c: Vector3 = worlds[e].center
 		var d := Vector2(c.x - here.x, c.z - here.z)
@@ -3958,13 +3970,27 @@ func _move_dir(dir: Vector2) -> void:
 		if along < 0.38:
 			continue
 		var s := d.length() / (along * along)
+		if side == "" and String(entries[e].ch.get("id", "")) in FINAL_IDS:
+			s *= 1000.0                  # 主島往北先到冰雪島：最終章（丹穴山）排在北方最高處，從冰雪島再往上；那個方向沒別的島才直接去
 		if s < best_s:
 			best_s = s
 			best = e
+	if best < 0 and side != "":
+		# 同一區那個方向沒有島了：大致朝著主島就回主島（駁大莖森在主島右下，按上也要能回去）
+		var hub: Vector3 = worlds[0].center
+		if Vector2(hub.x - here.x, hub.z - here.z).normalized().dot(dir) > 0.0:
+			best = 0
 	if best < 0:
 		_bump(Vector3(dir.x, 0, dir.y))
 		return
 	_jump_to(best, _first_open_stage_of(best))
+
+## 世界地圖的南北分區：主島回傳 ""；開發版的範例島排在最南邊，跟南方算同一區
+func _side(e: int) -> String:
+	var r := _region(e)
+	if r == "hub":
+		return ""
+	return "north" if r == "north" else "south"
 
 ## 飛到第 e 座島的第 k 個站點
 func _jump_to(e: int, k: int) -> void:
@@ -4213,7 +4239,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 						get_tree().reload_current_scene()
 					else:
 						_esc_t = 2.0
-						_show_toast("再按一次 Esc 返回標題")
+						_show_toast("再按一次 %s 返回標題" % UIStyle.key_label("Esc"))
 
 ## 方向鍵：世界地圖上是換島；島上 ← → 是沿著路走，↑ ↓ 沒有路（頂一下）
 func _arrow(d: Vector2) -> void:
@@ -5702,7 +5728,7 @@ func _paint_tod(c: Control, u: float) -> void:
 		var pl := String(HubTime.PRESETS[i][0])
 		var plw := _font().get_string_size(pl, HORIZONTAL_ALIGNMENT_LEFT, -1, int(24 * u)).x
 		_text(c, br.position + Vector2((bw - plw) * 0.5, 31 * u), pl, 24 * u, INK)
-	_text(c, panel.position + Vector2(28 * u, panel.size.y - 22 * u), "← → 調整（Shift 一次 3 小時）　↑ ↓ 換模式　1～4 快速選　Esc 關上", _fit("← → 調整（Shift 一次 3 小時）　↑ ↓ 換模式　1～4 快速選　Esc 關上", 18.0 * u, pw - 56 * u, 12.0), Color("8a7a6a"))
+	_text(c, panel.position + Vector2(28 * u, panel.size.y - 22 * u), ("← → 調整（Shift 一次 3 小時）　↑ ↓ 換模式　1～4 快速選　%s 關上" % UIStyle.key_label("Esc")), _fit(("← → 調整（Shift 一次 3 小時）　↑ ↓ 換模式　1～4 快速選　%s 關上" % UIStyle.key_label("Esc")), 18.0 * u, pw - 56 * u, 12.0), Color("8a7a6a"))
 
 # ================================================================== 開發用：主島自由走（--freetest 快速驗收、--freeshots=資料夾 截圖）
 

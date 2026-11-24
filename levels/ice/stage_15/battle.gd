@@ -29,6 +29,16 @@ func _checklist() -> Array:
 func _how_to() -> String:
 	return "同時到才撞得到 [Tab]"
 
+## 按 H 的說明卡「這一關」：規則（右邊）和兩層提示（左邊，輸 1 次、3 次才打開；後面那張比較直白）
+func _level_rule() -> String:
+	return "三條紅線加一個守衛。\n\n阿土滑出去的時候，阿水要剛好走到交叉點，兩個人才撞得到。準備時按住 Tab 看秒數。"
+
+func _level_hints() -> Array:
+	return [
+		"先分工：飼料讓守衛撲過薄冰，阿火自己一片就夠，剩下一片留給阿土和阿水。",
+		"阿土那一片要對時機：太早滑會撞空、太晚阿水已經走過去。在阿土的紅線上前後挪一點試試 [Tab]",
+	]
+
 func _defeat_tip() -> String:
 	return "要兩人同時到交叉點"
 

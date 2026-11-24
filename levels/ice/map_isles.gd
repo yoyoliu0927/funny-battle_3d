@@ -29,6 +29,7 @@ var _thin_mat: ShaderMaterial
 var _crack_mat: StandardMaterial3D
 var _water_mat: StandardMaterial3D
 var _toon_cache := {}
+var _toon_at := {}             # 「卡通材質|站的高度」→ 那個高度用的複本（見 _toon_at_height）
 
 # ================================================================== 給 level_select.gd 呼叫的兩個函式
 
@@ -256,7 +257,18 @@ func _restyle(n: Node3D, shadows := true) -> void:
 				_:
 					var tm := _toon_mat(mat)
 					if tm:
-						mi.set_surface_override_material(i, tm)
+						mi.set_surface_override_material(i, _toon_at_height(tm, base_y))
+
+## 卡通材質「這個模型站的地面高度」（離地面越近越暗）寫進材質：同一種材質、同一個高度（每 5 公分一格）共用一份複本。
+## 不用 instance uniform：網頁版（Compatibility 渲染）整個畫面最多只有 64 個物件能用（同 ice_world.gd 的 _pin_height）。
+func _toon_at_height(m: ShaderMaterial, base_y: float) -> ShaderMaterial:
+	var y := snappedf(base_y, 0.05)
+	var key := "%d|%.2f" % [m.get_instance_id(), y]
+	if not _toon_at.has(key):
+		var c := m.duplicate() as ShaderMaterial
+		c.set_shader_parameter("base_y", y)
+		_toon_at[key] = c
+	return _toon_at[key]
 
 ## 一般模型的卡通材質（kit_prop.gdshader；同一個來源材質只做一份）。半透明的材質（冰晶）不換。
 func _toon_mat(src: Material) -> ShaderMaterial:

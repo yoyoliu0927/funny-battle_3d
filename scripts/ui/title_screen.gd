@@ -14,6 +14,7 @@ extends Node
 ## 開發用：命令列加 -- --titleshots=<資料夾>，會在幾個時間點各截一張圖然後關掉（不會寫存檔）。
 
 const UIStyle := preload("res://scripts/ui/ui_style.gd")
+const LoadingCard := preload("res://scripts/ui/loading_card.gd")   # 換場景時的「載入中」
 const INTRO_SCENE := "res://scenes/intro.tscn"
 const SETTINGS_PATH := "user://settings.cfg"
 const PROGRESS_PATH := "user://progress.cfg"
@@ -747,11 +748,23 @@ func _finish() -> void:
 		(bit as Node3D).visible = false
 	for n in _notes:
 		(n as Node3D).visible = false
+	# 開場的雲層也收掉：鏡頭已經在農莊、看不到天上的雲；不收的話一進農莊就按 M，
+	# 世界地圖會整片被雲蓋住（北邊的冰雪島、丹穴山最嚴重），要等 7 秒標題整個拿掉才突然消失
+	for cl in _clouds:
+		(cl.node as Node3D).visible = false
 	map._hero_body.rotation = Vector3.ZERO
 	map._hero_body.scale = Vector3.ONE
 	for h in map._hens:
 		(h.node as Node3D).scale = Vector3.ONE
 	map._title_end()
+
+## 第一次玩：接開場劇情。劇情的場景要建好幾秒（網頁版更久），建好之前畫面不會動：
+## 先蓋上「載入中」再換（卡片掛在 root，換完場景它自己淡掉）
+func _go_intro() -> void:
+	var card := LoadingCard.new()
+	get_tree().root.add_child(card)
+	await card.shown
+	get_tree().change_scene_to_file(INTRO_SCENE)
 
 # ================================================================== 每一畫面
 
@@ -779,7 +792,7 @@ func _process(dt: float) -> void:
 			_fade.color = _fade.color.lerp(Color(0.02, 0.02, 0.05, 1.0), minf(dt * 5.0, 1.0))
 			if _leave_t > 0.9:
 				set_process(false)
-				get_tree().change_scene_to_file(INTRO_SCENE)
+				_go_intro()
 				return
 		else:
 			var k := clampf(_leave_t / LEAVE, 0.0, 1.0)

@@ -1,6 +1,6 @@
 extends RefCounted
 ## 選關地圖上的駁大莖森島（chapter.gd 的 MAP_SCRIPT；由 scripts/level_select.gd 呼叫）。
-## 駁大莖森：一座長滿樹的島。目前只排第一關：木屋。
+## 駁大莖森：一座長滿樹的島。三個地標依小關順序：0 伐木場（柴堆和樹墩）、1 煙圈（營火冒煙）、2 狼外婆的木屋。
 ## （合併進 develop 時改過：島的本體換成不規則海岸＋土崖的網格，樹換成整片樹林；天色和三個地標照原樣。）
 
 const Isle := preload("res://levels/ice/art/isle_builder.gd")
@@ -8,6 +8,8 @@ const TOP := 1.5
 const BIRCH := "res://assets/nature/BirchTree.glb"
 const BUSH := "res://assets/nature/BushBerries.glb"
 const TEX := "res://assets/textures/"
+const SURV := "res://levels/forest/assets/kenney_survival/"
+const CASTLE := "res://levels/forest/assets/kenney_castle/"
 
 func mood(_k: int) -> Dictionary:
 	return {
@@ -69,11 +71,11 @@ func build_island(root: Node3D, ctx: Dictionary) -> void:
 func build_spot(k: int, root: Node3D, _ctx: Dictionary) -> void:
 	match k:
 		0:
-			_house(root)
-		1:
 			_lumber(root)
-		_:
+		1:
 			_camp(root)
+		_:
+			_house(root)
 
 func _house(root: Node3D) -> void:
 	var wood := Color(0.58, 0.38, 0.18)
@@ -91,18 +93,19 @@ func _house(root: Node3D) -> void:
 	root.set_meta("bubble_y", 4.4)
 
 func _lumber(root: Node3D) -> void:
-	var wood := Color(0.48, 0.30, 0.16)
-	for p in [Vector3(-1.15, 0.22, 0.15), Vector3(1.05, 0.22, -0.35), Vector3(0.15, 0.22, -1.15)]:
-		_cyl(root, 0.32, 0.42, p, wood)
-	var log := _cyl(root, 0.22, 2.2, Vector3(0.35, 0.28, 0.55), Color(0.55, 0.36, 0.18))
-	log.rotation.z = PI * 0.5
+	_model(root, SURV + "resource-wood.glb", Vector3(-0.9, 0.0, 0.3), 0.5, 1.0)
+	_model(root, CASTLE + "tree-trunk.glb", Vector3(1.15, 0.0, -0.4), 0.0, 0.7)
+	_model(root, CASTLE + "tree-trunk.glb", Vector3(0.35, 0.0, 1.05), 1.2, 0.55)
+	_model(root, CASTLE + "tree-log.glb", Vector3(0.2, 0.0, -1.2), 1.0, 0.45)
+	_model(root, SURV + "tool-shovel.glb", Vector3(-0.2, 0.0, 0.0), 0.8, 0.9)
 	root.set_meta("bubble_y", 3.6)
 
 func _camp(root: Node3D) -> void:
-	_cyl(root, 0.72, 0.22, Vector3(0, 0.12, 0), Color(0.34, 0.26, 0.18))
-	_sphere(root, 0.32, Vector3(0, 0.42, 0), Color(0.95, 0.42, 0.10))
+	_model(root, SURV + "campfire-pit.glb", Vector3(0, 0.0, 0), 0.0, 0.7)
+	_model(root, SURV + "tent.glb", Vector3(-1.5, 0.0, -0.5), 0.5, 1.3)
 	_sphere(root, 0.26, Vector3(0.12, 1.05, 0.02), Color(0.72, 0.72, 0.72))
 	_sphere(root, 0.2, Vector3(-0.08, 1.48, 0.04), Color(0.84, 0.84, 0.84))
+	_sphere(root, 0.15, Vector3(0.05, 1.85, 0.0), Color(0.9, 0.9, 0.9))
 	root.set_meta("bubble_y", 3.8)
 
 func _clear(ctx: Dictionary, x: float, z: float) -> bool:

@@ -89,7 +89,8 @@ var _phase_mode := ""
 var _follow: Fighter             # 滑行特寫要跟著誰
 var _follow_off := Vector3.ZERO
 var _card: Control               # 結算卡的內容
-var _how_tab: Control            # 「怎麼玩」收起來後的小入口（? ＋ H 鍵帽）
+var _how_tab: Control            # 「怎麼玩」收起來後的小入口（圓的 ? ＋ H 鍵帽並排）：按 H 看這一關的提示
+var _how_new: Control            # 「?」右上角的小紅點：輸了之後剛打開一張新提示、還沒看過
 var _how_panel: Control          # 便利貼
 var _how_row: HBoxContainer
 var _pending_line := ""          # 過關時家豪晚一點才說的台詞
@@ -231,6 +232,147 @@ func tut_used(id: String) -> int:
 ## 按 H 的說明彈窗：換成冰雪島的規則（共用的預設寫的是別的玩法）
 func _hero_logic_text() -> String:
 	return "家豪會沿著地上的黃色虛線，自己走去開籠子。\n\n工人沿紅色虛線衝過來，碰到家豪就把他抓走。\n雞在冰上不會滑，人會。"
+
+# ---------------------------------------------------------------- 按 H：這一關的提示（左上角「? 提示 H」）
+#
+# 按 H 打開說明卡，第一頁就是「這一關」：右邊是這一關的規則，左邊是提示板，從上到下越來越直白——
+#   怎麼玩（一直看得到，就是左上角那張便利貼）→ 提示 1（輸 1 次打開）→ 提示 2（輸 3 次打開）→ 沒拿到的星星（過關以後）。
+# 後面幾頁才是這一關有的道具、家豪和工人怎麼動、操作方式（道具的說明照這個大關的規則重寫，見 _item_help）。
+# 過關以後提示全部打開。輸了幾次記在 hint_fails（這次開遊戲期間；按 R 重來、回地圖再進來都還在）。
+# 說明卡本身是共用教學彈窗的子類別（ice_help_popup.gd），共用檔案沒改。
+
+const IceHelp := preload("res://levels/ice/ice_help_popup.gd")
+const HINT_AT := [1, 3]              # 提示 1、提示 2 各要輸幾次才打開
+static var hint_fails := {}          # 關卡 -> 這次開遊戲輸了幾次
+static var _hint_seen := {}          # 關卡 -> 說明卡上已經看過幾張提示（多打開的那張標「新！」、左上角亮紅點）
+
+## 這一關的規則（說明卡第一頁的右邊）；預設是大關 chapter.gd 裡這一關的 desc
+func _level_rule() -> String:
+	return String(_stage_info().get("desc", ""))
+
+## 這一關的兩層提示：[提示 1, 提示 2]，後面那張比較直白（關卡覆寫）。字裡的 [Tab] 會畫成鍵帽
+func _level_hints() -> Array:
+	return []
+
+## 說明卡上道具那幾頁的字：照這個大關的規則講（共用的預設寫的是別的玩法）；回傳空字串就用道具自己的 tutorial
+func _item_help(it) -> String:
+	match String(it.id):
+		"banana":
+			return "丟在紅線上：人踩到，就沿著那一段紅線的方向直直滑出去。\n\n滑進冰洞就出局；撞到別人會一起撞走；撞到雪人、滑到雪地就停。\n家豪是雞，踩到不會滑。"
+		"bait":
+			return "放在黃線旁邊：家豪會繞過去，路過順便啄兩口。\n\n黃線一彎，守衛撲過來的紅箭頭也跟著轉。\n只有準備的時候能放。"
+	return ""
+
+## 大關 chapter.gd 裡這一關的那一筆（title、desc；n＝第幾關）
+func _stage_info() -> Dictionary:
+	var cpath: String = get_script().resource_path.get_base_dir().get_base_dir() + "/chapter.gd"
+	if not ResourceLoader.exists(cpath):
+		return {}
+	var chapter := load(cpath) as Script
+	if chapter == null:
+		return {}
+	var stages: Array = chapter.get_script_constant_map().get("STAGES", [])
+	var base := chapter.resource_path.get_base_dir()
+	for i in stages.size():
+		if base.path_join(String(stages[i].scene)) == _stage_key():
+			var d: Dictionary = (stages[i] as Dictionary).duplicate()
+			d.n = i + 1
+			return d
+	return {}
+
+func help_fails() -> int:
+	return int(hint_fails.get(_stage_key(), 0))
+
+## 測試、截圖用：假裝這一關已經輸過 n 次
+func help_fake_fails(n: int) -> void:
+	hint_fails[_stage_key()] = n
+
+## 輸的次數夠了、打開了幾張提示（不算過關後全開的）
+func _hint_unlocked() -> int:
+	var n := 0
+	for i in _level_hints().size():
+		if help_fails() >= int(HINT_AT[mini(i, HINT_AT.size() - 1)]):
+			n = i + 1
+	return n
+
+## 有沒有剛打開、還沒在說明卡上看過的提示
+func _hint_fresh() -> bool:
+	return _hint_unlocked() > int(_hint_seen.get(_stage_key(), 0))
+
+func _hint_mark_seen() -> void:
+	_hint_seen[_stage_key()] = maxi(int(_hint_seen.get(_stage_key(), 0)), _hint_unlocked())
+
+## 提示板上的每一列（格式見 ice_help_popup.gd）
+func _hint_board() -> Array:
+	var rows: Array = []
+	var how := _how_to()
+	if how != "":
+		rows.append({"tag": "怎麼玩", "text": how})
+	var cleared: bool = _best().has("rescue")
+	var hs := _level_hints()
+	var got := hs.size() if cleared else _hint_unlocked()
+	var seen_n := int(_hint_seen.get(_stage_key(), 0))
+	for i in hs.size():
+		var left: int = int(HINT_AT[mini(i, HINT_AT.size() - 1)]) - help_fails()
+		rows.append({"tag": "提示 %d" % (i + 1), "text": String(hs[i]), "open": i < got,
+			"fresh": i < got and i >= seen_n and not cleared,
+			"lock": ("再試 %d 次就打開" % left) if left > 0 else "過關以後打開"})
+	# 過關以後：還沒拿到的星星，一顆一張（跟結算卡按住 H 看到的是同一句）
+	if cleared:
+		for c in _checklist():
+			if not _best().has(c.id) and String(c.get("hint", "")) != "":
+				rows.append({"tag": "★", "star": true, "text": "%s：%s" % [c.text, c.hint]})
+	return rows
+
+## 說明卡的頁面：這一關 → 道具 → 家豪會自己行動 → 操作方式
+func _tutorial_pages() -> Array:
+	var base: Array = super()
+	var info := _stage_info()
+	var pages: Array = [{"title": String(info.get("title", "這一關")), "level": true, "body": _level_rule(),
+		"keys": [["Tab", "按住看全場"]]}]
+	for p in base:
+		if p.has("item"):
+			var q: Dictionary = p.duplicate()
+			var t := _item_help(p.item)
+			if t != "":
+				q.body = t
+			pages.append(q)
+	for p in base:
+		if not p.has("item") and not p.has("controls"):
+			pages.append(p)
+	for p in base:
+		if p.has("controls"):
+			var q: Dictionary = p.duplicate()
+			var ctl: Array = (p.controls as Array).filter(func(r): return String(r[0]) != "H")
+			if not ctl.any(func(r): return String(r[0]) == "Tab"):
+				ctl.append(["Tab", "按住看全場"])
+			ctl.append(["H", "這一關的提示"])
+			q.controls = ctl
+			pages.append(q)
+	return pages
+
+## 共用的教學彈窗換成冰雪島的說明卡（同一個位置、同樣的開關條件；多了「這一關」那一頁的提示板）
+func _build_help_popup() -> void:
+	super()
+	var old := help_popup
+	if old == null:
+		return
+	var pop := IceHelp.new()
+	remove_child(old)
+	old.queue_free()
+	pop.name = "HelpPopup"
+	add_child(pop)
+	pop.clip_dir = old.clip_dir
+	pop.hotkey_h = old.hotkey_h
+	pop.can_open = old.can_open
+	pop.board = _hint_board
+	pop.seen = _hint_mark_seen
+	pop.set_pages(_tutorial_pages())
+	# 關掉說明卡時把游標鎖回去（共用的那張在 super() 裡接好了，換掉之後要再接一次；
+	# 沒接的話游標一直露在外面：點畫面放不出道具、滑鼠一動視角就跟著跑）
+	if has_method("_on_help_closed"):
+		pop.closed.connect(Callable(self, "_on_help_closed"))
+	help_popup = pop
 
 # ---------------------------------------------------------------- 建立、重置
 
@@ -396,9 +538,10 @@ func _level_setup() -> void:
 	# 清單和便利貼各自多寬就多寬（便利貼的字比較長時，不要把清單撐寬）
 	_how_panel.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	(_list_label.get_parent() as Control).size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
-	# 說明收起來之後的小入口：圓形的「?」＋H 鍵帽
-	var tab := HBoxContainer.new()
-	tab.add_theme_constant_override("separation", 6)
+	# 說明收起來之後的小入口：圓形的「?」＋H 鍵帽並排（沒有底框、沒有字）；按 H 打開說明卡，第一頁就是這一關的提示。
+	# 剛打開新的提示、還沒看過時，「?」右上角亮一顆跳動的小紅點
+	var tab_note := HBoxContainer.new()
+	tab_note.add_theme_constant_override("separation", 6)
 	var qm := Label.new()
 	qm.text = "?"
 	qm.label_settings = UISkin.ls(20, UISkin.INK)
@@ -411,9 +554,23 @@ func _level_setup() -> void:
 	qs.border_width_bottom = 4
 	qs.set_corner_radius_all(16)
 	qm.add_theme_stylebox_override("normal", qs)
-	tab.add_child(qm)
-	tab.add_child(_keycap("H"))
-	_how_tab = tab
+	tab_note.add_child(qm)
+	tab_note.add_child(_keycap("H"))
+	_how_new = Panel.new()
+	_how_new.size = Vector2(12, 12)
+	_how_new.position = Vector2(23, -3)
+	_how_new.pivot_offset = Vector2(6, 6)
+	var ns := StyleBoxFlat.new()
+	ns.bg_color = UISkin.RIBBON
+	ns.border_color = Color(1, 1, 1)
+	ns.set_border_width_all(2)
+	ns.set_corner_radius_all(6)
+	ns.anti_aliasing = true
+	_how_new.add_theme_stylebox_override("panel", ns)
+	_how_new.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_how_new.visible = false
+	qm.add_child(_how_new)
+	_how_tab = tab_note
 	_how_tab.visible = false
 	_how_tab.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	box.add_child(_how_tab)
@@ -791,6 +948,8 @@ func _end(result: String) -> void:
 		for id in _done:
 			_best()[id] = true
 		win_count[_stage_key()] = int(win_count.get(_stage_key(), 0)) + 1
+	else:
+		hint_fails[_stage_key()] = help_fails() + 1     # 按 H 的提示：輸了幾次就多打開幾張
 	_record_try(result)
 	super(result)
 	_ended_t = 0.0
@@ -1136,6 +1295,7 @@ func _show_defeat() -> void:
 		var late := _miss_text.contains("晚")
 		var who := _miss_text.substr(0, _miss_text.find("晚") if late else _miss_text.find("早"))
 		tip = ("香蕉皮往%s那邊挪一點" % who) if late else ("香蕉皮離%s遠一點" % who)
+	_last_tip = tip                  # 提示裡提到的人和東西：下一局準備的時候掛著名牌
 	var panel := PanelContainer.new()
 	UISkin.paper(panel, -0.01)
 	var s := UISkin._box(UISkin.PAPER, UISkin.PAPER_EDGE, 6, 3)
@@ -1946,7 +2106,7 @@ func _process(dt: float) -> void:
 		_enemy_col.visible = false
 	var hint := get_node_or_null("../HUD/Hint") as Label
 	if hint:
-		hint.visible = not cut and Input.is_physical_key_pressed(KEY_H)   # 操作說明只在按住 H 時出現
+		hint.visible = false   # 操作說明改在 H 說明卡的最後一頁（H 現在是「這一關的提示」）
 	if crosshair:
 		crosshair.visible = not cut and (phase == Phase.PREPARE or (phase == Phase.RUNNING and not items.is_empty() and charges[selected] != 0))
 	if _phase_label:
@@ -2005,12 +2165,12 @@ func _process(dt: float) -> void:
 		(_intents[f] as Label3D).visible = (_intents[f] as Label3D).visible and not cut
 	if _how_label and cut:
 		_how_panel.visible = false
-	# 畫面上少放字：「怎麼玩」8 秒後收成一個小標籤（按住 H 再打開）；大標題 4 秒後收起
+	# 畫面上少放字：「怎麼玩」幾秒後收成左上角的「? 提示 H」（按 H 打開說明卡，第一頁就是這一關的提示）；大標題 4 秒後收起
 	if phase == Phase.PREPARE and not cut and _how_label:
 		var t_in := _clock - _prep_t0
 		var first_time: bool = attempts.is_empty()     # 說明、大標題、示範都只在第一次進這一關時出現
 		# 示範播放時先不貼說明（畫面上只留示範的一行字）；示範播完再貼幾秒
-		var show_how: bool = (first_time and not _demo_playing and t_in < (15.0 if _aid("demo") else 5.0)) or Input.is_physical_key_pressed(KEY_H)
+		var show_how: bool = first_time and not _demo_playing and t_in < (15.0 if _aid("demo") else 5.0)
 		show_how = show_how and not tut_on()      # 新手教學進行中：畫面上只留教學的便利貼
 		_how_panel.visible = show_how and not (_top_cam != null and _top_cam.current)
 		if _goal_label:
@@ -2018,6 +2178,9 @@ func _process(dt: float) -> void:
 			_goal_label.visible = false
 		if _how_tab:
 			_how_tab.visible = not show_how and not _demo_playing and not tut_on()
+			if _how_new:
+				_how_new.visible = _hint_fresh()
+				_how_new.scale = Vector2.ONE * (1.0 + 0.18 * sin(_clock * 6.0))
 	elif _how_tab:
 		_how_tab.visible = false
 	if _list_label:
@@ -2042,7 +2205,9 @@ func _process(dt: float) -> void:
 	_draw_path()
 	_draw_routes()
 	_draw_placed_peels()
+	_late_tags()
 	_refresh_plates()
+	_direct_bubbles()        # 最後由總管統一收：同一時間最多幾個對話框、疊在一起只留重要的
 
 func _draw_path() -> void:
 	var im := _path_line.mesh as ImmediateMesh
@@ -2257,12 +2422,14 @@ func _dashes(im: ImmediateMesh, pts: Array, c: Color, w: float, y := 0.1, pad :=
 
 ## 頭上只放一個小圖示，不放長字
 func _update_intents() -> void:
-	# 名牌：只有第 3 關（清單、提示都用名字）才有，準備階段常駐、開打後收掉。其他關靠帽子顏色分辨。
+	# 名牌：準備階段才有、開打後收掉。不是每個人都掛（見下面「名牌：平常收著」）：
+	# 清單、提示提到的人常駐，其他人準心指到才出現。
+	_update_hover()
 	var cut := _cut_cam != null and _cut_cam.current
 	var show_names: bool = (show_timing or show_names_always) and phase == Phase.PREPARE and not cut
 	for f in enemies:
 		var l: Label3D = _intents[f]
-		l.visible = show_names and f.alive() and _clock - float(f.data.get("peek_t", -9.0)) >= 1.4      # 冒「？」的時候名牌先收起來
+		l.visible = show_names and f.alive() and tag_shown(f.name) and _clock - float(f.data.get("peek_t", -9.0)) >= 1.4      # 冒「？」的時候名牌先收起來
 		if l.visible:
 			l.text = f.name
 			l.position = top_pos(f) + Vector3(0, 0.75, 0)
@@ -3120,6 +3287,7 @@ func _reroute_tag(at: Vector3) -> void:
 		_reroute_label.text = "撞停→爬起來→改走粉紅線"
 		world.add_child(_reroute_label)
 		_plate(_reroute_label, "yellow")
+		bubble_role(_reroute_label, "aid")
 	_reroute_used = true
 	_reroute_label.position = at + Vector3(0, 1.4, 0)
 	_reroute_label.visible = phase == Phase.PREPARE and not (_cut_cam != null and _cut_cam.current)
@@ -3299,10 +3467,12 @@ func _skin_hud() -> void:
 			l.font_size = 26                 # 名牌只有第 3 關用：小小的對話框（跟預告的框同一套）
 			_plate(l, "bubble")
 			_beige(l)
+			bubble_role(l, "tag", f.name)
 	for l in _ends:
 		l.font_size = 30
 		_plate(l, "bubble")
 		_beige(l)
+		bubble_role(l, "aim")
 	if _bird_tag:
 		_plate(_bird_tag, "yellow")
 	var cl = world.get("_cage_label")
@@ -5063,21 +5233,18 @@ func _update_tries(cut: bool) -> void:
 			world.add_child(l)
 			_plate(l, "bubble")
 			_beige(l)
+			bubble_role(l, "try", "try:%d" % _try_nodes.size())
 			_try_nodes.append({"peel": mi, "label": l})
 		var nd: Dictionary = _try_nodes[i]
 		var show: bool = on and i < _tries.size()
 		(nd.peel as Node3D).visible = show
-		(nd.label as Node3D).visible = show
+		(nd.label as Node3D).visible = show and _hover_word == "try:%d" % i     # 結果的字：準心指到那片淡淡的香蕉皮才寫
 		if show:
 			var p: Vector3 = ground(_tries[i].pos)
 			(nd.peel as Node3D).global_position = p + Vector3(0, 0.05, 0)
 			(nd.label as Label3D).text = String(_tries[i].text)
-			# 同一個位置試過好幾次：標籤一個一個往上疊
-			var stack := 0
-			for k in i:
-				if flat_dist(ground(_tries[k].pos), p) < 0.9:
-					stack += 1
-			(nd.label as Node3D).global_position = p + Vector3(0, 1.0 + stack * (44.0 * _px(p)), 0)
+			# 一次只會寫一個（準心指到的那片），不用再往上疊
+			(nd.label as Node3D).global_position = p + Vector3(0, 1.0, 0)
 
 ## 帽子：平常戴在頭上；撞上的那一下彈起來、往後翻（露出臉）；被雪人頭扣到就飛出去
 func _hat_pose(f: Fighter, rig: Dictionary, has_snow: bool) -> void:
@@ -5221,9 +5388,10 @@ func _mark_thin_stops() -> void:
 				world.add_child(l)
 				_plate(l, "bubble")
 				_beige(l)
+				bubble_role(l, "tag", "薄冰")
 				_thin_tags.append(l)
 			var tl: Label3D = _thin_tags[used]
-			tl.visible = true
+			tl.visible = tag_shown("薄冰")      # 外圈的亮線一直都在；「薄冰」兩個字照名牌的規則（新登場、清單提到或指到才掛）
 			tl.position = c + Vector3(0, 0.9, -(float(th.r) + 0.5))     # 放在那塊冰的遠側邊上：不蓋住站在冰上的人
 			used += 1
 	for i in range(used, _thin_tags.size()):
@@ -5333,8 +5501,222 @@ func _crosses_hole(a: Vector3, b: Vector3) -> bool:
 
 # ---------------------------------------------------------------- 時機輔助的開關、誰滑誰穿越
 
-## 名牌常駐（準備階段）：清單或提示用到名字的關卡打開
+## 名牌（準備階段）：清單或提示用到名字的關卡打開。打開了也不是每個人都掛，見下面 tag_shown()
 var show_names_always := false
+
+# ---------------------------------------------------------------- 名牌：平常收著，指到才出現
+#
+# 畫面上的字要少（2026-11-23 使用者：北方諸國的關「字太多太雜」）。場上的名牌（人名、畫門、陸吾、金光、薄冰…）分兩種：
+#   常駐：畫面上的字提到它——左上的清單、上一次輸了的提示、新手教學這一步的話——玩家要知道「那是哪一個」；
+#         還有這一關新登場的東西（intro_tags）。
+#   其他：平常收起來，準心（滑鼠）指到誰，就只亮誰的名牌，一次一個。
+# 常駐的名牌加上預告、試過的記號，有時候還是會一次冒出一堆（2026-11-24 使用者：「有些時候還是會有點多對話框」），
+# 所以最後還有一個總管（見下面「對話框的總管」）：同一時間最多 BUBBLE_MAX 個，照重要性留，疊在一起的只留重要的那個。
+
+## 這一關新登場、要一直掛名牌的東西（名牌上的字，例如 ["畫門"]、["陸吾", "金光"]）
+var intro_tags: Array = []
+const HOVER_PX := 34.0          # 準心離人（腳底到帽頂那一段）幾個像素內算指到（720p 的畫面；畫面大就跟著放大）
+var _last_tip := ""            # 上一次輸了的提示
+var _pin_now := ""             # 這一幀「正在講」的字：上一次的提示＋教學這一步的話
+var _pin_star := ""            # 左上清單的字
+var _hover_word := ""          # 準心現在指著的東西（名牌上的字；試過的記號是 "try:第幾個"）
+var _hover_hold := 0.0         # 準心離開之後名牌再留一下，才不會一閃一閃
+
+## 這個字被畫面上的哪一種字提到：3＝提示或教學正在講、2＝這一關新登場、1＝左上清單、0＝沒有
+## （「守衛甲」「畫門乙」這種也認得只寫「守衛」「畫門」的提示）
+func pin_level(word: String) -> int:
+	if word == "":
+		return 0
+	var base := word
+	if word.length() > 2 and "甲乙丙丁戊己".contains(word.right(1)):
+		base = word.left(word.length() - 1)
+	if _pin_now.contains(word) or _pin_now.contains(base):
+		return 3
+	if intro_tags.has(word) or intro_tags.has(base):
+		return 2
+	if _pin_star.contains(word) or _pin_star.contains(base):
+		return 1
+	return 0
+
+## 這個名牌現在要不要掛（掛了之後還要過總管那一關，見 _direct_bubbles()）
+func tag_shown(word: String) -> bool:
+	if show_timing:
+		return true
+	if word == "":
+		return false
+	return word == _hover_word or pin_level(word) > 0
+
+## 準心可以指的東西：[{"word": 名牌上的字, "a": 腳底, "b": 頭頂}]，畫面上離 a→b 那一段夠近就算指到；
+## 平平的一塊地（例如金光）寫 {"word": 字, "area": Callable(地上的點) -> bool}。關卡加自己的就 super() 再 append。
+func _hover_targets() -> Array:
+	var out: Array = []
+	for f in enemies:
+		if f.alive():
+			out.append({"word": f.name, "a": f.pos, "b": top_pos(f)})
+	for th in world.thin:
+		if th.state != "broken":
+			var c := Vector2(th.center.x, th.center.y)
+			var r: float = th.r
+			out.append({"word": "薄冰", "area": func(p: Vector3) -> bool: return Vector2(p.x, p.z).distance_to(c) <= r})
+	# 以前試過的位置（淡淡的香蕉皮）：指到才寫那一次的結果
+	if _try_keep() > 0:
+		for i in _tries.size():
+			var tp := ground(_tries[i].pos)
+			out.append({"word": "try:%d" % i, "a": tp, "b": tp + Vector3(0, 0.3, 0)})
+	return out
+
+func _update_hover() -> void:
+	var stars: Array = []
+	for c in _checklist():
+		stars.append(String(c.get("text", "")))
+	_pin_star = "｜".join(stars)
+	_pin_now = _last_tip + ("｜" + tut.say_text() if tut_on() else "")
+	var best := ""
+	var best_d := INF
+	var cam := get_viewport().get_camera_3d()
+	if phase == Phase.PREPARE and aim_point != null and cam and not cam.is_position_behind(aim_point as Vector3):
+		var m := cam.unproject_position(aim_point as Vector3)
+		var reach := HOVER_PX * get_viewport().get_visible_rect().size.y / 720.0
+		for t in _hover_targets():
+			var d := INF
+			if t.has("area"):
+				if (t.area as Callable).call(aim_point):
+					d = reach * 0.8          # 指在一塊地上：比直接指到人優先順序低一點
+			elif not cam.is_position_behind(t.a) and not cam.is_position_behind(t.b):
+				var pa := cam.unproject_position(t.a)
+				var pb := cam.unproject_position(t.b)
+				d = m.distance_to(Geometry2D.get_closest_point_to_segment(m, pa, pb))
+			if d < reach and d < best_d:
+				best_d = d
+				best = String(t.word)
+	if best != "":
+		_hover_word = best
+		_hover_hold = 0.25
+	else:
+		_hover_hold -= get_process_delta_time()
+		if _hover_hold <= 0.0:
+			_hover_word = ""
+
+# ---------------------------------------------------------------- 對話框的總管
+#
+# 每個對話框各自決定要不要出現（名牌、預告的落點、試過的記號、改走粉紅線…），合起來有時候還是一大堆。
+# 每一幀最後由這裡統一收：
+#   1. 照重要性排：準心指著的＞正在瞄的預告＞終點＞提示／教學提到的＞改走粉紅線＞新登場的＞清單提到的＞試過的記號
+#   2. 同一時間最多 BUBBLE_MAX 個（終點那個「救我！／唱盤」另外算，它是一直要看得到的地標）
+#   3. 在畫面上跟更重要的疊在一起，就先收起來
+# 收起來是淡出（透明度），不動 visible：各自的程式下一幀照樣可以決定要不要出現，不會互相打架。
+
+const BUBBLE_MAX := 3
+const BUBBLE_FADE := 10.0        # 淡入淡出的速度（每秒）
+var _bubbles := {}               # Label3D -> {"role": 種類, "word": 名牌上的字}
+var _bubble_a := {}              # Label3D -> 現在的不透明度
+
+## 登記一個要歸總管管的對話框。role："goal" 終點、"aim" 瞄準時的預告、"tag" 名牌（word＝名牌上的字）、
+## "try" 試過的記號（word＝"try:第幾個"）、"aid" 時機輔助（改走粉紅線）
+func bubble_role(l: Label3D, role: String, word := "") -> void:
+	if l:
+		_bubbles[l] = {"role": role, "word": word}
+
+## 關卡自己的名牌在這裡更新（在總管之前；仙境的陸吾、畫門…）
+func _late_tags() -> void:
+	pass
+
+func _bubble_pri(info: Dictionary) -> float:
+	var w: String = info.word
+	match String(info.role):
+		"goal":
+			return 80.0
+		"aim":
+			return 90.0
+		"aid":
+			return 60.0
+		"try":
+			return 100.0 if w == _hover_word else 20.0
+	if w != "" and w == _hover_word:
+		return 100.0
+	var lv := pin_level(w)
+	if lv == 3:
+		# 提示一次提到好幾個、超過上限的時候：先講到的先留
+		var at := _pin_now.find(w)
+		if at < 0 and w.length() > 2:
+			at = _pin_now.find(w.left(w.length() - 1))
+		return 70.0 + 0.9 * (1.0 - float(maxi(at, 0)) / maxf(_pin_now.length(), 1.0))
+	return [30.0, 45.0, 55.0, 70.0][lv]
+
+## 對話框在畫面上佔的範圍（像素）；看不到就回傳空的
+func _bubble_rect(l: Label3D, cam: Camera3D, vh: float) -> Rect2:
+	if cam == null or cam.is_position_behind(l.global_position):
+		return Rect2()
+	var c := cam.unproject_position(l.global_position)
+	var sz := Vector2(l.font_size * 0.9 * maxf(l.text.length(), 1) + l.font_size * 1.4, l.font_size * 1.9)
+	var plate := l.get_node_or_null("Plate") as Sprite3D
+	if plate and plate.texture:
+		sz = Vector2(plate.texture.get_width(), plate.texture.get_height() * 0.8)
+	var t := 2.0 * tan(deg_to_rad(cam.fov) * 0.5)
+	var k := l.pixel_size * vh / t
+	if not l.fixed_size:
+		k /= maxf(-(cam.global_transform.affine_inverse() * l.global_position).z, 0.01)
+	var s := sz * k
+	var r := Rect2(c - s * 0.5, s)
+	var badge := l.get_node_or_null("Badge") as Sprite3D
+	if badge:
+		r = r.grow_side(SIDE_LEFT, s.y * 1.3)       # 名牌旁邊的小貼紙也算在裡面
+	return r.grow(-3.0)                              # 邊邊碰到一點點不算疊
+
+func _direct_bubbles() -> void:
+	var cam := get_viewport().get_camera_3d()
+	var vh := get_viewport().get_visible_rect().size.y
+	var cl = world.get("_cage_label")
+	if cl and not _bubbles.has(cl):
+		bubble_role(cl, "goal")
+	var cands: Array = []
+	for l in _bubbles.keys():
+		if not is_instance_valid(l):
+			_bubbles.erase(l)
+			_bubble_a.erase(l)
+			continue
+		var lb := l as Label3D
+		if not lb.is_visible_in_tree() or lb.text == "":
+			_bubble_a[lb] = 0.0                      # 下次出現時從透明淡進來
+			continue
+		cands.append([_bubble_pri(_bubbles[lb]) - cands.size() * 0.0001, lb])    # 一樣重要的照登記的順序
+	# 重要的先排；一樣重要的照登記的順序（每一幀都一樣，才不會兩個輪流閃）
+	cands.sort_custom(func(a, b): return a[0] > b[0])
+	var kept: Array = []
+	var n := 0
+	var keep := {}
+	for cd in cands:
+		var lb: Label3D = cd[1]
+		var goal: bool = _bubbles[lb].role == "goal"
+		if not goal and n >= BUBBLE_MAX:
+			continue
+		var r := _bubble_rect(lb, cam, vh)
+		var hit := false
+		for k in kept:
+			if (k as Rect2).intersects(r):
+				hit = true
+				break
+		if hit:
+			continue
+		keep[lb] = true
+		if r.has_area():
+			kept.append(r)
+		if not goal:
+			n += 1
+	var step := BUBBLE_FADE * get_process_delta_time()
+	for cd in cands:
+		var lb: Label3D = cd[1]
+		var a: float = move_toward(float(_bubble_a.get(lb, 0.0)), 1.0 if keep.has(lb) else 0.0, step)
+		_bubble_a[lb] = a
+		_set_alpha(lb, a)
+
+## 透明度：對話框的字、底下的框、旁邊的貼紙一起
+func _set_alpha(l: Label3D, a: float) -> void:
+	var tr := 1.0 - a
+	l.transparency = tr
+	for c in l.get_children():
+		if c is GeometryInstance3D:
+			(c as GeometryInstance3D).transparency = tr
 
 func _aid(what: String) -> bool:
 	if show_timing:

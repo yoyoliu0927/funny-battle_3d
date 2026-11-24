@@ -20,7 +20,13 @@ void fragment() {
 	BINORMAL = normalize((VIEW_MATRIX * vec4(0.0, 0.0, -1.0, 0.0)).xyz);
 
 	float d = texture(depth_tex, SCREEN_UV).r;
-	vec4 v = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, d, 1.0);
+#if CURRENT_RENDERER == RENDERER_COMPATIBILITY
+	// 網頁版（Compatibility）的深度值是 0～1、要換成 -1～1 才對；沒換的話水的深淺和透明度會算錯
+	vec3 ndc = vec3(SCREEN_UV, d) * 2.0 - 1.0;
+#else
+	vec3 ndc = vec3(SCREEN_UV * 2.0 - 1.0, d);
+#endif
+	vec4 v = INV_PROJECTION_MATRIX * vec4(ndc, 1.0);
 	float thick = clamp((VERTEX.z - v.z / v.w) / 1.1, 0.0, 1.0);
 	ALBEDO = mix(shallow, deep, thick);
 	ALPHA = mix(0.5, 0.97, smoothstep(0.0, 0.45, thick));

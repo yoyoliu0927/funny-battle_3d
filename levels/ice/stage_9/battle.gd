@@ -22,6 +22,16 @@ func _checklist() -> Array:
 func _how_to() -> String:
 	return "把香蕉皮丟到紅線上"
 
+## 按 H 的說明卡「這一關」：規則（右邊）和兩層提示（左邊，輸 1 次、3 次才打開；後面那張比較直白）
+func _level_rule() -> String:
+	return "香蕉皮丟在紅線的哪一段，工人就往那一段的方向直直滑出去。\n\n滑進冰洞就出局；撞到雪人會停下來。"
+
+func _level_hints() -> Array:
+	return [
+		"紅線有三段：拿著香蕉皮沿著紅線移動，看白箭頭在每一段指到哪。",
+		"第一段只會跌倒、第二段會撞到雪人：丟在最後一段，白箭頭才指進冰洞。",
+	]
+
 func _defeat_tip() -> String:
 	return "換紅線的另一段試試"
 

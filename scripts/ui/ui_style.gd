@@ -18,6 +18,7 @@ extends RefCounted
 ##   Skin.plate(label3d, "bubble" / "wood" / "ice" / "red")   3D 字後面加底板（每畫面呼叫 Skin.refresh 更新大小）
 
 const FONT_PATH := "res://assets/fonts/jf-openhuninn-2.1.ttf"
+const SYMBOL_FONT_PATH := "res://assets/fonts/NotoSansSymbols2-Regular.ttf"   # 粉圓體缺的符號（▶ ✕ ✓ ✦ ⚠…）
 
 const INK := Color("3b2a20")
 const PAPER := Color("fff8e7")
@@ -39,6 +40,73 @@ const KEY_SPLIT := "／"              # key_hint 的按鍵用這個字分開，�
 
 static var _font: Font
 static var _tex_cache := {}
+
+## 網頁版（itch.io）：瀏覽器把 Esc 拿去「離開全螢幕／放開滑鼠」，那一下 Esc 進不了遊戲。
+## 所以網頁版讓 Backspace 也等於 Esc（_install_web_keys() 在瀏覽器裡把 Backspace 換成 Esc 送進遊戲，
+## 各畫面原本接 Esc 的程式不用改），畫面上寫 Esc 的鍵帽都改畫 ⌫（key_label()）。
+## 用 --webui 啟動可以在電腦版看到網頁版的鍵帽。
+## 網頁版也順便處理輸入法：開著注音（或其他中文輸入法）時，瀏覽器送進來的字母鍵會變成注音符號（W →「ㄊ」）
+## 或「Process」，只有實體按鍵（e.code）還是對的，遊戲裡看 keycode 的地方（劇情 Enter、主島的 B／T／M…）就收不到。
+## 所以這種按鍵一律照實體按鍵換回「沒開輸入法時」的按鍵再送進遊戲。電腦版 Godot 本來就會照實體按鍵算，不用處理。
+const WEB_ESC_LABEL := "⌫"
+static var _web := -1                # -1 還沒判斷；1 網頁版（或 --webui）；0 電腦版
+
+static func web_ui() -> bool:
+	if _web < 0:
+		_web = 1 if OS.has_feature("web") or "--webui" in OS.get_cmdline_user_args() else 0
+	return _web == 1
+
+## 鍵帽上要寫的字：網頁版的「Esc」改成 ⌫（Backspace）
+static func key_label(key: String) -> String:
+	return WEB_ESC_LABEL if key == "Esc" and web_ui() else key
+
+static func _install_web_keys() -> void:
+	JavaScriptBridge.eval("""
+(function () {
+	if (window.__fbKeys) return;
+	window.__fbKeys = true;
+	// 照實體按鍵（e.code）推回「沒開輸入法時」會送出的 key
+	var NAMED = { Space: ' ', Enter: 'Enter', NumpadEnter: 'Enter', Escape: 'Escape', Tab: 'Tab',
+		ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight',
+		ShiftLeft: 'Shift', ShiftRight: 'Shift', ControlLeft: 'Control', ControlRight: 'Control',
+		AltLeft: 'Alt', AltRight: 'Alt', MetaLeft: 'Meta', MetaRight: 'Meta',
+		Minus: '-', Equal: '=', Comma: ',', Period: '.', Slash: '/', Semicolon: ';', Quote: "'",
+		BracketLeft: '[', BracketRight: ']', Backslash: '\\\\', Backquote: '`' };
+	function plainKey(e) {
+		var c = e.code || '';
+		if (/^Key[A-Z]$/.test(c)) return e.shiftKey ? c.charAt(3) : c.charAt(3).toLowerCase();
+		if (/^Digit[0-9]$/.test(c)) return c.charAt(5);
+		if (/^Numpad[0-9]$/.test(c)) return c.charAt(6);
+		return NAMED.hasOwnProperty(c) ? NAMED[c] : null;
+	}
+	// 先在最外層攔下來，再對同一個目標（遊戲畫面）送一個換好的按鍵
+	function fix(e) {
+		if (e.__fbFixed) return;
+		var code = e.code, key;
+		if (code === 'Backspace') {
+			// Backspace 換成 Esc
+			code = 'Escape';
+			key = 'Escape';
+		} else {
+			// 輸入法開著：key 變成注音符號、Process、Unidentified 之類的，照實體按鍵換回來
+			var k = e.key || '';
+			var odd = e.isComposing || e.keyCode === 229 || k === 'Process' || k === 'Unidentified' ||
+				(k.length === 1 && k.charCodeAt(0) > 127);
+			if (!odd) return;
+			key = plainKey(e);
+			if (key === null) return;
+		}
+		e.stopImmediatePropagation();
+		e.preventDefault();
+		var n = new KeyboardEvent(e.type, { key: key, code: code, repeat: e.repeat, bubbles: true, cancelable: true,
+			shiftKey: e.shiftKey, ctrlKey: e.ctrlKey, altKey: e.altKey, metaKey: e.metaKey });
+		n.__fbFixed = true;
+		e.target.dispatchEvent(n);
+	}
+	window.addEventListener('keydown', fix, true);
+	window.addEventListener('keyup', fix, true);
+})();
+""", true)
 
 ## 主題色：各大關的強調色（緞帶、標籤）。形狀、字型、紙張全遊戲一樣，只換這幾個顏色
 const THEMES := {
@@ -83,6 +151,16 @@ static func apply_theme(root: Control) -> void:
 static func font() -> Font:
 	if _font == null and ResourceLoader.exists(FONT_PATH):
 		_font = load(FONT_PATH)
+		# 粉圓體沒有的符號（▶ ✕ ✓…）改用備用字型。電腦版缺字會去借系統字型，網頁版沒有系統字型可借，會變成方框
+		if _font is FontFile and (_font as FontFile).fallbacks.is_empty() and ResourceLoader.exists(SYMBOL_FONT_PATH):
+			(_font as FontFile).fallbacks = [load(SYMBOL_FONT_PATH)]
+		# 沒有自己指定字型的字（各關自己建的 3D 字、Label）原本用引擎內建的英文字型：電腦版會去借系統字型所以看不出來，
+		# 網頁版沒有系統字型可借，中文全部變方框。把引擎的預設字型也換成粉圓體（只在遊戲執行時換，編輯器不動）
+		if _font and not Engine.is_editor_hint():
+			ThemeDB.get_default_theme().default_font = _font
+			ThemeDB.fallback_font = _font
+		if OS.has_feature("web"):
+			_install_web_keys()
 	return _font
 
 ## 2D 控制項換字型
@@ -206,7 +284,7 @@ static func keycap_box(size := 18) -> StyleBoxFlat:
 ## 鍵帽：一顆按鍵的小方塊（size 是字級）。所有畫面的按鍵提示都用這個，長得才會一樣
 static func keycap(key: String, size := 18) -> Label:
 	var l := Label.new()
-	l.text = key
+	l.text = key_label(key)
 	l.label_settings = ls(size, INK)
 	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	l.add_theme_stylebox_override("normal", keycap_box(size))
@@ -285,7 +363,7 @@ static func keycap_size(key: String, size := 18.0) -> Vector2:
 	if f == null:
 		f = ThemeDB.fallback_font
 	var fs := int(size)
-	var tw := f.get_string_size(key, HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
+	var tw := f.get_string_size(key_label(key), HORIZONTAL_ALIGNMENT_LEFT, -1, fs).x
 	return Vector2(maxf(tw + size * 1.1, size * 1.9), size * 1.3 + size * 0.38)
 
 ## 在自己畫的控制項（_draw）裡畫一顆鍵帽；pos 是左上角，回傳它的大小
@@ -299,7 +377,7 @@ static func draw_keycap(c: CanvasItem, pos: Vector2, key: String, size := 18.0) 
 	var fs := int(size)
 	var inner_h := sz.y - sb.border_width_bottom - 2.0
 	var base_y := pos.y + 2.0 + (inner_h - f.get_height(fs)) * 0.5 + f.get_ascent(fs)
-	c.draw_string(f, Vector2(pos.x, base_y), key, HORIZONTAL_ALIGNMENT_CENTER, sz.x, fs, INK)
+	c.draw_string(f, Vector2(pos.x, base_y), key_label(key), HORIZONTAL_ALIGNMENT_CENTER, sz.x, fs, INK)
 	return sz
 
 ## 滑鼠圖示（跟鍵帽同一套線條）：button = "left" / "right" / "wheel"，按的那一顆塗上主題色

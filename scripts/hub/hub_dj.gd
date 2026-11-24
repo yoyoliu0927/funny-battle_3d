@@ -1104,7 +1104,7 @@ func _paint_result(c: Control, u: float, vs: Vector2) -> void:
 		HubUI.tag(c, pr.position + Vector2(560, 90) * u, "新紀錄！", 30 * u, HubUI.RED, Color("8a2a20"), 0.12)
 	if bool(_result.fc):
 		HubUI.tag(c, pr.position + Vector2(190, 410) * u, "全連擊！", 32 * u, Color("ffb300"), Color("8a6410"), -0.06)
-	HubUI.text(c, pr.position + Vector2(60, 490) * u, "Enter 再來一次　　Esc 回選單", 26 * u, Color("7a6a5a"))
+	HubUI.text(c, pr.position + Vector2(60, 490) * u, ("Enter 再來一次　　%s 回選單" % UIStyle.key_label("Esc")), 26 * u, Color("7a6a5a"))
 	_rects.append({"rect": pr, "kind": "again", "idx": 0})
 	HubUI.key_strip(c, u, [[["Enter"], "再來一次"], [["Esc"], "回選單"]])
 

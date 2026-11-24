@@ -16,6 +16,7 @@ extends Node3D
 ##   _next_scene()       播完去哪個場景
 
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術
+const LoadingCard := preload("res://scripts/ui/loading_card.gd")   # 換場景時的「載入中」
 const TYPE_SPEED := 30.0        # 每秒打幾個字
 const RATE := 22050             # 合成音效的取樣率
 const FARM := "res://assets/farm/"
@@ -756,14 +757,23 @@ func _build_ui() -> void:
 	_text.custom_minimum_size = Vector2(0, 84)
 	_text.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	v.add_child(_text)
+	# 「▼ 還有下一句」放在框框右下角。對話框是 PanelContainer，直接放進去的子節點會被排到左上角
+	# （錨點沒用，會疊在第一個字上），所以先墊一層一般的 Control（會被撐滿整個框的內容區），▼ 再用錨點貼右下角
+	var over := Control.new()
+	over.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_dlg.add_child(over)
 	_arrow = Label.new()
 	_arrow.text = "▼"
 	_arrow.label_settings = UIStyle.ls(18, UIStyle.accent())
 	_arrow.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	_arrow.offset_left = -44
-	_arrow.offset_top = -40
+	_arrow.grow_horizontal = Control.GROW_DIRECTION_BEGIN
+	_arrow.grow_vertical = Control.GROW_DIRECTION_BEGIN
+	_arrow.offset_left = -26
+	_arrow.offset_top = -26
+	_arrow.offset_right = -2
+	_arrow.offset_bottom = 2
 	_arrow.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_dlg.add_child(_arrow)
+	over.add_child(_arrow)
 	# 畫面正中間的大字（「天選之雞」）
 	_stamp_label = Label.new()
 	_stamp_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
@@ -832,6 +842,11 @@ func skip() -> void:
 	var tw := create_tween()
 	tw.tween_property(_fade, "color", Color(0, 0, 0, 1), 0.4)
 	await tw.finished
+	# 下一個場景（主畫面）要建一兩秒、網頁版更久，建好之前畫面完全不會動：
+	# 先蓋上「載入中」（掛在 root，換場景不會被拿掉）再換，新場景畫出來之後它自己淡掉
+	var card := LoadingCard.new()
+	get_tree().root.add_child(card)
+	await card.shown
 	get_tree().change_scene_to_file(_next_scene())
 
 func _next() -> void:
