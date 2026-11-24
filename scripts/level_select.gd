@@ -133,6 +133,7 @@ const CARD_CYCLE := [Color("7cc6ec"), Color("8fcf6f"), Color("f0a35a"), Color("c
 const NORTH_IDS := ["ice", "heaven"]
 const FINAL_IDS := ["heaven"]       # 最終章：其他大關都破完（帶回所有羽毛）才能上去；排在北方最高的地方
 const FINAL_GATE := false            # 最終章要不要等羽毛集齊才開：預覽版先關掉，大家不用集齊羽毛也能上丹穴山（改回 true 就恢復上鎖）
+const SHOW_EXAMPLES := false         # 範例關（examples/ 的「農場大門」）要不要在地圖上多一座島：先拿掉（檔案都還在，改回 true 開發版就會再出現）
 const ALL_OPEN := true               # 預覽版封測：每個大關的每一小關都直接開放，不用照順序一關一關破（改回 false 就恢復照順序解鎖）
 const REGION_INFO := {
 	"north": {"name": "北方諸國", "sub": "神獸與冰雪的國度", "col": Color("e6f6ff"), "cap": Color("4a9fe0")},
@@ -500,7 +501,7 @@ func _load_chapters() -> void:
 	# 範例關（examples/）：只有開發版看得到，排在主題島後面各當一座多出來的島（命令列加 --no-dev 就藏起來）。
 	# 底線開頭的大關（_template 範本）不上地圖：它只是開新大關時複製用的。主島上不放關卡
 	var drafts: Array = LEVELS.filter(func(c): return _is_example(c) and not String(c.id).begins_with("_"))
-	if not OS.is_debug_build() or "--no-dev" in OS.get_cmdline_user_args():
+	if not SHOW_EXAMPLES or not OS.is_debug_build() or "--no-dev" in OS.get_cmdline_user_args():
 		drafts.clear()
 	entries.clear()
 	_stations.clear()
