@@ -590,6 +590,120 @@ func _level_setup() -> void:
 	_skin_hud()
 	_hint_until = Time.get_ticks_msec() + 3000
 	_start_tut.call_deferred()      # 前三關的新手教學（HUD 都建好之後才開始）
+	_warm_fx.call_deferred()        # 特效先做一次，第一次撞上、落水時才不會卡（見 _warm_fx）
+
+# ---------------------------------------------------------------- 預熱：特效第一次出現不要卡
+
+## 狀聲字會用到的字（冰雪島和丹穴山的說法都放進來），先用一樣的字型、大小、粗框把字形算好
+const WARM_TEXT := "撲通！連環撞！差一點！咚！咻！喀！喀喀喀…咕嚕嚕…追不上了…來抓我啊～呼——！哇啊啊！啄噗嚇會心略晚了一步，沒吹到嘶？"
+
+## 特效「第一次」出現時要做很多事：讀模型檔（碎冰、星星、水滴、水圈）、編新材質的著色器、
+## 用程式一點一點畫狀聲字的爆炸框、算 96 號粗框大字的字形。這些剛好都擠在「開始滑、撞上、落水」那一格，
+## 特寫鏡頭一切過去就卡一下（網頁版一次 0.1～0.5 秒；第二次就不卡了，所以是「有時候」）。
+## 換表情（嚇到、暈、凍僵）、被抓時的對白泡泡框、輸了的晚餐換人也一樣是第一次才做，一起提早做好。
+## 這裡趁關卡剛載入（本來就在等第一格畫出來）先全部做一次：在鏡頭正前方擺一份縮到看不見的，畫三格再收掉。
+func _warm_fx() -> void:
+	if silent or not is_inside_tree() or DisplayServer.get_name() == "headless":
+		return
+	for k in FACES:
+		face_texture(String(k))           # 表情圖：讀圖、縮成 512、做 mipmap
+	_recast_dinner()                       # 輸了的晚餐：餐桌旁換成這一關的小人（房間本來就蓋好藏著）
+	await get_tree().process_frame
+	var cam := get_viewport().get_camera_3d() if is_inside_tree() else null
+	if cam == null:
+		return
+	var root := Node3D.new()
+	root.name = "WarmFx"
+	cam.add_child(root)
+	root.position = Vector3(0, 0, -3.0)
+	root.scale = Vector3.ONE * 0.0005         # 3 公尺外縮成不到一個像素：照樣會畫（著色器照樣編），玩家看不到
+	# 被點光源照到的東西要另外編一份著色器（營火、燈籠、補光旁邊落水的水花）：
+	# 場上有點光源的話，鏡頭前也放一盞很暗、範圍很小的燈，只照得到這一份（影子設定跟場上的燈一樣）
+	var lit: OmniLight3D = null
+	for l in world.find_children("*", "OmniLight3D", true, false):
+		if (l as Light3D).is_visible_in_tree():
+			lit = OmniLight3D.new()
+			lit.omni_range = 0.5
+			lit.light_energy = 0.001
+			lit.shadow_enabled = (l as Light3D).shadow_enabled
+			cam.add_child(lit)
+			lit.position = Vector3(0, 0, -3.0)
+			break
+	for p in [["fx_shard", "ice"], ["fx_star", "star"], ["fx_drop", "drop"], ["rescue/fx_ring", "drop"]]:
+		var m := prop_mesh(String(p[0]))
+		if m == null:
+			continue
+		var mi := MeshInstance3D.new()
+		mi.mesh = m
+		mi.material_override = _fx_mat(String(p[1]))
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		root.add_child(mi)
+	var dust := MeshInstance3D.new()          # 共用的煙（puff）
+	dust.mesh = fx_sphere(0.35)
+	dust.material_override = fx_material(Color(1, 1, 1, 0.8))
+	dust.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(dust)
+	# 狀聲字（pop_label：96 號、粗框、自己轉向）和後面的爆炸框
+	var big := Label3D.new()
+	big.text = WARM_TEXT
+	if UISkin.font():
+		big.font = UISkin.font()
+	big.font_size = 96
+	big.outline_size = 26
+	big.no_depth_test = true
+	big.render_priority = 3
+	big.outline_render_priority = 2
+	root.add_child(big)
+	var sp := Sprite3D.new()
+	sp.texture = _burst_tex()
+	sp.no_depth_test = true
+	sp.shaded = false
+	sp.render_priority = 1
+	sp.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR
+	root.add_child(sp)
+	# 對白泡泡（bubble：56 號、面向鏡頭、固定大小）和底下的框
+	var small := Label3D.new()
+	small.text = WARM_TEXT + "……完了可以回家了吧"
+	if UISkin.font():
+		small.font = UISkin.font()
+	small.font_size = 56
+	small.outline_size = 0
+	small.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	small.no_depth_test = true
+	small.fixed_size = true
+	small.pixel_size = 0.000001
+	small.render_priority = 3
+	root.add_child(small)
+	var plate := Sprite3D.new()
+	plate.texture = _burst_tex()
+	plate.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	plate.no_depth_test = true
+	plate.fixed_size = true
+	plate.pixel_size = 0.000001
+	plate.render_priority = 2
+	plate.shaded = false
+	plate.alpha_cut = SpriteBase3D.ALPHA_CUT_DISABLED
+	plate.texture_filter = BaseMaterial3D.TEXTURE_FILTER_LINEAR
+	root.add_child(plate)
+	# 被抓時家豪說的那一句：泡泡框照字的大小當場一點一點畫，先畫好（同樣大小的框之後直接拿來用）
+	for line in [caught_line, "……完了"]:
+		if String(line) == "":
+			continue
+		var say := Label3D.new()
+		say.text = String(line)
+		say.font_size = 56
+		say.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		say.no_depth_test = true
+		say.fixed_size = true
+		say.pixel_size = 0.000001
+		root.add_child(say)
+		UISkin.plate(say, "bubble")
+	for i in 3:
+		await get_tree().process_frame
+	if is_instance_valid(root):
+		root.queue_free()
+	if lit and is_instance_valid(lit):
+		lit.queue_free()
 
 func _mesh_node(m: Material) -> MeshInstance3D:
 	var n := MeshInstance3D.new()
@@ -1356,7 +1470,7 @@ func _go_next() -> void:
 		return
 	Engine.set_meta("stage_id", nxt.id)
 	Engine.time_scale = 1.0
-	LoadingCard.go(get_tree(), nxt.scene, "下一關：" + String(nxt.get("title", "")))
+	get_tree().change_scene_to_file(nxt.scene)
 
 ## 這一章的小關清單（chapter.gd 的 STAGES）：[{scene 完整路徑, id}]
 func _chapter_stages() -> Array:
@@ -1455,7 +1569,7 @@ func _start_finale() -> void:
 func _finale_leave() -> void:
 	Engine.time_scale = 1.0
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	LoadingCard.go(get_tree(), LEVEL_SELECT_SCENE, "回到地圖")
+	get_tree().change_scene_to_file(LEVEL_SELECT_SCENE)
 
 func _finale_stop() -> void:
 	if _finale_t < 0.0 and _finale_card == null:

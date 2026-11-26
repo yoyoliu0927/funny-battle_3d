@@ -59,6 +59,8 @@ var _players := {}
 var _labels: Array = []        # 會自己消失的字 {node, until, start, follow, dy}
 var _slowmo_until := 0
 var _shake_until := 0
+var _fast_held := false        # 按住 F 快轉：自己記「F 按下去、還沒放開」（見 _input）
+var _fast_win := Vector2i.ZERO # 上一格的視窗大小（變了＝進出全螢幕，F 當作已經放開）
 var _fallen := 0
 var _ring: MeshInstance3D      # 瞄準飼料時：家豪聞得到的範圍
 var _aim_marks: Array = []     # 瞄準飼料時：誰可能掉下去
@@ -128,10 +130,31 @@ func _level_reset() -> void:
 	_warned_dark = false
 	_labels.clear()      # 字放在 fx_root 底下，已經被一起刪掉了
 	_fallen = 0
+	_fast_held = false
 	Engine.time_scale = 1.0
 
 func _exit_tree() -> void:
 	Engine.time_scale = 1.0
+
+## 按住 F 快轉：不能只問引擎「F 是不是按著」。網頁版有時候收不到「放開 F」
+## （Mac 上按著 ⌘ 的組合鍵像 ⌃⌘F 切全螢幕、進出全螢幕、切到別的視窗），
+## 引擎就一直以為 F 按著，整場一直 3 倍速。所以自己記：
+##   - 按 F 的時候同時按著 ⌘／Ctrl／Alt 不算；快轉中按了這些組合鍵也停下來
+##   - 視窗大小變了、失去焦點、暫停選單開過（這一關停住），都當作已經放開，要再按一次 F
+##   - 引擎說 F 沒按著就一定沒按著（_process 裡兩個都要成立）
+func _input(event: InputEvent) -> void:
+	var k := event as InputEventKey
+	if k == null:
+		return
+	if k.meta_pressed or k.ctrl_pressed or k.alt_pressed:
+		_fast_held = false
+	elif k.physical_keycode == KEY_F:
+		_fast_held = k.pressed
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_APPLICATION_FOCUS_OUT or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT \
+			or what == NOTIFICATION_DISABLED or what == NOTIFICATION_PAUSED:
+		_fast_held = false
 
 func _check_end() -> String:
 	var r := super()
@@ -353,7 +376,13 @@ func _process(dt: float) -> void:
 		_tick_clock(dt)
 	var now := Time.get_ticks_msec()
 	var scale := 1.0
-	if phase == Phase.RUNNING and Input.is_physical_key_pressed(KEY_F):
+	var win := DisplayServer.window_get_size()
+	if win != _fast_win:
+		_fast_win = win
+		_fast_held = false
+	if not Input.is_physical_key_pressed(KEY_F):
+		_fast_held = false
+	if phase == Phase.RUNNING and _fast_held:
 		scale = FAST_SCALE
 	if now < _slowmo_until:
 		scale = SLOWMO_SCALE

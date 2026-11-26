@@ -13,7 +13,6 @@ const UIStyle := preload("res://scripts/ui/ui_style.gd")
 const LevelSelect := preload("res://scripts/level_select.gd")
 const Journal := preload("res://scripts/hub/journal.gd")
 const MAP_SCENE := "res://scenes/level_select.tscn"
-const LoadingCard := preload("res://scripts/ui/loading_card.gd")   # 換場景時先蓋上「載入中」（按了馬上有反應）
 
 const INK := Color("3b2a20")
 const PAPER := Color("fff8e7")
@@ -1038,7 +1037,7 @@ func _leave() -> void:
 	_leaving = true
 	Wardrobe.preview = {}
 	Wardrobe.Fx.demo_win = false
-	LoadingCard.go(get_tree(), MAP_SCENE, "回到地圖")
+	get_tree().change_scene_to_file(MAP_SCENE)
 
 func _on_row_input(ev: InputEvent, i: int) -> void:
 	if ev is InputEventMouseButton and ev.pressed and ev.button_index == MOUSE_BUTTON_LEFT:

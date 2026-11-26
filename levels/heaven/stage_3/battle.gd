@@ -46,7 +46,7 @@ func _finale_leave() -> void:
 		return
 	Engine.time_scale = 1.0
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	LoadingCard.go(get_tree(), ENDING_SCENE)
+	get_tree().change_scene_to_file(ENDING_SCENE)
 
 ## 過關卡片：後面還有結局動畫，按鈕寫「看結局」
 func _make_finale_card() -> Control:

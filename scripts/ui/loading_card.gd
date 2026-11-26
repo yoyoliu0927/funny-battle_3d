@@ -12,24 +12,8 @@ extends CanvasLayer
 ##   get_tree().root.add_child(card)
 ##   await card.shown                        # 卡片已經完整畫在畫面上了
 ##   get_tree().change_scene_to_file(path)   # 換完它自己收
-## 或是一行：LoadingCard.go(get_tree(), path, "下一關：守衛")（第三個參數是「要去哪裡」，寫在載入中底下；
-## 已經有一張卡片在換場景的話，第二次呼叫不會再換一次）
 
 signal shown
-
-const SELF_PATH := "res://scripts/ui/loading_card.gd"
-const NODE_NAME := "LoadingCard"
-
-## 先蓋上「載入中」再換場景：按下按鍵的那一刻畫面就有反應，不會像沒偵測到輸入
-static func go(tree: SceneTree, path: String, where := "") -> void:
-	if tree == null or tree.root.has_node(NODE_NAME):
-		return
-	var card: CanvasLayer = load(SELF_PATH).new()
-	card.name = NODE_NAME
-	card.caption = where
-	tree.root.add_child(card)
-	await card.shown
-	tree.change_scene_to_file(path)
 
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術
 const PORTRAIT := "res://assets/ui/jiahao_portrait.png"
@@ -52,7 +36,6 @@ var _scene: Node                 # 蓋上去的時候是哪個場景；換成別
 var _new_drawn := 0
 var _full_drawn := false         # 完全不透明的卡片已經畫出來過了
 var _emitted := false
-var caption := ""                # 要去哪裡（例如「下一關：守衛」），寫在「載入中...」底下；空的就不寫
 
 func _ready() -> void:
 	layer = 128
@@ -98,13 +81,6 @@ func _ready() -> void:
 	_label.visible_characters_behavior = TextServer.VC_CHARS_AFTER_SHAPING
 	_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	_box.add_child(_label)
-	if caption != "":
-		var cap := Label.new()
-		cap.label_settings = UIStyle.ls(int(22 * u), Color(1.0, 0.97, 0.9, 0.75))
-		cap.text = caption
-		cap.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-		cap.mouse_filter = Control.MOUSE_FILTER_IGNORE
-		_box.add_child(cap)
 	_animate()
 	RenderingServer.frame_post_draw.connect(_on_drawn)
 

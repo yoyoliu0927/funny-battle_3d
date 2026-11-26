@@ -45,7 +45,6 @@ const Progress := preload("res://scripts/progress.gd")
 const Registry := preload("res://scripts/registry.gd")
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術
 const Wardrobe := preload("res://scripts/wardrobe.gd")     # 家豪的衣櫃（商店）：星星記在這裡
-const LoadingCard := preload("res://scripts/ui/loading_card.gd")   # 換場景時先蓋上「載入中」（按了馬上有反應）
 const SHOP_SCENE := "res://scenes/shop.tscn"
 const SeaShader := preload("res://shaders/map_sea.gdshader")
 const TEX := "res://assets/textures/"
@@ -2537,7 +2536,7 @@ func open_shop() -> void:
 	_starting = true
 	_play_detached("start")
 	_remember()                          # 從商店回來還站在原本那一格
-	LoadingCard.go(get_tree(), SHOP_SCENE, "家豪的衣櫃")
+	get_tree().change_scene_to_file(SHOP_SCENE)
 
 # ================================================================== 畫圖工具
 
@@ -4098,7 +4097,7 @@ func start_selected() -> bool:
 			_starting = true
 			_play_detached("start")
 			_remember()
-			LoadingCard.go(get_tree(), INTRO_SCENE)
+			get_tree().change_scene_to_file(INTRO_SCENE)
 			return true
 		"locked":
 			_shake_t = SHAKE_TIME           # 還沒做好的島：不跳字，鎖頭抖一下就好
@@ -4141,7 +4140,7 @@ func start_selected() -> bool:
 	_remember()
 	Engine.set_meta("next_scene", stage.scene)
 	Engine.set_meta("stage_id", stage.id)
-	LoadingCard.go(get_tree(), "res://scenes/loading.tscn", "前往：" + String(stage.get("title", "")))   # 先進載入畫面
+	get_tree().change_scene_to_file("res://scenes/loading.tscn")   # 先進載入畫面
 	return true
 
 ## 告示牌：用全遊戲共用的教學彈窗顯示選關畫面的操作說明（兩頁：島上、世界地圖）
@@ -4293,7 +4292,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 					if not _starting and not _busy() and ResourceLoader.exists(ENDING_SCENE):
 						_starting = true
 						_remember()
-						LoadingCard.go(get_tree(), ENDING_SCENE)
+						get_tree().change_scene_to_file(ENDING_SCENE)
 				elif not _map:
 					_life.poke_near()            # E：戳離家豪最近的東西
 			KEY_ESCAPE:
