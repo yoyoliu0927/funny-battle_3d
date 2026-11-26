@@ -6589,9 +6589,12 @@ func _autotest() -> void:
 			checks.append(["沿著路從第 2 小關走回第 1 小關", stage_sel == 0 and not _busy()])
 			break
 	# 找一座有第 2 小關的島，測「沒過第 1 小關，走不到也進不去第 2 小關」
+	# （預覽版 ALL_OPEN 每一關都開放：不測上鎖，不然真的會進到第 2 小關、測試就斷了）
+	if ALL_OPEN:
+		checks.append(["預覽版全部開放（ALL_OPEN）：略過「沒過第 1 小關進不去第 2 小關」", true])
 	for k in range(1, entries.size()):
 		var ch: Dictionary = entries[k].ch
-		if not ch.is_empty() and ch.stages.size() >= 2 and not _cleared(ch.stages[0].id):
+		if not ALL_OPEN and not ch.is_empty() and ch.stages.size() >= 2 and not _cleared(ch.stages[0].id):
 			select(k)
 			select_stage(0)
 			walk_to(1)
@@ -6620,17 +6623,18 @@ func _autotest() -> void:
 	var seen: Array = []
 	var q0 := String(wp.quality) if wp else ""
 	if wp:
-		for _i in 4:
+		for _i in wp.qualities().size():
 			_press(KEY_Q)
-			await get_tree().process_frame
+			for _f in 4:
+				await get_tree().process_frame     # 選單先寫「切換中…」、隔兩幀才真的換
 			seen.append("%s/%d" % [wp.quality, wp.low])
 	var qcf := ConfigFile.new()
 	qcf.load(SETTINGS_PATH)
 	_press(KEY_P)
 	await get_tree().process_frame
 	checks.append(["按 P 打開選單（主島停住）、再按 P 關掉", menu_opened and not _menu.is_open and can_process()])
-	checks.append(["選單裡按 Q 換畫質（%s），按四次回到原本、有存檔" % ", ".join(seen),
-		wp != null and String(wp.quality) == q0 and String(qcf.get_value("graphics", "quality", "")) == q0 and seen.size() == 4 and String(seen[0]) != String(seen[1])])
+	checks.append(["選單裡按 Q 換畫質（%s），轉一圈回到原本、有存檔" % ", ".join(seen),
+		wp != null and String(wp.quality) == q0 and String(qcf.get_value("graphics", "quality", "")) == q0 and seen.size() == wp.qualities().size() and String(seen[0]) != String(seen[1])])
 	checks.append(["音效都合成出來了（%d 個）、背景音樂在播" % _snd.size(), _snd.size() == 8 and (_snd["bgm"] as AudioStreamPlayer).playing])
 	if DisplayServer.window_can_draw():
 		await RenderingServer.frame_post_draw

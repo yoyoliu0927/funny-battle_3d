@@ -75,6 +75,7 @@ var _texts: Array = []         # 每個選項的字（Label）
 var _help_box: VBoxContainer
 var _help_on := false
 var _was_mode := Node.PROCESS_MODE_INHERIT
+var _switching := false        # 正在換畫質（等「切換中…」畫出來）
 var _was_scale := 1.0
 var _was_looking := false
 var _was_mouse := Input.MOUSE_MODE_VISIBLE
@@ -325,11 +326,19 @@ func activate(i: int) -> void:
 			cf.save("user://settings.cfg")
 			_refresh()
 		"quality":
-			# 換畫質（選單不關：後面的畫面馬上換，看得到差別）
+			# 換畫質（選單不關：後面的畫面馬上換，看得到差別）。
+			# 第一次換到某一級要先準備那一級的畫法（網頁版換到「最高」可能停好幾秒）：先寫「切換中…」畫出來再換，不會像當掉
 			var wp := WebPerf.find(get_tree())
-			if wp:
-				wp.cycle_quality()
-			_refresh()
+			if wp and not _switching:
+				_switching = true
+				(_texts[i] as Label).text = "畫質：切換中…"
+				await get_tree().process_frame
+				await get_tree().process_frame
+				if is_inside_tree():
+					wp.cycle_quality()
+				_switching = false
+			if is_inside_tree():
+				_refresh()
 		"fullscreen":
 			# 回到全螢幕（選單不關：游標還沒鎖回去，玩家再按「繼續」就好）。
 			# 瀏覽器規定全螢幕只能在玩家點擊／按鍵的時候開，這裡剛好是在點擊或按鍵裡
