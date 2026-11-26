@@ -333,6 +333,13 @@ var _floats: Array = []      # 海上漂的東西（北方的浮冰、南方的�
 
 func _ready() -> void:
 	WebPerf.install(get_tree())
+	# 剛破完一章回到地圖：先播那一章的結尾動畫（播完會再回到地圖），地圖先不蓋
+	var story_end := _story_ending_on_return()
+	if story_end != "":
+		set_process(false)
+		set_process_unhandled_input(false)
+		get_tree().change_scene_to_file.call_deferred(story_end)
+		return
 	for a in OS.get_cmdline_user_args():
 		if a == "--autotest" or a.begins_with("--mapshots=") or a.begins_with("--hubshots=") or a.begins_with("--titleshots=") or a == "--freetest" or a.begins_with("--freeshots=") or a == "--sailtest" or a.begins_with("--sailshots=") or a.begins_with("--todshots=") or a == "--todtest":
 			Journal.persist = false          # 測試不寫玩家的手帳存檔
@@ -4179,8 +4186,23 @@ func start_selected() -> bool:
 	_remember()
 	Engine.set_meta("next_scene", stage.scene)
 	Engine.set_meta("stage_id", stage.id)
-	get_tree().change_scene_to_file("res://scenes/loading.tscn")   # 先進載入畫面
+	# 第一次進這一章：先播大關的開場動畫（播完它自己進這一關），不然先進載入畫面
+	var opening := _story_opening(String((s.ch as Dictionary).get("id", "")))
+	get_tree().change_scene_to_file(opening if opening != "" else "res://scenes/loading.tscn")
 	return true
+
+## 大關的開場、結尾動畫：levels/ice/story/story_registry.gd 管（只播一次、測試不播）。沒有那個檔案就都不播
+const STORY_REGISTRY := "res://levels/ice/story/story_registry.gd"
+
+func _story_opening(chapter_id: String) -> String:
+	if chapter_id == "" or not ResourceLoader.exists(STORY_REGISTRY):
+		return ""
+	return String(load(STORY_REGISTRY).opening_for(chapter_id))
+
+func _story_ending_on_return() -> String:
+	if not ResourceLoader.exists(STORY_REGISTRY):
+		return ""
+	return String(load(STORY_REGISTRY).ending_on_return())
 
 ## 告示牌：用全遊戲共用的教學彈窗顯示選關畫面的操作說明（兩頁：島上、世界地圖）
 func _open_guide() -> void:
