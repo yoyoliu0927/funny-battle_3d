@@ -313,6 +313,18 @@ func _build_extra() -> void:
 	_build_cage()
 	_build_spirit(root)
 	_build_celestial(root)
+	_batch_static(root)
+
+## 效能：不會動的模型（木樓、樓閣、攤子、樹、石柱、小燈籠……）合併成一種材質一個面。
+## 一棟木樓有 60 幾個零件，第二關光是房子就要畫 1100 多次；合併後整片只剩幾十次，看起來一樣。
+## 會動、會被藏起來的不放進來：陸吾、宮燈（特寫時會藏）、金環、仙山、仙鶴、門、轉盤、香爐。
+## （合併的做法在 ice_world.gd 的 _batch_static()，這裡只換模型清單）
+const HEAVEN_STATIC := ["house.glb", "tower.glb", "pavilion.glb", "corridor.glb", "stall.glb", "sky_gate.glb",
+	"bridge.glb", "pine_a.glb", "pine_b.glb", "blossom.glb", "ginkgo_a.glb", "ginkgo_b.glb", "scholar_rock.glb",
+	"plum_a.glb", "plum_b.glb", "stele.glb", "star_stele.glb", "banner.glb", "mini_lantern.glb", "leaf_pile.glb", "pillar.glb"]
+
+func _static_models() -> Array:
+	return HEAVEN_STATIC
 
 ## 地面：中間一塊細的網格（跟著地形起伏、雲階是斜的），外面接一大片平的，一路鋪到霧裡
 func _build_ground(root: Node3D) -> void:

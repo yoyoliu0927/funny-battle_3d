@@ -45,6 +45,7 @@ const Progress := preload("res://scripts/progress.gd")
 const Registry := preload("res://scripts/registry.gd")
 const UIStyle := preload("res://scripts/ui/ui_style.gd")   # 全遊戲共用的介面美術
 const Wardrobe := preload("res://scripts/wardrobe.gd")     # 家豪的衣櫃（商店）：星星記在這裡
+const LoadingCard := preload("res://scripts/ui/loading_card.gd")   # 換場景時先蓋上「載入中」（按了馬上有反應）
 const SHOP_SCENE := "res://scenes/shop.tscn"
 const SeaShader := preload("res://shaders/map_sea.gdshader")
 const TEX := "res://assets/textures/"
@@ -69,6 +70,7 @@ const ROWBOAT := "res://levels/ice/assets/blender/rowboat.glb"
 const BOAT_LEN := 4.2             # 開船用的小船多長（公尺）
 const BOAT_FLIP := false          # 船頭模型是反的就改成 true
 const SAIL_CAM := 1.45            # 開船時鏡頭拉遠幾倍
+const WebPerf := preload("res://scripts/web_perf.gd")         # 效能小幫手（從這個場景直接開也會裝上）
 const HubWalk := preload("res://scripts/hub/hub_walk.gd")         # 主島自由走：位置、障礙、吸附站點（實驗：experiment/free-walk）
 
 ## 主島自由走的障礙：模型檔名 -> 擋多大一圈（公尺）。蓋主島的時候 _spawn_fit 看到這些檔名就登記
@@ -327,6 +329,7 @@ var _floats: Array = []      # 海上漂的東西（北方的浮冰、南方的�
 # ================================================================== 啟動
 
 func _ready() -> void:
+	WebPerf.install(get_tree())
 	for a in OS.get_cmdline_user_args():
 		if a == "--autotest" or a.begins_with("--mapshots=") or a.begins_with("--hubshots=") or a.begins_with("--titleshots=") or a == "--freetest" or a.begins_with("--freeshots=") or a == "--sailtest" or a.begins_with("--sailshots=") or a.begins_with("--todshots=") or a == "--todtest":
 			Journal.persist = false          # 測試不寫玩家的手帳存檔
@@ -352,6 +355,8 @@ func _ready() -> void:
 		worlds.append(_build_world(e))
 		if not _is_hub(e):
 			_flatten_pieces(worlds[e].root)
+		else:
+			_batch_hub_decor(worlds[e].root)
 	_hub_build = false
 	_free.map = self
 	_free.build()
@@ -909,6 +914,24 @@ func _fit_map_camera() -> void:
 	var d := maxf(d_v, d_h)
 	_map_cam = Vector3(0, sin(MAP_PITCH), cos(MAP_PITCH)) * d
 
+## 效能：主島上純裝飾、不能戳也不會動的模型（田裡一排一排的莓果叢、路邊和柵欄邊的莓果叢）
+## 全部合併成一種材質一個面：將近 150 叢、300 次繪製 → 2 次。樹、南瓜、乾草堆可以戳，不合併。
+const STATIC_HUB_DECOR := ["BushBerries.glb"]
+const StaticBatch := preload("res://scripts/static_batch.gd")
+func _batch_hub_decor(root: Node3D) -> void:
+	var by_parent := {}
+	for holder in root.find_children("*", "Node3D", true, false):
+		if holder.get_child_count() != 1 or holder in _small:
+			continue
+		var piece := holder.get_child(0)
+		if STATIC_HUB_DECOR.has(String(piece.scene_file_path).get_file()):
+			var par: Node = holder.get_parent()
+			if not by_parent.has(par):
+				by_parent[par] = []
+			(by_parent[par] as Array).append(holder)
+	for par in by_parent:
+		StaticBatch.merge(par as Node3D, by_parent[par])
+
 ## 效能：把島上不會動的模型（.glb 拆成很多小零件的那種，一棵樹可能有 80 幾個零件）
 ## 每個模型合併成「一種材質一個面」，繪製次數從幾千降到幾百。
 ## 有腳本、動畫、骨架、形狀鍵的模型不動（可能會被搖晃、換材質、開關），藏起來的零件也不合併。
@@ -931,10 +954,17 @@ func _static_piece(n: Node) -> bool:
 			return false
 	return true
 
+## 合併的結果（頂點資料）留著：每次回到地圖都要重新蓋島，同一個模型、同一種擺法直接拿上次合好的，不用再合一次
+## （回地圖少 0.15 秒左右，網頁版更多）。鍵是「模型檔＋每個零件的網格、面、位置、材質分組」，有一點不一樣就重新合。
+static var _merge_cache := {}
+
 func _merge_piece(piece: Node3D) -> void:
 	var inv := piece.global_transform.affine_inverse()
-	var groups := {}      # 材質＋影子設定 → [SurfaceTool, 材質, 影子]
+	var parts: Array = []        # [網格, 第幾面, 位置, 分組]
+	var groups: Array = []       # 每一組：[材質, 影子, 圖層]
+	var group_of := {}           # 材質＋影子＋圖層 → 第幾組
 	var done: Array = []
+	var sig := PackedStringArray([piece.scene_file_path])
 	for m in piece.find_children("*", "MeshInstance3D", true, false):
 		var mi := m as MeshInstance3D
 		if mi.mesh == null or not mi.is_visible_in_tree() or mi.get_child_count() > 0:
@@ -945,6 +975,7 @@ func _merge_piece(piece: Node3D) -> void:
 		if not tris:
 			continue
 		var xf := inv * mi.global_transform
+		var mesh_id := mi.mesh.resource_path if mi.mesh.resource_path != "" else str(mi.mesh.get_instance_id())
 		for s in mi.mesh.get_surface_count():
 			var mat: Material = mi.material_override
 			if mat == null:
@@ -952,29 +983,43 @@ func _merge_piece(piece: Node3D) -> void:
 			if mat == null:
 				mat = mi.mesh.surface_get_material(s)
 			var key := "%d|%d|%d" % [mat.get_instance_id() if mat else 0, mi.cast_shadow, mi.layers]
-			if not groups.has(key):
-				var st := SurfaceTool.new()
-				groups[key] = [st, mat, mi.cast_shadow, mi.layers]
-			(groups[key][0] as SurfaceTool).append_from(mi.mesh, s, xf)
+			if not group_of.has(key):
+				group_of[key] = groups.size()
+				groups.append([mat, mi.cast_shadow, mi.layers])
+			var gi: int = group_of[key]
+			parts.append([mi.mesh, s, xf, gi])
+			sig.append("%s:%d:%s:%d" % [mesh_id, s, xf, gi])
 		done.append(mi)
 	if done.size() < 2:
 		return
+	var ck := "|".join(sig).hash()
+	var arrays: Array = _merge_cache.get(ck, [])
+	if arrays.size() != groups.size():
+		var sts: Array = []
+		for g in groups:
+			sts.append(SurfaceTool.new())
+		for pt in parts:
+			(sts[pt[3]] as SurfaceTool).append_from(pt[0], pt[1], pt[2])
+		arrays = []
+		for st in sts:
+			arrays.append((st as SurfaceTool).commit_to_arrays())
+		_merge_cache[ck] = arrays
 	# 影子設定、圖層一樣的放進同一個網格（通常整個模型只有一種），每種材質一個面
 	var meshes := {}      # "影子|圖層" → MeshInstance3D
-	for key in groups:
-		var g: Array = groups[key]
-		var nk := "%d|%d" % [g[2], g[3]]
+	for gi in groups.size():
+		var g: Array = groups[gi]
+		var nk := "%d|%d" % [g[1], g[2]]
 		if not meshes.has(nk):
 			var mi := MeshInstance3D.new()
 			mi.name = "Merged"
 			mi.mesh = ArrayMesh.new()
-			mi.cast_shadow = g[2]
-			mi.layers = g[3]
+			mi.cast_shadow = g[1]
+			mi.layers = g[2]
 			piece.add_child(mi)
 			meshes[nk] = mi
 		var am: ArrayMesh = (meshes[nk] as MeshInstance3D).mesh
-		(g[0] as SurfaceTool).commit(am)
-		am.surface_set_material(am.get_surface_count() - 1, g[1])
+		am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays[gi])
+		am.surface_set_material(am.get_surface_count() - 1, g[0])
 	for mi in done:
 		mi.get_parent().remove_child(mi)
 		mi.queue_free()
@@ -2181,14 +2226,18 @@ static func set_sound_muted(on: bool) -> void:
 	cf.set_value("audio", "muted", on)
 	cf.save(SETTINGS_PATH)
 
+static var _snd_streams := {}     # 合成好的音效（換場景也留著）
 func _build_audio() -> void:
 	var cf := ConfigFile.new()
 	if cf.load(SETTINGS_PATH) == OK:
 		AudioServer.set_bus_mute(0, bool(cf.get_value("audio", "muted", false)))
-	var streams := {
-		"hop": _snd_hop(), "arrive": _snd_arrive(), "bump": _snd_bump(), "fly": _snd_fly(),
-		"land": _snd_land(), "start": _snd_start(), "click": _snd_click(), "bgm": _snd_bgm(),
-	}
+	# 音效和配樂是程式即時合成的，合成一次要 0.15 秒（網頁版更久）：第一次做好就留著，之後回到地圖直接拿來用
+	if _snd_streams.is_empty():
+		_snd_streams = {
+			"hop": _snd_hop(), "arrive": _snd_arrive(), "bump": _snd_bump(), "fly": _snd_fly(),
+			"land": _snd_land(), "start": _snd_start(), "click": _snd_click(), "bgm": _snd_bgm(),
+		}
+	var streams := _snd_streams
 	for id in streams:
 		var p := AudioStreamPlayer.new()
 		p.stream = streams[id]
@@ -2488,7 +2537,7 @@ func open_shop() -> void:
 	_starting = true
 	_play_detached("start")
 	_remember()                          # 從商店回來還站在原本那一格
-	get_tree().change_scene_to_file(SHOP_SCENE)
+	LoadingCard.go(get_tree(), SHOP_SCENE, "家豪的衣櫃")
 
 # ================================================================== 畫圖工具
 
@@ -4049,7 +4098,7 @@ func start_selected() -> bool:
 			_starting = true
 			_play_detached("start")
 			_remember()
-			get_tree().change_scene_to_file(INTRO_SCENE)
+			LoadingCard.go(get_tree(), INTRO_SCENE)
 			return true
 		"locked":
 			_shake_t = SHAKE_TIME           # 還沒做好的島：不跳字，鎖頭抖一下就好
@@ -4092,7 +4141,7 @@ func start_selected() -> bool:
 	_remember()
 	Engine.set_meta("next_scene", stage.scene)
 	Engine.set_meta("stage_id", stage.id)
-	get_tree().change_scene_to_file("res://scenes/loading.tscn")   # 先進載入畫面
+	LoadingCard.go(get_tree(), "res://scenes/loading.tscn", "前往：" + String(stage.get("title", "")))   # 先進載入畫面
 	return true
 
 ## 告示牌：用全遊戲共用的教學彈窗顯示選關畫面的操作說明（兩頁：島上、世界地圖）
@@ -4244,7 +4293,7 @@ func _unhandled_input(ev: InputEvent) -> void:
 					if not _starting and not _busy() and ResourceLoader.exists(ENDING_SCENE):
 						_starting = true
 						_remember()
-						get_tree().change_scene_to_file(ENDING_SCENE)
+						LoadingCard.go(get_tree(), ENDING_SCENE)
 				elif not _map:
 					_life.poke_near()            # E：戳離家豪最近的東西
 			KEY_ESCAPE:

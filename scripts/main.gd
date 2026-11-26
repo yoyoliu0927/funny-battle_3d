@@ -3,8 +3,10 @@ extends Node3D
 ## 帶 `-- --autotest` 參數啟動時，農場範例關會掛上自動驗收腳本。
 
 const FARM_SCENE := "res://examples/farm/stage.tscn"
+const WebPerf := preload("res://scripts/web_perf.gd")   # 效能小幫手（從關卡直接開也會裝上；重複呼叫只會有一份）
 
 func _ready() -> void:
+	WebPerf.install(get_tree())
 	if "--autotest" in OS.get_cmdline_user_args() and scene_file_path == FARM_SCENE:
 		var t: Node = load("res://tools/autotest.gd").new()
 		t.name = "AutoTest"

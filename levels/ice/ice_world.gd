@@ -647,6 +647,29 @@ func _build_extra() -> void:
 	if decor:
 		_build_decor(root)
 	_weather()
+	_batch_static(root)
+
+## 效能：不會動的模型（碼頭、鐘樓、燈塔、帳篷、雪松、雪堆、石頭、冰柱……）合併成一種材質一個面，
+## 一小關的繪製次數少 200 多次，看起來一樣。會動、會被收起來的不放進來（企鵝、雪人、薄冰、釣竿水桶、火、浮冰、小船、雲）。
+const StaticBatch := preload("res://scripts/static_batch.gd")
+const STATIC_MODELS := ["pier.glb", "fish_net.glb", "campfire-fishing-stand.glb", "crate.glb", "barrel.glb", "fish-large.glb",
+	"market_stall.glb", "lantern_string.glb", "lantern.glb", "lighthouse.glb", "belltower.glb", "snow_rock_a.glb", "snow_rock_b.glb",
+	"icicles_a.glb", "icicles_b.glb", "icicles_c.glb", "fence-rope.glb", "tent.glb", "campfire-pit.glb", "box-large.glb", "box.glb",
+	"crate-strong.glb", "flag.glb", "sled-long.glb", "signpost-single.glb", "fishing_hut.glb", "resource-wood.glb", "sled.glb",
+	"tree-snow-a.glb", "tree-snow-b.glb", "tree-snow-c.glb", "snow_drift_a.glb", "snow_drift_b.glb", "snow_drift_c.glb", "snow_drift_d.glb",
+	"ice_crystals.glb", "bedroll-packed.glb", "tree-log.glb"]
+
+## 哪些模型檔可以合併（子類別的世界可以覆寫，例如丹穴山換成木樓、樓閣那一組）
+func _static_models() -> Array:
+	return STATIC_MODELS
+
+func _batch_static(root: Node3D) -> void:
+	var names := _static_models()
+	var pieces: Array = []
+	for c in root.get_children():
+		if c is Node3D and names.has(String(c.scene_file_path).get_file()) and not _clutter.has(c):
+			pieces.append(c)
+	StaticBatch.merge(root, pieces)
 
 ## 共用場地蓋的東西（地形、遠山、水池）都收起來；地形的碰撞留著（玩家的鏡頭還是會被地面擋住）
 func _hide_base() -> void:

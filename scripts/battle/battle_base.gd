@@ -32,6 +32,7 @@ const ViewToggle := preload("res://scripts/battle/view_toggle.gd")
 const Registry := preload("res://scripts/registry.gd")
 const Progress := preload("res://scripts/progress.gd")
 const LEVEL_SELECT_SCENE := "res://scenes/level_select.tscn"
+const LoadingCard := preload("res://scripts/ui/loading_card.gd")   # 換場景時先蓋上「載入中」（按了馬上有反應）
 
 # 家豪（每關都一樣）：3 顆心（6 點血），傷害照舊
 const BIRD_MAX_HP := 6.0
@@ -594,7 +595,7 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if event.is_action_pressed("back_to_map"):
 		Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-		get_tree().change_scene_to_file(LEVEL_SELECT_SCENE)
+		LoadingCard.go(get_tree(), LEVEL_SELECT_SCENE, "回到地圖")
 		return
 	for n in mini(items.size(), 9):
 		if event.is_action_pressed("skill_%d" % (n + 1)):
@@ -2085,7 +2086,7 @@ func _tick_next_stage(dt: float) -> void:
 		Engine.set_meta("next_scene", _next_info.scene)
 		Engine.set_meta("stage_id", _next_info.id)
 		get_tree().paused = false
-		get_tree().change_scene_to_file("res://scenes/loading.tscn")
+		LoadingCard.go(get_tree(), "res://scenes/loading.tscn", "下一關：" + String(_next_info.get("title", "")))
 
 ## 兩種視角切換（Tab）
 func _build_view_toggle() -> void:

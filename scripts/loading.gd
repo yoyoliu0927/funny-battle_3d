@@ -19,10 +19,13 @@ var _label: Label
 var _bar: ColorRect
 var _bar_bg: ColorRect
 var _tip: Label
+var _requested := false
+var _frames := 0
 
 func _ready() -> void:
 	_target = String(Engine.get_meta("next_scene", "res://examples/farm/stage.tscn"))
-	ResourceLoader.load_threaded_request(_target)
+	# 先把載入畫面畫出來再開始載：網頁版沒有執行緒，「背景載入」其實會整個卡住，
+	# 在 _ready 就開始載的話，畫面會停在上一個場景、載完才看到這個載入畫面（見 _process）
 	_build_ground()
 	_build_crowd()
 	_build_ui()
@@ -148,7 +151,13 @@ func _build_ui() -> void:
 	box.add_child(_tip)
 
 func _process(dt: float) -> void:
-	_t += dt
+	if not _requested:
+		_frames += 1
+		if _frames < 3:          # 載入畫面已經畫出來了才開始載
+			return
+		_requested = true
+		ResourceLoader.load_threaded_request(_target)
+	_t += dt                     # 卡住載入的那幾秒也算進「最少顯示時間」：載得久就不用再多等
 	var prog := []
 	var status := ResourceLoader.load_threaded_get_status(_target, prog)
 	var p: float = prog[0] if prog.size() > 0 else 0.0

@@ -1356,7 +1356,7 @@ func _go_next() -> void:
 		return
 	Engine.set_meta("stage_id", nxt.id)
 	Engine.time_scale = 1.0
-	get_tree().change_scene_to_file(nxt.scene)
+	LoadingCard.go(get_tree(), nxt.scene, "下一關：" + String(nxt.get("title", "")))
 
 ## 這一章的小關清單（chapter.gd 的 STAGES）：[{scene 完整路徑, id}]
 func _chapter_stages() -> Array:
@@ -1455,7 +1455,7 @@ func _start_finale() -> void:
 func _finale_leave() -> void:
 	Engine.time_scale = 1.0
 	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
-	get_tree().change_scene_to_file(LEVEL_SELECT_SCENE)
+	LoadingCard.go(get_tree(), LEVEL_SELECT_SCENE, "回到地圖")
 
 func _finale_stop() -> void:
 	if _finale_t < 0.0 and _finale_card == null:
