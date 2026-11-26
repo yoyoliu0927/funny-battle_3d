@@ -39,6 +39,8 @@ extends Node3D
 ## 從關卡或商店回來時，家豪站回原本那一格（剛過關就站到下一關）。
 ## 音效：全部用程式即時合成（不用音效檔，跟冰雪島關卡同一種做法），音色統一用音樂盒／木琴那種圓圓的鈴聲。
 ##       右上角的喇叭按鈕（或按 V）開關聲音；關掉的是整個遊戲的聲音（Master），設定存在 user://settings.cfg，下次開遊戲還記得。
+## 選單：按 P 打開（畫面上沒有按鈕），跟戰局的暫停選單同一個（scripts/ui/pause_menu.gd）：
+##       繼續、時間、聲音、畫質（預設「自動」照電腦效能調；也可以選高／中／低，規則在 scripts/web_perf.gd）、操作說明，網頁版多一列全螢幕。
 ## 開發用：命令列加 -- --mapshots=<資料夾>，會把世界地圖和每一格各截一張圖然後關掉。
 
 const Progress := preload("res://scripts/progress.gd")
@@ -69,6 +71,7 @@ const ROWBOAT := "res://levels/ice/assets/blender/rowboat.glb"
 const BOAT_LEN := 4.2             # 開船用的小船多長（公尺）
 const BOAT_FLIP := false          # 船頭模型是反的就改成 true
 const SAIL_CAM := 1.45            # 開船時鏡頭拉遠幾倍
+const PauseMenu := preload("res://scripts/ui/pause_menu.gd")   # P 選單（跟戰局的暫停選單同一個，換一組選項）
 const WebPerf := preload("res://scripts/web_perf.gd")         # 效能小幫手（從這個場景直接開也會裝上）
 const HubWalk := preload("res://scripts/hub/hub_walk.gd")         # 主島自由走：位置、障礙、吸附站點（實驗：experiment/free-walk）
 
@@ -311,6 +314,7 @@ var _tod_presets: Array = []
 var _tod_slider := Rect2()
 var _tod_drag := false
 var _time_rect := Rect2()    # 右上角時間按鈕在畫面上的位置
+var _menu: PauseMenu = null  # 按 P 打開的選單（繼續、時間、聲音、畫質、操作說明），第一次打開才做
 var _hub_build := false      # 正在蓋主島：_spawn_fit 要登記障礙
 var _hub_blocks: Array = []  # 主島的障礙 [節點, 半徑, 世界座標偏移]
 var _hero_tilt: Node3D       # 家豪（中間那層：世界地圖上往後仰，從上面看得到臉）
@@ -2263,6 +2267,39 @@ func _play_detached(id: String) -> void:
 	get_tree().root.add_child(p)
 	p.finished.connect(p.queue_free)
 	p.play()
+
+## P：打開選單（跟戰局的暫停選單同一個；選項是繼續、時間、聲音、畫質、操作說明，網頁版多全螢幕）
+## 打開的時候主島整個停住（家豪、動畫、音樂），關掉接著動
+func _open_menu() -> void:
+	if _menu == null:
+		_menu = PauseMenu.new()
+		_menu.name = "HubMenu"
+		var its: Array = PauseMenu.HUB_ITEMS.duplicate()
+		if not _tod_on:
+			its = its.filter(func(it): return String(it.id) != "time")   # 天色沒有跟著時間走：沒有時間面板
+		_menu.items = its
+		_menu.title_text = "選單"
+		_menu.resume_key = "P"
+		_menu.hotkey = false              # Esc 在主島有別的用途（退到世界地圖、回標題）：只用 P 和按鈕打開
+		var cs := get_tree().current_scene
+		_menu.stage_root = cs if cs != null and cs.is_ancestor_of(self) else self   # 整個選關場景都停住（這個腳本掛在場景底下的 Map）
+		_menu.help_rows = _menu_help
+		_menu.picked.connect(_on_menu_picked)
+		add_child(_menu)
+	if not _menu.is_open:
+		_menu.open()
+
+func _on_menu_picked(id: String) -> void:
+	if id == "time" and not _tod_open:
+		_tod_toggle()
+
+## 選單裡的「操作說明」
+func _menu_help() -> Array:
+	var rows: Array = [["← → 或 1～9", "沿著路走"], ["Enter", "進去"], ["M／Tab", "世界地圖"], ["E", "戳東西"], ["B", "商店"], ["V", "聲音開關"]]
+	if _tod_on:
+		rows.append(["T", "時間"])
+	rows.append(["P", "選單"])
+	return rows
 
 ## V／喇叭按鈕：開關聲音（打開的時候響一聲，讓人知道有聲音了）
 func _toggle_sound() -> void:
@@ -4286,6 +4323,8 @@ func _unhandled_input(ev: InputEvent) -> void:
 				_yard_open()                 # 在碼頭：船塢（看船、買船、換船）
 			KEY_T:
 				_tod_toggle()                # 時間面板
+			KEY_P:
+				_open_menu()                 # 選單（時間、聲音、畫質……）
 			KEY_E:
 				# 隱藏按鍵（展示用，畫面上不提示）：Shift＋E 不用全破就直接播結局，播完回到這裡
 				if ev.shift_pressed:
@@ -6571,6 +6610,25 @@ func _autotest() -> void:
 		await RenderingServer.frame_post_draw
 		get_viewport().get_texture().get_image().save_png(out_dir.path_join("00d_sound_toggled.png"))
 	set_sound_muted(was_muted)
+	# 選單：按 P 打開，裡面按 Q 換畫質（自動 → 高 → 中 → 低 → 自動），按四次回到原本的設定；再按 P 關掉
+	_press(KEY_P)
+	await get_tree().process_frame
+	var menu_opened := _menu != null and _menu.is_open and not can_process()
+	var wp := WebPerf.find(get_tree())
+	var seen: Array = []
+	var q0 := String(wp.quality) if wp else ""
+	if wp:
+		for _i in 4:
+			_press(KEY_Q)
+			await get_tree().process_frame
+			seen.append("%s/%d" % [wp.quality, wp.low])
+	var qcf := ConfigFile.new()
+	qcf.load(SETTINGS_PATH)
+	_press(KEY_P)
+	await get_tree().process_frame
+	checks.append(["按 P 打開選單（主島停住）、再按 P 關掉", menu_opened and not _menu.is_open and can_process()])
+	checks.append(["選單裡按 Q 換畫質（%s），按四次回到原本、有存檔" % ", ".join(seen),
+		wp != null and String(wp.quality) == q0 and String(qcf.get_value("graphics", "quality", "")) == q0 and seen.size() == 4 and String(seen[0]) != String(seen[1])])
 	checks.append(["音效都合成出來了（%d 個）、背景音樂在播" % _snd.size(), _snd.size() == 8 and (_snd["bgm"] as AudioStreamPlayer).playing])
 	if DisplayServer.window_can_draw():
 		await RenderingServer.frame_post_draw
