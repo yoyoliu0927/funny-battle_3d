@@ -1,5 +1,6 @@
 extends CanvasLayer
 ## 暫停選單（戰局中按 Esc 或 P）。所有關卡共用（template），由 battle_base.gd 建立，各關不用做任何事。
+## 主島（選關畫面）按 P 打開的「選單」也是這個：選項換成 HUB_ITEMS（繼續、時間、聲音、畫質、操作說明），標題寫「選單」。
 ##
 ## 打開的時候：
 ##   - 整個小關場景停住：把場景根節點的 process_mode 設成「停用」，所以戰局（含各關自己覆寫的
@@ -7,6 +8,7 @@ extends CanvasLayer
 ##     戰局是固定每 1/60 秒算一步，暫停期間一步都不會算，關掉選單後從同一步接著算，結果和沒暫停一樣。
 ##   - 游標放開、畫面壓暗、中間一張筆記紙：繼續（Esc／P）、重來（R）、回地圖（M）、聲音開關（V）、操作說明（H）。
 ##     聲音開關關掉的是整個遊戲的聲音（Master），跟選關畫面右上角的喇叭是同一個設定（存在 user://settings.cfg）。
+##     畫質（Q）：自動 → 高 → 中 → 低 輪流切換，跟選關畫面右上角的 Q 按鈕是同一個設定（scripts/web_perf.gd）。
 ##     滑鼠可以點；也可以用 ↑↓ 選、Enter 確定。
 ## 關掉的時候：場景恢復原本的 process_mode、時間倍率和游標狀態。
 ##
@@ -25,11 +27,22 @@ extends CanvasLayer
 ## 那些計時在暫停期間還是會走完；戰局本身不受影響。
 
 const UIStyle := preload("res://scripts/ui/ui_style.gd")
+const WebPerf := preload("res://scripts/web_perf.gd")      # 畫質設定
 
 signal opened
 signal closed
-## 選了會離開選單的項目："resume"（繼續）、"restart"（重來）、"map"（回地圖）。選單已經先關好了才發
+## 選了會離開選單的項目："resume"（繼續）、"restart"（重來）、"map"（回地圖）、"time"（時間，主島用）。選單已經先關好了才發
 signal picked(id: String)
+
+## 主島（選關畫面）按 P 打開的選單：沒有重來、回地圖，多一列「時間」（選了會關掉選單、打開時間面板）
+const HUB_ITEMS := [
+	{"id": "resume", "text": "繼續", "key": "Esc"},
+	{"id": "fullscreen", "text": "全螢幕", "key": "F"},
+	{"id": "time", "text": "時間", "key": "T"},
+	{"id": "sound", "text": "聲音", "key": "V"},
+	{"id": "quality", "text": "畫質", "key": "Q"},
+	{"id": "help", "text": "操作說明", "key": "H"},
+]
 
 const ITEMS := [
 	{"id": "resume", "text": "繼續", "key": "Esc"},
@@ -37,6 +50,7 @@ const ITEMS := [
 	{"id": "restart", "text": "重來", "key": "R"},
 	{"id": "map", "text": "回地圖", "key": "M"},
 	{"id": "sound", "text": "聲音", "key": "V"},
+	{"id": "quality", "text": "畫質", "key": "Q"},
 	{"id": "help", "text": "操作說明", "key": "H"},
 ]
 const ROW_W := 340.0
@@ -46,6 +60,9 @@ const ESC_GRACE_MS := 400
 var stage_root: Node           # 要停住的那棵樹（整個小關場景）
 var player: Node               # 幽靈觀察者（scripts/player.gd）：關掉選單時把游標還給它
 var help_rows: Callable        # 回傳操作說明 [[按鍵, 做什麼], ...]
+var items: Array = ITEMS       # 有哪些選項（加進場景前設定；主島用 HUB_ITEMS）
+var title_text := "暫停"       # 卡片最上面的標題
+var resume_key := ""           # 「繼續」的鍵帽寫什麼（空的：網頁版 P、電腦版 Esc）
 var hotkey := true             # false：不接 Esc／P，網頁版也不自動打開（只能用程式呼叫 open()）
 var is_open := false
 var selected := 0
@@ -83,6 +100,7 @@ func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS   # 場景停住的時候只有選單還在動
 	visible = false
 	_web = web_ui()
+	WebPerf.install(get_tree())   # 從關卡直接開的時候也要有畫質設定
 	_build()
 	_last_win = DisplayServer.window_get_size()
 	if OS.has_feature("web"):
@@ -125,14 +143,14 @@ func _build() -> void:
 	v.add_theme_constant_override("separation", 10)
 	_card.add_child(v)
 	var title := Label.new()
-	title.text = "暫停"
+	title.text = title_text
 	title.label_settings = UIStyle.ls(40, UIStyle.INK)
 	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	v.add_child(title)
 	var gap := Control.new()
 	gap.custom_minimum_size = Vector2(0, 4)
 	v.add_child(gap)
-	for i in ITEMS.size():
+	for i in items.size():
 		v.add_child(_make_row(i))
 	# 操作說明：選了「操作說明」才在卡片裡展開
 	_help_box = VBoxContainer.new()
@@ -154,7 +172,7 @@ func _build() -> void:
 
 ## 一個選項：整條是按鈕（滑鼠移上去就選到、按下去就執行），左邊是字、右邊是鍵帽
 func _make_row(i: int) -> Control:
-	var it: Dictionary = ITEMS[i]
+	var it: Dictionary = items[i]
 	var row := PanelContainer.new()
 	row.custom_minimum_size = Vector2(ROW_W, 54)
 	row.mouse_filter = Control.MOUSE_FILTER_STOP
@@ -176,7 +194,10 @@ func _make_row(i: int) -> Control:
 	t.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	h.add_child(t)
 	# 「繼續」的鍵帽：網頁版寫 P
-	h.add_child(UIStyle.keycap(pause_key() if String(it.id) == "resume" else String(it.key), 18))
+	var cap := String(it.key)
+	if String(it.id) == "resume":
+		cap = resume_key if resume_key != "" else pause_key()
+	h.add_child(UIStyle.keycap(cap, 18))
 	row.mouse_entered.connect(func(): select(i))
 	row.gui_input.connect(func(e: InputEvent):
 		if e is InputEventMouseButton and e.pressed and e.button_index == MOUSE_BUTTON_LEFT:
@@ -191,7 +212,7 @@ func _make_row(i: int) -> Control:
 
 ## 這一列現在要不要出現：「全螢幕」只在網頁版、而且還不是全螢幕的時候出現
 func _row_shown(i: int) -> bool:
-	if String(ITEMS[i].id) == "fullscreen":
+	if String(items[i].id) == "fullscreen":
 		return _web and not _is_fullscreen()
 	return true
 
@@ -218,8 +239,11 @@ func _refresh() -> void:
 		var on := i == selected
 		(_rows[i] as PanelContainer).add_theme_stylebox_override("panel", _row_box(on))
 		(_marks[i] as Label).modulate.a = 1.0 if on else 0.0
-		if String(ITEMS[i].id) == "sound":
+		if String(items[i].id) == "sound":
 			(_texts[i] as Label).text = "聲音：關" if AudioServer.is_bus_mute(0) else "聲音：開"
+		elif String(items[i].id) == "quality":
+			var wp := WebPerf.find(get_tree()) if is_inside_tree() else null
+			(_texts[i] as Label).text = "畫質：" + (String(wp.quality_label()) if wp else "自動")
 
 # ---------------------------------------------------------------- 開關
 
@@ -272,22 +296,22 @@ func toggle() -> void:
 # ---------------------------------------------------------------- 選項
 
 func select(i: int) -> void:
-	selected = clampi(i, 0, ITEMS.size() - 1)
+	selected = clampi(i, 0, items.size() - 1)
 	_refresh()
 
 ## ↑↓ 移動選項：跳過沒出現的那幾列
 func _step(d: int) -> void:
 	var i := selected
-	for _n in ITEMS.size():
-		i = (i + d + ITEMS.size()) % ITEMS.size()
+	for _n in items.size():
+		i = (i + d + items.size()) % items.size()
 		if _row_shown(i):
 			select(i)
 			return
 
 func activate(i: int) -> void:
-	if i < 0 or i >= ITEMS.size() or not _row_shown(i):
+	if i < 0 or i >= items.size() or not _row_shown(i):
 		return
-	var id := String(ITEMS[i].id)
+	var id := String(items[i].id)
 	match id:
 		"help":
 			toggle_help()
@@ -299,6 +323,12 @@ func activate(i: int) -> void:
 			cf.load("user://settings.cfg")
 			cf.set_value("audio", "muted", muted)
 			cf.save("user://settings.cfg")
+			_refresh()
+		"quality":
+			# 換畫質（選單不關：後面的畫面馬上換，看得到差別）
+			var wp := WebPerf.find(get_tree())
+			if wp:
+				wp.cycle_quality()
 			_refresh()
 		"fullscreen":
 			# 回到全螢幕（選單不關：游標還沒鎖回去，玩家再按「繼續」就好）。
@@ -314,8 +344,8 @@ func activate(i: int) -> void:
 			picked.emit(id)
 
 func _activate_id(id: String) -> void:
-	for i in ITEMS.size():
-		if String(ITEMS[i].id) == id:
+	for i in items.size():
+		if String(items[i].id) == id:
 			if not _row_shown(i):
 				return
 			select(i)
@@ -385,6 +415,10 @@ func _input(event: InputEvent) -> void:
 					_activate_id("map")
 				KEY_V:
 					_activate_id("sound")
+				KEY_Q:
+					_activate_id("quality")
+				KEY_T:
+					_activate_id("time")
 				KEY_H:
 					_activate_id("help")
 		# 選單開著的時候，鍵盤不會漏到別的地方
