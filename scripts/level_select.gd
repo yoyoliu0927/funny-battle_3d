@@ -3835,7 +3835,7 @@ func _mark_key(id: String) -> void:
 	Engine.set_meta(KEYS_USED_META, d)
 
 ## 右下角的按鍵提示（一條橫的小紙片，「鍵帽＋做什麼」一組一組排）：
-##   島上：還沒用過的 ← → 走路／1~6 直達／E 戳一戳（用過就收）；世界地圖：↑ ← ↓ → 選島／Esc 返回標題。
+##   島上：還沒用過的 ← → 走路／E 戳一戳（用過就收）＋一直留著的 M 世界地圖；世界地圖：↑ ← ↓ → 選島／Esc 返回標題。
 ##   Enter 寫在泡泡和島牌的按鈕上，這裡不重複。只有一列高，才不會蓋到往右下延伸的路和下一站
 func _paint_keys(c: Control, u: float) -> void:
 	var vs := get_viewport().get_visible_rect().size
@@ -3852,7 +3852,7 @@ func _paint_keys(c: Control, u: float) -> void:
 		items = [[["↑", "←", "↓", "→"], "選島"], [["Esc"], "返回標題"]]
 	else:
 		# 島上：只教還沒用過的按鍵，用過一次那一格就收掉；全部用過整條就不見了。
-		# Enter 寫在泡泡上、M 寫在右上角的地圖按鈕上，這裡不重複（完整的說明在告示牌）
+		# Enter 寫在泡泡上，這裡不重複（完整的說明在告示牌）；M 世界地圖一直留在最右邊
 		var n := int(worlds[selected].n)
 		var all: Array = []
 		# 數字鍵直達（1~6）不提示：站點上沒有編號，「直達」看不出是直達哪裡；
@@ -3866,8 +3866,10 @@ func _paint_keys(c: Control, u: float) -> void:
 		items = all.filter(func(it): return not _key_used(String(it[2])))
 		if _idle_t > IDLE_HINT:
 			items = all                # 很久沒動（可能卡住了）：全部的提示叫回來，一動就又收掉
-		if items.is_empty() or _fishing.active or _dj.active or _journal.is_open():
-			return                     # 都學會了；或是釣魚和手帳開著（它們有自己的按鍵提示）
+		if _fishing.active or _dj.active or _journal.is_open():
+			return                     # 釣魚和手帳開著（它們有自己的按鍵提示）
+		# M 世界地圖是換島的入口：每座島上都一直留著（排在最右邊），不跟著「用過就收」
+		items.append([["M"], "世界地圖"])
 	var ks := 16.0 * u
 	var ts := 20.0 * u
 	var gap := 4.0 * u
