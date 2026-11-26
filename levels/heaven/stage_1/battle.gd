@@ -3,6 +3,20 @@ extends "res://levels/heaven/heaven_battle.gd"
 ## 保底：阿土、阿水各一片（都從門乙滑出來進雲洞）；守衛用巨石（放在雲階上，開打後滾下去）。
 ## 進階：只丟一片在阿土線上靠後的位置，阿土撞上走到線上的阿水，兩人一起穿門。
 
+const StoryRegistry := preload("res://levels/ice/story/story_registry.gd")
+
+## 第一次進丹穴山：先播大關的開場動畫（levels/ice/story/heaven_opening.gd），播完會再回到這一關
+func _ready() -> void:
+	var opening := StoryRegistry.opening_for("heaven")
+	if opening != "":
+		set_process(false)
+		set_physics_process(false)
+		set_process_input(false)
+		set_process_unhandled_input(false)
+		get_tree().change_scene_to_file.call_deferred(opening)
+		return
+	super()
+
 const StairRock := preload("res://levels/heaven/items/stair_rock_item.gd")
 
 func _make_items() -> Array:

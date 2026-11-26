@@ -2,6 +2,16 @@ extends "res://levels/heaven/heaven_world.gd"
 ## 【丹穴山 1 雲階】青綠水墨的霧景：松林裡一座十字形的白玉平台，北邊一段雲階通到南天門，東邊一條小河。
 ## 平台上兩幅畫（畫門）。阿土、阿水的紅線都通到門甲；從門乙出來正對著水潭。守衛站在雲階腳下，只有巨石滾下去撞得到他。
 
+const StoryRegistry := preload("res://levels/ice/story/story_registry.gd")
+
+## 第一次進丹穴山：先播大關的開場動畫（battle.gd 負責換場景），這裡的場地先不蓋
+func _ready() -> void:
+	if StoryRegistry.opening_for("heaven") != "":
+		set_process(false)
+		set_physics_process(false)
+		return
+	super()
+
 func _ice_configure() -> void:
 	# ==================================================================
 	# 【玩法】每個數字都對著規格（docs/仙境關卡規格.md 第 4 節），改了要重跑 tests/solve.gd

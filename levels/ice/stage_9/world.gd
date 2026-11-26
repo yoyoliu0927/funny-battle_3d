@@ -2,6 +2,16 @@ extends "res://levels/ice/rescue_world.gd"
 ## 【救企鵝 1】家豪從南邊直直走到北岸的籠子。工人從西北角衝出來，路線有三段：
 ##   第一段在雪地上（只會跌倒）；第二段看起來對著一個冰洞，但中間有雪人擋著；最後一段才真的對著另一個冰洞。
 
+const IceStory := preload("res://levels/ice/story/ice_story.gd")
+
+## 第一次進冰雪島：先播大關的開場動畫（battle.gd 負責換場景），這裡的場地先不蓋
+func _ready() -> void:
+	if IceStory.opening_pending():
+		set_process(false)
+		set_physics_process(false)
+		return
+	super()
+
 func _ice_configure() -> void:
 	play_min = Vector2(-20.0, -23.0)
 	play_max = Vector2(20.0, 18.0)

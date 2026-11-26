@@ -13,9 +13,10 @@ const BEAT := 0.4545                  # 配樂一拍幾秒（132 BPM）
 const SHED_X := 300.0
 const HEN_S := 0.82
 const HERO_X := 1.1                   # 家豪在屋脊上站的位置（跟開場同一個）
-## 五采：赤、黃、青、白、紫
-const FEATHER_COLS := [Color(0.94, 0.22, 0.16), Color(1.0, 0.80, 0.16), Color(0.14, 0.76, 0.62), Color(1.0, 0.98, 0.92), Color(0.50, 0.30, 0.86)]
-const FEATHER_NAMES := ["赤", "黃", "青", "白", "紫"]
+## 五采：照旅程的順序一根一根長出來——冰雪島青、駁大莖森黃、霧山楓燃赤、人類要塞紫、丹穴山金。
+## 顏色跟選關地圖的五根羽毛（level_select.gd 的 FEATHER_COLORS）、各大關結尾帽子底下的羽毛尖是同一組
+const FEATHER_COLS := [Color("4fc3d9"), Color("f2d03a"), Color("e2483a"), Color("9a72d8"), Color("f0a81c")]
+const FEATHER_NAMES := ["青", "黃", "赤", "紫", "金"]
 const HEN_NUMS := ["12", "31", "07", "58", "40"]
 
 func _lines() -> Array:
@@ -58,7 +59,8 @@ func _lines() -> Array:
 		{"shot": "roof2", "hold": 3.4, "cue": "r_freeze"},
 		{"shot": "roof2", "who": "家豪", "text": "……你自己聽，這首，就很你們懂吧。", "cue": "r_listen"},
 		{"shot": "roof2", "hold": 7.2, "cue": "r_end"},
-		{"shot": "post", "hold": 9.0, "cue": "post", "fade_out": 0.1, "fade_in": 1.6},
+		{"shot": "page", "hold": 5.6, "cue": "page", "fade_out": 0.1, "fade_in": 0.6},
+		{"shot": "post", "hold": 9.0, "cue": "post", "fade_out": 0.6, "fade_in": 1.6},
 	]
 
 func _skip_text() -> String:
@@ -94,6 +96,7 @@ var _hood_down: Node3D
 var _tail: Node3D
 var _feathers: Array = []
 var _post_peel: Node3D
+var _page: Control                 # 手帳的最後一頁（「第 6 天　屋頂。」）
 
 var _fin_mode := "off"           # off／tease（第一次有聲音）／full（化成鳳凰）
 var _fin_clock := 0.0
@@ -460,6 +463,9 @@ func _crane_hover(k: int, pos: Vector3, yaw: float) -> void:
 # ================================================================== 換鏡頭
 
 func _enter_shot(s: String) -> void:
+	if _page and is_instance_valid(_page) and s != "page":
+		_page.queue_free()
+		_page = null
 	var temple := s in ["temple", "sound", "phoenix", "birds"]
 	var farm := s in ["roof2", "post"]
 	_world.visible = temple
@@ -536,6 +542,9 @@ func _enter_shot(s: String) -> void:
 			_tag_on_neck()
 			_dawn_look(true)
 			_farm_cast()
+		"page":
+			hero.visible = false
+			_tag66.visible = false
 		"post":
 			_light(_env_dusk, Color(1.0, 0.64, 0.38), 1.6, Vector3(-0.30, PI - 0.4, 0))
 			_dawn_look(false)
@@ -994,6 +1003,10 @@ func _on_line(l: Dictionary) -> void:
 			tw3.tween_interval(4.2)
 			tw3.tween_callback(func(): _fade.color = Color(0, 0, 0, 0))
 			tw3.tween_property(_fade, "color:a", 1.0, 2.6)
+		# ---------------------------------------------------------- 手帳的最後一頁
+		"page":
+			# 每一章結尾都在手帳寫下「更好的地方」不是哪裡；最後一頁只有兩個字。音樂沒有停
+			_page = _final_page()
 		# ---------------------------------------------------------- 片尾
 		"post":
 			# 空的屋頂。那隻小雞自己爬上來，學家豪的樣子比；沒有聲音。天上掉下來一片香蕉皮
@@ -1083,6 +1096,96 @@ func _dance(on: bool) -> void:
 
 # ================================================================== 每一畫面
 
+## 手帳的最後一頁：黑底上一張手帳紙，「第 6 天」「屋頂。」，底下一路帶回來的五根羽毛一根一根貼上去
+## （各大關結尾的手帳頁是 levels/ice/story/story_kit.gd 的 _journal_page，這一頁是它們的答案）
+func _final_page() -> Control:
+	var root := Control.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_layer.add_child(root)
+	_layer.move_child(root, _dlg.get_index())
+	var bg := ColorRect.new()
+	bg.color = Color(0.02, 0.02, 0.03)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	root.add_child(bg)
+	var p := PanelContainer.new()
+	UIStyle.paper(p, 0.012)
+	var sb := UIStyle._box(UIStyle.PAPER, UIStyle.PAPER_EDGE, 6, 3)
+	sb.content_margin_left = 80
+	sb.content_margin_right = 80
+	sb.content_margin_top = 34
+	sb.content_margin_bottom = 34
+	p.add_theme_stylebox_override("panel", sb)
+	root.add_child(p)
+	var v := VBoxContainer.new()
+	v.add_theme_constant_override("separation", 14)
+	p.add_child(v)
+	var day := Label.new()
+	day.text = "第 6 天"
+	day.label_settings = UIStyle.ls(28, UIStyle.accent())
+	v.add_child(day)
+	var word := Label.new()
+	word.text = "屋頂。"
+	word.label_settings = UIStyle.ls(72, UIStyle.INK)
+	word.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	word.custom_minimum_size = Vector2(520, 0)
+	v.add_child(word)
+	var row := HBoxContainer.new()
+	row.alignment = BoxContainer.ALIGNMENT_CENTER
+	row.add_theme_constant_override("separation", 18)
+	v.add_child(row)
+	var stickers: Array = []
+	for k in FEATHER_COLS.size():
+		var c := Control.new()
+		c.custom_minimum_size = Vector2(64, 92)
+		var col: Color = FEATHER_COLS[k]
+		c.draw.connect(func(): _draw_feather_sticker(c, col))
+		c.modulate.a = 0.0
+		row.add_child(c)
+		stickers.append(c)
+	p.set_anchors_and_offsets_preset(Control.PRESET_CENTER)
+	p.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	p.grow_vertical = Control.GROW_DIRECTION_BOTH
+	p.modulate.a = 0.0
+	var tw := _tw()
+	tw.tween_property(p, "modulate:a", 1.0, 0.5)
+	for k in stickers.size():
+		var c := stickers[k] as Control
+		tw.tween_interval(0.32)
+		tw.tween_callback(func():
+			c.modulate.a = 1.0
+			c.pivot_offset = c.size * 0.5
+			c.scale = Vector2.ONE * 1.6
+			create_tween().tween_property(c, "scale", Vector2.ONE, 0.22).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+			_play("bell", -14.0, [1.0, 1.125, 1.25, 1.5, 1.667][k]))
+	return root
+
+## 羽毛貼紙：一根斜斜的羽毛，外面一圈白邊
+func _draw_feather_sticker(c: Control, col: Color) -> void:
+	var sz := c.size
+	var ctr := sz * 0.5
+	var ang := 0.42
+	var length := sz.y * 0.86
+	var width := sz.x * 0.42
+	var left: PackedVector2Array = []
+	var right: PackedVector2Array = []
+	for i in 21:
+		var k := float(i) / 20.0
+		var w := width * pow(sin(PI * minf(0.04 + k * 0.96, 1.0)), 0.75) * 0.5
+		var y := length * (0.5 - k)
+		left.append(Vector2(-w, y).rotated(ang) + ctr)
+		right.append(Vector2(w, y).rotated(ang) + ctr)
+	right.reverse()
+	var pts := left + right
+	var grow: PackedVector2Array = []
+	for q in pts:
+		grow.append(ctr + (q - ctr) * 1.13)
+	c.draw_colored_polygon(grow, Color(1, 1, 1, 0.95))
+	c.draw_colored_polygon(pts, col)
+	c.draw_line(Vector2(0, length * 0.62).rotated(ang) + ctr, Vector2(0, -length * 0.45).rotated(ang) + ctr, col.darkened(0.45), 3.0, true)
+	c.draw_circle(Vector2(0, -length * 0.3).rotated(ang) + ctr, width * 0.13, Color(1.0, 0.93, 0.6))
+
 func _tick(dt: float) -> void:
 	var hero := _hero.node as Node3D
 	# 場地那邊的演出（唱盤、山海轉盤、鳳凰金光、百鳥）跟著這裡的時間走
@@ -1132,7 +1235,8 @@ func _tick(dt: float) -> void:
 			if _notes == "grey":
 				_emote(hp + Vector3(0.9 * side * (up / 1.5), up, 0.2), "♪" if side > 0.0 else "♫", Color(0.80, 0.80, 0.86), 1.2, 0.62 * (up / 1.5), -1.1 * (up / 1.5))
 			else:
-				_emote(hp + Vector3(1.0 * side, 1.6, 0.2), "♪" if side > 0.0 else "♫", Color(1.0, 0.86, 0.36), 1.3, 0.8, 1.2)
+				var nc: Color = (FEATHER_COLS[int(_t / BEAT) % FEATHER_COLS.size()] as Color).lightened(0.25)
+				_emote(hp + Vector3(1.0 * side, 1.6, 0.2), "♪" if side > 0.0 else "♫", nc, 1.3, 0.8, 1.2)
 	# 仙鶴
 	for c in _cranes:
 		var n := c.node as Node3D

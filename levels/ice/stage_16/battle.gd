@@ -3,6 +3,25 @@ extends "res://levels/ice/rescue_battle.gd"
 ## 前一批：阿火撞守衛甲進冰洞甲。後一批：阿土、阿水各一片，或用第 5 關的時機一片解兩個；守衛乙用飼料或省下的那一片。
 
 const RescueFeed := preload("res://levels/ice/items/rescue_feed_item.gd")
+const IceStory := preload("res://levels/ice/story/ice_story.gd")
+
+## 第一次破完這一章：過關卡片按 Enter 之後先播大關的結尾動畫（levels/ice/story/ice_ending.gd），播完自己回地圖
+func _finale_leave() -> void:
+	if not IceStory.ending_pending():
+		super()
+		return
+	Engine.time_scale = 1.0
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
+	get_tree().change_scene_to_file(IceStory.ENDING)
+
+## 過關卡片：後面還有結尾動畫，按鈕寫「繼續」
+func _make_finale_card() -> Control:
+	var panel := super()
+	if IceStory.ending_pending():
+		for l in panel.find_children("*", "Label", true, false):
+			if (l as Label).text.contains("回地圖"):
+				(l as Label).text = "繼續 ▶"
+	return panel
 
 func _make_items() -> Array:
 	return [

@@ -2,6 +2,19 @@ extends "res://levels/ice/rescue_battle.gd"
 ## 【救企鵝 1】教學：香蕉皮丟在紅線的哪一段，工人就往那一段的方向滑。
 ## 第一段在雪地上：只會跌倒；第二段：看起來對著冰洞，但會撞到雪人停下；最後一段：一路滑進冰洞。
 
+const IceStory := preload("res://levels/ice/story/ice_story.gd")
+
+## 第一次進冰雪島：先播大關的開場動畫（levels/ice/story/ice_opening.gd），播完會再回到這一關
+func _ready() -> void:
+	if IceStory.opening_pending():
+		set_process(false)
+		set_physics_process(false)
+		set_process_input(false)
+		set_process_unhandled_input(false)
+		get_tree().change_scene_to_file.call_deferred(IceStory.OPENING)
+		return
+	super()
+
 func _make_items() -> Array:
 	return [
 		BananaItem.new().uses_shared(2).cooldown_sec(0.0),
