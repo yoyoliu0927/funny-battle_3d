@@ -80,6 +80,34 @@ var _notes_on := false
 var _notes_t := 0.0
 var _flying: Array = []              # 飛向同伴的音符 {node, from, to, t, dur, done}
 
+## 開場前先蓋黑幕：整個場景（借關卡的場地、模型、合成音效）都在 _ready 一次蓋完，
+## 網頁版要卡一秒多（慢的筆電三、四秒），而且第一格畫面還要編譯著色器。
+## 不蓋的話，卡住的那段畫面會停在上一個場景（選關地圖），看起來像當掉。
+## 所以：先畫一格全黑 → 再蓋場景 → 在黑幕後面先畫幾格（著色器編譯完）→ 拿掉黑幕，照原本的淡入開始。
+## 黑幕蓋著的時候整個節點暫停，淡入的補間動畫不會被那幾格很長的畫面吃掉。
+## 測試、截圖（quiet）照原本一次蓋完，截圖的時間點才不會跑掉。
+const WARM_FRAMES := 3
+
+func _ready() -> void:
+	if quiet():
+		super()
+		return
+	process_mode = Node.PROCESS_MODE_DISABLED
+	var cover := CanvasLayer.new()
+	cover.layer = 128
+	var black := ColorRect.new()
+	black.color = Color.BLACK
+	black.set_anchors_preset(Control.PRESET_FULL_RECT)
+	black.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	cover.add_child(black)
+	add_child(cover)
+	await RenderingServer.frame_post_draw      # 黑畫面先畫出來
+	super()
+	for i in WARM_FRAMES:
+		await RenderingServer.frame_post_draw  # 第一個鏡頭在黑幕後面先畫：著色器在這裡編譯
+	cover.queue_free()
+	process_mode = Node.PROCESS_MODE_INHERIT
+
 func _build() -> void:
 	_papers = Control.new()
 	_papers.set_anchors_preset(Control.PRESET_FULL_RECT)
