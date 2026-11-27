@@ -22,8 +22,10 @@ const ResultCard := preload("res://levels/forest/result_card.gd")
 var _result_card: Control
 var _defeat_card: Control
 const ForestSfx := preload("res://levels/forest/forest_sfx.gd")
+const WebPerf := preload("res://scripts/web_perf.gd")   # 共用的畫質小幫手（只用來叫它合成時先不要算 FPS，見 _hold_fps_watch）
 const MUSIC_DB := {"bgm_plan": -14.0, "bgm_run": -13.0}
 const MUSIC_OFF := -60.0
+const SLICE_MS := 8.0         # 網頁版每一格最多花幾毫秒合成聲音（見 _setup_audio）
 var _sounds := {}             # 名字 → AudioStreamWAV
 var _music := {}              # bgm_plan / bgm_run → AudioStreamPlayer
 var _sfx_2d := {}             # 不分位置的音效 → AudioStreamPlayer
@@ -163,23 +165,45 @@ func _level_setup() -> void:
 # ---------------------------------------------------------------- 聲音
 ## 配樂和音效都在 forest_sfx.gd 用程式合成。自動測試不出聲（也不用花時間合成）。
 
-## 第一次進森林時，合成丟到背景執行緒做（要好幾秒），好了再接上；之後都直接用算好的
+## 第一次進森林時要合成（桌面版一秒多，網頁版好幾秒），好了再接上；之後都直接用算好的。
+##   桌面版：丟到背景執行緒做。
+##   網頁版：沒有執行緒，丟給 WorkerThreadPool 會在主執行緒一口氣做完（第一次進森林畫面停 5 秒多），
+##          所以改成 _poll_audio 每一格做一小段（ForestSfx.step）。開打前還沒做完就先不出聲。
 func _setup_audio() -> void:
 	if _automated_run() and not Engine.has_meta("forest_audio_force"):
 		return
 	_audio_wanted = true
 	if ForestSfx.is_ready():
 		_attach_audio()
-	elif not ForestSfx.building():
+	elif not _sliced_audio() and not ForestSfx.building():
 		_audio_task = WorkerThreadPool.add_task(ForestSfx.make_all, false, "森林音效合成")
 
+## 一格做一小段、不用執行緒：網頁版，或測試設了 forest_audio_sliced（在桌面上試網頁版的做法）
+func _sliced_audio() -> bool:
+	return OS.has_feature("web") or Engine.has_meta("forest_audio_sliced")
+
 func _poll_audio() -> void:
-	if not _audio_wanted or not _sounds.is_empty() or not ForestSfx.is_ready():
+	if not _audio_wanted or not _sounds.is_empty():
+		return
+	if _sliced_audio():
+		_hold_fps_watch()
+		if not ForestSfx.step(SLICE_MS):
+			return
+	elif not ForestSfx.is_ready():
 		return
 	if _audio_task >= 0:
 		WorkerThreadPool.wait_for_task_completion(_audio_task)
 		_audio_task = -1
 	_attach_audio()
+
+## 合成的那幾秒每一格都多花幾毫秒，FPS 會比較低，但那不是畫面跑不動。共用的 web_perf.gd 在「自動」畫質時
+## 連續 4 秒低於 40 FPS 就降一級，之後變順了還會記住「這台跑不動」，以後都不再升回去（慢一點的電腦實測會被降到「中」）。
+## 所以合成期間每一格把它這一秒的 FPS 計數歸零（它換場景時也是這樣做），這幾秒就不算。
+## _reset_watch 不是它公開的函式：找不到就算了，頂多跟以前一樣被降畫質，不會出錯
+func _hold_fps_watch() -> void:
+	var wp := WebPerf.find(get_tree())
+	if wp and wp.has_method("_reset_watch"):
+		wp.call("_reset_watch")
 
 func _attach_audio() -> void:
 	_sounds = ForestSfx.make_all()
@@ -1947,8 +1971,9 @@ func _process(dt: float) -> void:
 func _exit_tree() -> void:
 	Engine.time_scale = 1.0
 	if _audio_task >= 0:
-		WorkerThreadPool.wait_for_task_completion(_audio_task)   # 背景合成還沒做完：等它結束再離開
+		WorkerThreadPool.wait_for_task_completion(_audio_task)   # 桌面版背景合成還沒做完：等它結束再離開
 		_audio_task = -1
+	# 網頁版沒有背景工作：做到一半的留在 ForestSfx，下次進森林接著做
 
 func _view_blocked() -> bool:
 	return super() or _cutting()

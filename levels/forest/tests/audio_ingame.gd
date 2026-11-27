@@ -1,6 +1,7 @@
 extends SceneTree
 ## 開著聲音實際跑一下小紅帽關：背景合成時畫面不卡、配樂淡入、開打換熱鬧版、事件真的有出聲。
 ## Godot --path . --script res://levels/forest/tests/audio_ingame.gd
+## 加 -- --sliced：用網頁版的做法（不用執行緒，每一格合成一小段）
 const S1 := "res://levels/forest/stage_3/stage.tscn"
 var bt
 var fails := 0
@@ -12,6 +13,9 @@ func ok(c: bool, what: String) -> void:
 
 func _initialize() -> void:
 	Engine.set_meta("forest_audio_force", true)
+	if "--sliced" in OS.get_cmdline_user_args():
+		Engine.set_meta("forest_audio_sliced", true)
+		print("網頁版的做法：每一格合成一小段")
 	_go.call_deferred()
 
 func _go() -> void:
