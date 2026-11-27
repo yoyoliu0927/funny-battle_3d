@@ -7,6 +7,7 @@ extends Node3D
 ##   坡頂平台   z ≈ -38 ~ -52，高度 18
 ##   岩壁       沿坡道左側（-X）一路錯落堆疊
 ##   遠景       三圈岩壁輪廓，距離 160 / 240 / 340 m，靠霧做出深度
+const _MeshData := preload("res://scripts/static_batch.gd")   # 網格資料不從顯示卡讀（見 static_batch.gd 開頭的說明）
 
 const TERRAIN_SIZE := 240.0
 const TERRAIN_RES := 200          # 每邊格數
@@ -237,7 +238,7 @@ func _build_terrain() -> void:
 	arrays[Mesh.ARRAY_INDEX] = indices
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
-	var shape := mesh.create_trimesh_shape()
+	var shape := _MeshData.cpu_mesh(arrays).create_trimesh_shape()   # 用手上的頂點做碰撞（不從顯示卡讀回來，見 _arrays_of）
 	if key != "":
 		_terrain_cache_put(key, {"heights": _heights, "mesh": mesh, "shape": shape})
 	_add_terrain(mesh, shape)
@@ -359,6 +360,7 @@ func make_rock_mesh(rng: RandomNumberGenerator, cuts: int, roughness: float, fla
 	arrays[Mesh.ARRAY_COLOR] = col
 	var m := ArrayMesh.new()
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	m.set_meta(&"cpu_arrays", arrays)      # 頂點資料留一份（做碰撞、合併時不用從顯示卡讀，見 _arrays_of）
 	return m
 
 ## 柱狀岩塊：4~6 邊形柱體，頂面斜切、側面微傾，做出參考圖那種方正的岩柱
@@ -422,6 +424,7 @@ func _flat_mesh(tris: Array, center: Vector3) -> ArrayMesh:
 	arrays[Mesh.ARRAY_COLOR] = col
 	var m := ArrayMesh.new()
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	m.set_meta(&"cpu_arrays", arrays)      # 頂點資料留一份（做碰撞、合併時不用從顯示卡讀，見 _arrays_of）
 	return m
 
 var _column_meshes: Array[ArrayMesh] = []
@@ -434,11 +437,11 @@ func _build_rock_variants() -> void:
 		# 少段數 + 多切面 → 大塊平面、稜角分明
 		var m := make_rock_mesh(r, r.randi_range(6, 10), r.randf_range(0.1, 0.2))
 		_rock_meshes.append(m)
-		_rock_shapes.append(m.create_convex_shape())
+		_rock_shapes.append(_convex_of(m))
 	for k in 14:
 		var c := make_column_mesh(r)
 		_column_meshes.append(c)
-		_column_shapes.append(c.create_convex_shape())
+		_column_shapes.append(_convex_of(c))
 
 func _ground_min(x: float, z: float, radius: float) -> float:
 	var h := _lh(x, z)
@@ -588,6 +591,19 @@ func _build_distant_layers() -> void:
 	mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	node.add_child(mi)
 
+## 網格第一面的頂點資料。自己做的網格（make_rock_mesh 這類）做的時候就記在 meta "cpu_arrays"，直接拿；
+## 其他的要用 surface_get_arrays 從顯示卡讀回來（網頁版每讀一次都要等顯示卡把手上的事做完，一關幾百次就是好幾秒）
+static func _arrays_of(m: Mesh) -> Array:
+	if m.has_meta(&"cpu_arrays"):
+		return m.get_meta(&"cpu_arrays")
+	return m.surface_get_arrays(0)
+
+## 凸多面體碰撞形狀（跟 Mesh.create_convex_shape() 一樣，自己做的網格不從顯示卡讀）
+static func _convex_of(m: Mesh) -> Shape3D:
+	if m.has_meta(&"cpu_arrays"):
+		return _MeshData.cpu_mesh(m.get_meta(&"cpu_arrays")).create_convex_shape()
+	return m.create_convex_shape()
+
 ## 把很多個 [網格, Transform3D] 合併成一個網格（只取每個網格的第一個面，頂點、法線、顏色）。
 ## 給不會動、材質相同的一大堆東西用（遠景石山之類），可以把好幾百次繪製變成一次。
 func merge_meshes(parts: Array) -> ArrayMesh:
@@ -598,15 +614,23 @@ func merge_meshes(parts: Array) -> ArrayMesh:
 		var m: Mesh = pt[0]
 		var xf: Transform3D = pt[1]
 		var nb := xf.basis.inverse().transposed()     # 法線要用反轉置，壓扁、拉長的石頭光線才對
-		var a := m.surface_get_arrays(0)
-		var v: PackedVector3Array = a[Mesh.ARRAY_VERTEX]
-		var n: PackedVector3Array = a[Mesh.ARRAY_NORMAL]
+		var a := _arrays_of(m)
+		# 整串頂點、法線一次換座標（引擎內部算，比一個一個在腳本裡算快很多；網頁版尤其明顯）
+		var v: PackedVector3Array = xf * (a[Mesh.ARRAY_VERTEX] as PackedVector3Array)
+		var n: PackedVector3Array = Transform3D(nb, Vector3.ZERO) * (a[Mesh.ARRAY_NORMAL] as PackedVector3Array)
+		for j in n.size():
+			n[j] = n[j].normalized()
 		var c = a[Mesh.ARRAY_COLOR]
 		var idx = a[Mesh.ARRAY_INDEX]
+		if (idx == null or idx.size() == 0) and c != null and c.size() == v.size():
+			pos.append_array(v)                         # 沒有索引（石頭都是這種）：整串接上去
+			nor.append_array(n)
+			col.append_array(c)
+			continue
 		var order: PackedInt32Array = idx if idx != null and idx.size() > 0 else PackedInt32Array(range(v.size()))
 		for i in order:
-			pos.append(xf * v[i])
-			nor.append((nb * n[i]).normalized())
+			pos.append(v[i])
+			nor.append(n[i])
 			col.append(c[i] if c != null and c.size() > i else Color.WHITE)
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
@@ -656,6 +680,7 @@ func _make_grass_mesh() -> ArrayMesh:
 	arrays[Mesh.ARRAY_COLOR] = col
 	var m := ArrayMesh.new()
 	m.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+	m.set_meta(&"cpu_arrays", arrays)      # 頂點資料留一份（做碰撞、合併時不用從顯示卡讀，見 _arrays_of）
 	return m
 
 func _build_vegetation() -> void:

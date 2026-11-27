@@ -364,7 +364,12 @@ func _ready() -> void:
 	for e in entries.size():
 		worlds.append(_build_world(e))
 		if not _is_hub(e):
-			_flatten_pieces(worlds[e].root)
+			if worlds[e].kept:
+				_far_proxies.append_array(worlds[e].proxies)      # 上次合好的，原封不動
+			else:
+				_prefetch_meshes(worlds[e].root)
+				_flatten_pieces(worlds[e].root)
+				_batch_isle(worlds[e])
 		else:
 			_batch_hub_decor(worlds[e].root)
 	_hub_build = false
@@ -374,6 +379,7 @@ func _ready() -> void:
 	_sailer.build()
 	_cam_fov0 = _cam.fov
 	_fit_map_camera()
+	_proxy_ranges()
 	_sea_mat.set_shader_parameter("region_z", float(worlds[0].center.z))
 	var isles: Array = []
 	for w in worlds.slice(0, 8):
@@ -942,6 +948,57 @@ func _batch_hub_decor(root: Node3D) -> void:
 	for par in by_parent:
 		StaticBatch.merge(par as Node3D, by_parent[par])
 
+## 效能：主題島（不是主島）的遠景替身。世界地圖一次看到所有島，每個模型各自合併之後五座主題島還要畫一千多次；
+## 替身是整座島不會動的東西合成「一種材質一個面」，只剩幾十次。鏡頭拉遠到世界地圖才換成替身（距離見 _proxy_ranges），
+## 走到島上、看附近的島還是畫原本的零件（看不到的會被切掉，不會因為合在一起整座島都要畫）。
+## 地標跟著站點縮放（世界地圖上放大），所以每個站點底下自己做一份。路、圓墊、旗子、雲、只在島上顯示的小東西、
+## 有腳本或動畫的都不放進替身（之後還會被程式移動、縮放、藏起來）。替身跟著整座島留著（_keep_isles），回到地圖不用重做。
+var _far_proxies: Array = []   # 主題島的遠景替身（_proxy_ranges 照世界地圖鏡頭的位置設切換距離）
+func _batch_isle(w: Dictionary) -> void:
+	var skip := {}
+	for n in (w.pad_nodes as Array) + (w.marks as Array) + _small:
+		skip[n] = true
+	for fl in _flags:
+		skip[fl.node] = true
+	for cl in _clouds:
+		skip[cl.node] = true
+	var root: Node3D = w.root
+	var loose: Array = []
+	for c in root.get_children():
+		if c is Node3D and not c in w.isle_roots:
+			loose.append(c)
+	var made: Array = StaticBatch.proxy(root, loose, 200.0, true, skip)
+	for ir in w.isle_roots:
+		made.append_array(StaticBatch.proxy(ir as Node3D, (ir as Node).get_children(), 200.0, true, skip))
+	w.proxies = made
+	_far_proxies.append_array(made)
+
+## 遠景替身什麼時候換上：鏡頭離替身比「世界地圖的鏡頭到它的距離」的 85% 還遠。世界地圖上一定是替身；
+## 在島上看出去（鏡頭很低）通常到不了這個距離，照畫原本的零件（到了也只是換成替身，看起來一樣）。
+## 引擎量的是鏡頭到替身網格中心（AABB 中心）的距離。世界地圖的鏡頭在地圖正中間上方：靠中間的島離它只有兩百多公尺，
+## 所以每個替身各自算，不能整張地圖用同一個距離
+func _proxy_ranges() -> void:
+	var cam := _map_center + _map_cam
+	for p in _far_proxies:
+		var mi := p as MeshInstance3D
+		mi.visibility_range_begin = cam.distance_to((mi.global_transform * mi.get_aabb()).get_center()) * 0.85
+
+## 網頁版：合併要用的模型網格先一口氣全部讀好（StaticBatch.source 會留著）。網頁版讀網格要從顯示卡讀回來，
+## 每次都要等顯示卡把排著的事做完；邊讀邊做新網格（上傳）的話，每讀一次都要等上一個上傳完。全部先讀完，中間沒有新的事，等得最少
+## （頂點很多的大模型不讀：替身不收它們，單獨一個網格的模型也不用合）
+func _prefetch_meshes(root: Node) -> void:
+	for m in root.find_children("*", "MeshInstance3D", true, false):
+		var mesh := (m as MeshInstance3D).mesh
+		if not mesh is ArrayMesh or mesh.resource_path == "" or (mesh as ArrayMesh).get_blend_shape_count() > 0:
+			continue
+		var nv := 0
+		for s in mesh.get_surface_count():
+			nv += (mesh as ArrayMesh).surface_get_array_len(s)
+		if nv > StaticBatch.PROXY_MAX_VERTS:
+			continue
+		for s in mesh.get_surface_count():
+			StaticBatch.source(mesh, s)
+
 ## 效能：把島上不會動的模型（.glb 拆成很多小零件的那種，一棵樹可能有 80 幾個零件）
 ## 每個模型合併成「一種材質一個面」，繪製次數從幾千降到幾百。
 ## 有腳本、動畫、骨架、形狀鍵的模型不動（可能會被搖晃、換材質、開關），藏起來的零件也不合併。
@@ -1009,7 +1066,8 @@ func _merge_piece(piece: Node3D) -> void:
 		for g in groups:
 			sts.append(SurfaceTool.new())
 		for pt in parts:
-			(sts[pt[3]] as SurfaceTool).append_from(pt[0], pt[1], pt[2])
+			# 頂點資料用 StaticBatch 存好的那份：網頁版每讀一次網格都要等顯示卡（同一個模型只讀一次）
+			(sts[pt[3]] as SurfaceTool).append_from(StaticBatch.source(pt[0], pt[1]), 0, pt[2])
 		arrays = []
 		for st in sts:
 			arrays.append((st as SurfaceTool).commit_to_arrays())
@@ -1023,6 +1081,7 @@ func _merge_piece(piece: Node3D) -> void:
 			var mi := MeshInstance3D.new()
 			mi.name = "Merged"
 			mi.mesh = ArrayMesh.new()
+			mi.mesh.set_meta(&"batch_key", "piece:%d:%s" % [ck, nk])   # 整座島再合一次的時候認得它（不用從顯示卡讀）
 			mi.cast_shadow = g[1]
 			mi.layers = g[2]
 			piece.add_child(mi)
@@ -1030,9 +1089,36 @@ func _merge_piece(piece: Node3D) -> void:
 		var am: ArrayMesh = (meshes[nk] as MeshInstance3D).mesh
 		am.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays[gi])
 		am.surface_set_material(am.get_surface_count() - 1, g[0])
+		StaticBatch.remember(am, am.get_surface_count() - 1, arrays[gi])
 	for mi in done:
 		mi.get_parent().remove_child(mi)
 		mi.queue_free()
+
+## 主題島的裝飾（大關 map_isles.gd 蓋的島面、樹、地標，和合好的遠景替身）跟存檔進度無關（亂數都有固定種子），
+## 每次回到地圖都重蓋一模一樣的東西，網頁版要多等一兩秒。所以離開地圖的時候（這個場景被刪掉之前）把整座島拆下來留著，
+## 下次蓋地圖直接掛回來（_build_world），只重蓋跟進度有關的圓墊、路、旗子。主島（農莊）跟很多系統綁在一起，每次重蓋。
+static var _isle_keep := {}    # 第幾座島 → {key, root, hook, isle_roots, proxies, state（要拆掉重蓋的圓墊、路、旗子）}
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_PREDELETE:
+		_keep_isles()
+
+func _keep_isles() -> void:
+	for e in worlds.size():
+		var w: Dictionary = worlds[e]
+		var root = w.get("root")
+		if String(w.get("keep_key", "")) == "" or not is_instance_valid(root) or (root as Node).get_parent() != self:
+			continue
+		remove_child(root)
+		_drop_kept(e)
+		_isle_keep[e] = {"key": w.keep_key, "root": root, "hook": w.hook, "isle_roots": w.isle_roots,
+			"proxies": w.proxies, "state": (w.pad_nodes as Array) + (w.marks as Array)}
+
+static func _drop_kept(e: int) -> void:
+	var k = _isle_keep.get(e)
+	if k != null and is_instance_valid(k.root) and not (k.root as Node).is_inside_tree():
+		(k.root as Node).free()
+	_isle_keep.erase(e)
 
 ## 蓋第 e 座島：一整座大島，島上有每個站點的地標、圓墊、路、旗子。還沒做好的大關是一座被雲蓋住的小島。
 ## 島先蓋在自己的座標裡（root 底下），再把 root 搬到世界地圖上的位置。
@@ -1044,17 +1130,42 @@ func _build_world(e: int) -> Dictionary:
 	var playable := hub or _playable(ch)
 	var sts: Array = _stations[e]
 	var n := sts.size()
-	var root := Node3D.new()
-	root.name = "World%d" % e
-	add_child(root)
-	var hook: Object = _hook(ch) if playable and not hub else null
-	var col := _color_of(ent)
 	var le := 0 if hub else int(ent.slot) + 2          # 島自己座標裡的「第幾排」（決定路怎麼彎、預設島長什麼樣）
+	# 主題島的裝飾上次蓋過就直接拿來用（見 _keep_isles）：只要把上次跟進度有關的圓墊、路、旗子拆掉重蓋
+	var keep_key := ""
+	var kept = null
+	if playable and not hub and String(_chapter_consts(ch).get("MAP_SCRIPT", "")) != "":
+		keep_key = "%s|%d|%d|%s" % [ch.id, le, n, _chapter_consts(ch).get("MAP_SCRIPT", "")]
+		kept = _isle_keep.get(e)
+		if kept != null and (String(kept.key) != keep_key or not is_instance_valid(kept.root)):
+			_drop_kept(e)
+			kept = null
+	var root: Node3D
+	if kept != null:
+		_isle_keep.erase(e)
+		root = kept.root
+		for nd in kept.state:
+			if is_instance_valid(nd):
+				(nd as Node).free()
+		add_child(root)
+	else:
+		root = Node3D.new()
+		root.name = "World%d" % e
+		add_child(root)
+	var hook: Object = null
+	if playable and not hub:
+		if kept != null:
+			hook = kept.hook
+			_hooks[ch.id] = hook          # 島面高度（ground_y）要用蓋島那一個（裡面記著島的形狀）
+		else:
+			hook = _hook(ch)
+	var col := _color_of(ent)
 	var at: Vector2 = _ring_pos[e]
 	var off := Vector3(at.x, 0, at.y)
 	var sc := _isle_scale(e)                          # 最終章整座放大一點（全圖的視覺高潮）
 	var w := {"root": root, "n": n, "pads": [], "isles": [], "isle_roots": [], "segs": [], "pad_nodes": [], "hook": hook,
-		"center": Vector3(at.x, TOP_Y, at.y), "rx": ISLE_R + 2.0, "rz": ISLE_R + 2.0, "marks": []}
+		"center": Vector3(at.x, TOP_Y, at.y), "rx": ISLE_R + 2.0, "rz": ISLE_R + 2.0, "marks": [],
+		"keep_key": keep_key, "kept": kept != null, "proxies": kept.proxies if kept != null else []}
 	var ctx := {}
 	if playable:
 		ctx = _island_ctx(le, n)
@@ -1064,6 +1175,8 @@ func _build_world(e: int) -> Dictionary:
 		w.rz = float(ctx.rz) * sc
 		if hub:
 			_build_farm(root, ctx)
+		elif kept != null:
+			pass                                      # 島面、樹、地標都還在
 		elif hook and hook.has_method("build_island"):
 			hook.build_island(root, ctx)
 		else:
@@ -1121,6 +1234,9 @@ func _build_world(e: int) -> Dictionary:
 		if kind == "stage" and open:
 			w.marks.append(_build_flag(root, (lpads[k] as Vector3) + Vector3(1.75, 0, -0.5), GOLD if cleared else _st_color(e, k), k * 1.3 + e))
 		# 這個站點的地標
+		if kept != null:
+			w.isle_roots.append(kept.isle_roots[k])
+			continue
 		var ir := Node3D.new()
 		ir.name = "Spot%d" % k
 		ir.position = lspots[k]
@@ -2236,37 +2352,66 @@ static func set_sound_muted(on: bool) -> void:
 	cf.set_value("audio", "muted", on)
 	cf.save(SETTINGS_PATH)
 
+const SND_IDS := ["hop", "arrive", "bump", "fly", "land", "start", "click", "bgm"]
 static var _snd_streams := {}     # 合成好的音效（換場景也留著）
+var _snd_todo: Array = []         # 網頁版第一次開：還沒合成的音效（畫面出來之後一格做一個，見 _synth_step）
+var _snd_wait := 3                # 先讓開頭幾格畫出來再開始合成
 func _build_audio() -> void:
 	var cf := ConfigFile.new()
 	if cf.load(SETTINGS_PATH) == OK:
 		AudioServer.set_bus_mute(0, bool(cf.get_value("audio", "muted", false)))
-	# 音效和配樂是程式即時合成的，合成一次要 0.15 秒（網頁版更久）：第一次做好就留著，之後回到地圖直接拿來用
-	if _snd_streams.is_empty():
-		_snd_streams = {
-			"hop": _snd_hop(), "arrive": _snd_arrive(), "bump": _snd_bump(), "fly": _snd_fly(),
-			"land": _snd_land(), "start": _snd_start(), "click": _snd_click(), "bgm": _snd_bgm(),
-		}
-	var streams := _snd_streams
-	for id in streams:
+	# 音效和配樂是程式即時合成的，合成一次要 0.15 秒（網頁版要將近一秒）：第一次做好就留著，之後回到地圖直接拿來用。
+	# 網頁版第一次開遊戲：不要全部擠在開遊戲那一下（黑畫面會更久），先把播放器擺好，畫面出來之後一格合成一個；
+	# 反正瀏覽器要等玩家按過鍵或點過畫面才肯出聲
+	var later := OS.has_feature("web")
+	for id in SND_IDS:
+		if not later and not _snd_streams.has(id):
+			_snd_streams[id] = _synth(id)
 		var p := AudioStreamPlayer.new()
-		p.stream = streams[id]
+		p.stream = _snd_streams.get(id)
 		p.volume_db = BGM_DB if id == "bgm" else -4.0
 		add_child(p)
 		_snd[id] = p
-	(_snd["bgm"] as AudioStreamPlayer).play()
+		if p.stream == null:
+			_snd_todo.append(id)
+	if _snd_todo.is_empty():
+		(_snd["bgm"] as AudioStreamPlayer).play()
+
+static func _synth(id: String) -> AudioStreamWAV:
+	match id:
+		"hop": return _snd_hop()
+		"arrive": return _snd_arrive()
+		"bump": return _snd_bump()
+		"fly": return _snd_fly()
+		"land": return _snd_land()
+		"start": return _snd_start()
+		"click": return _snd_click()
+		"bgm": return _snd_bgm()
+	return null
+
+## 網頁版：還沒合成的音效一格做一個（背景音樂最後，做好就開始播）
+func _synth_step() -> void:
+	if _snd_wait > 0:
+		_snd_wait -= 1
+		return
+	var id: String = _snd_todo.pop_front()
+	if not _snd_streams.has(id):
+		_snd_streams[id] = _synth(id)
+	(_snd[id] as AudioStreamPlayer).stream = _snd_streams[id]
+	if id == "bgm":
+		(_snd["bgm"] as AudioStreamPlayer).play()
 
 ## 播一個音效。pitch：音高倍率（走路的每一跳稍微不一樣，才不會像機關槍）
 func _play(id: String, pitch := 1.0) -> void:
 	var p: AudioStreamPlayer = _snd.get(id)
-	if p:
+	if p and p.stream:                   # 網頁版剛開遊戲的頭幾格，音效可能還沒合成好
 		p.pitch_scale = pitch
 		p.play()
 
 ## 換場景之後還要繼續響的音效（按下開始）：播放器掛在最上層，播完自己消失
 func _play_detached(id: String) -> void:
 	var src: AudioStreamPlayer = _snd.get(id)
-	if src == null:
+	if src == null or src.stream == null:
 		return
 	var p := AudioStreamPlayer.new()
 	p.stream = src.stream
@@ -2527,11 +2672,17 @@ func _star_table(ch: Dictionary):
 		var table = null
 		var path := String(_chapter_consts(ch).get("STARS_SCRIPT", String(ch.dir).path_join("rescue_battle.gd")))
 		if ResourceLoader.exists(path):
-			var scr = load(path)
-			if scr is Script:
-				var v = (scr as Script).get("best_stars")
-				if v is Dictionary:
-					table = v
+			if ResourceLoader.has_cached(path):
+				var scr = load(path)
+				if scr is Script:
+					var v = (scr as Script).get("best_stars")
+					if v is Dictionary:
+						table = v
+			else:
+				# 這次開遊戲還沒載入過這個戰局腳本：它的表一定是空的（只有玩過才會記），不用為了讀一張空表把整個戰局
+				# 和它用到的模型、貼圖都載進來（開遊戲時四個大關一起載，網頁版要多等一秒多）。
+				# 有這個腳本就是三星制度（STARS_SCRIPT 的約定：寫的就是有 best_stars 的腳本）；星星照存檔（_ledger）
+				table = {}
 		_star_src[ch.id] = table
 	return _star_src[ch.id]
 
@@ -4392,6 +4543,8 @@ func _step(d: int) -> void:
 		walk_to(stage_sel + d)
 
 func _process(dt: float) -> void:
+	if not _snd_todo.is_empty():
+		_synth_step()
 	_t += dt
 	_idle_t += dt
 	_tick_hero(dt)
