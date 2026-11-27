@@ -53,7 +53,7 @@ func _tutorial_steps() -> Array:
 	return [
 		{"pic": ["who:抽菸1", "plus", "who:抽菸2"], "say": "這裡的人在抽菸。每隔一陣子就彈一根菸蒂，\n幾秒後點著旁邊的樹，火還會往旁邊燒。",
 			"spot": [smoke1, smoke2], "r": 1.8, "look": smoke1},
-		{"pic": ["hero", "to", "no"], "say": "家豪走到菸蒂上就會踩熄。\n用引路點帶她過去，也可以順便打人。",
+		{"pic": ["hero", "to", "no"], "say": "家豪走到菸蒂上就會踩熄。\n用引路點帶他過去，也可以順便打人。",
 			"spot": [hero_at], "r": 1.3},
 		{"pic": ["key:3", "to", "icon:bucket"], "say": "按 3 拿起水桶。",
 			"spot": ["slot:2"], "wait": func(): return tut_selected("bucket"),

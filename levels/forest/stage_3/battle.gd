@@ -68,7 +68,7 @@ func _tutorial_steps() -> Array:
 			"spot": [door, wolf_at], "r": 1.5, "look": door,
 			"wait": func(): return not baskets.is_empty(),
 			"help_after": 12.0, "help_say": "假獵物要放在木屋裡面或門口。圈圈變紅就是放不了。"},
-		{"pic": ["key:2", "to", "icon:guide"], "say": "按 2 拿起引路點，插在木屋門口。\n家豪不會自己進屋，要靠旗子帶她去。",
+		{"pic": ["key:2", "to", "icon:guide"], "say": "按 2 拿起引路點，插在木屋門口。\n家豪不會自己進屋，要靠旗子帶他去。",
 			"spot": [door], "r": 1.5, "look": door,
 			"wait": _tut_guide_at_door,
 			"help_after": 12.0, "help_say": "準心對到發亮的圈圈裡（木屋的門口），再按左鍵。"},

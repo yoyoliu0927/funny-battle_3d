@@ -5,7 +5,7 @@ const Models := preload("res://levels/forest/items/models.gd")
 func _init() -> void:
 	id = "guide"
 	name = "引路點"
-	tutorial = "點在地上。家豪會照你放下的順序一個一個走過去。\n路上遇到人會停下來打、踩到菸蒂會踩熄。點上的數字就是她的順序。"
+	tutorial = "點在地上。家豪會照你放下的順序一個一個走過去。\n路上遇到人會停下來打、踩到菸蒂會踩熄。點上的數字就是他的順序。"
 	color = Color(0.95, 0.86, 0.25)
 	radius = 0.55
 	icon_tex = Models.icon("guide")      # 道具欄畫場上那個模型的樣子

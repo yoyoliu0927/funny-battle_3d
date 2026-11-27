@@ -7,7 +7,7 @@ extends "res://scripts/battle/battle_base.gd"
 ## 假獵物把附近的人引開（狼外婆不理）。外婆的籃子只引得動狼外婆。
 ## 引路點照放下的順序走；走到人旁邊會停下來打。
 ## 狼外婆守著小紅帽：家豪闖進屋會被拍出門外。只有外婆的籃子引得開她，趁她在聞的時候進屋才救得到。
-## 家豪不會自己跑進木屋，要用引路點帶她進去（外面的人都倒了才會自己去）。
+## 家豪不會自己跑進木屋，要用引路點帶他進去（外面的人都倒了才會自己去）。
 
 const CHOP_TIME := 5.0
 const LURE_LIFE := 12.0
@@ -1326,7 +1326,7 @@ func _tick_enemy(f: Fighter, dt: float) -> void:
 		super(f, dt)
 
 func _tick_wolf(f: Fighter, dt: float) -> void:
-	# 狼外婆守在床邊看著小紅帽。家豪進屋的話，衝過去把她拍出門外。
+	# 狼外婆守在床邊看著小紅帽。家豪進屋的話，衝過去把他拍出門外。
 	# 只有外婆的籃子引得開她：她走去聞籃子的時候，家豪進屋才救得到小紅帽。
 	if not f.alive():
 		return
@@ -1382,7 +1382,7 @@ func _wolf_guarding() -> bool:
 			return true
 	return false
 
-## 狼外婆衝向家豪，夠近就一掌把她拍出門外
+## 狼外婆衝向家豪，夠近就一掌把他拍出門外
 const SWAT_DAMAGE := 1.0
 const SWAT_REACH := 1.5
 func _guard_rush(f: Fighter, dt: float) -> void:
@@ -1596,7 +1596,7 @@ func _nearest_decoy(p: Vector3) -> int:
 var _stuck_t := 0.0
 var _stuck_pos := Vector3.ZERO
 
-## 家豪走路被倒下的樹幹、樹、石頭卡住超過 1 秒：拍翅小跳過去（朝她要去的方向 2.5 公尺）
+## 家豪走路被倒下的樹幹、樹、石頭卡住超過 1 秒：拍翅小跳過去（朝他要去的方向 2.5 公尺）
 func _unstick(dt: float) -> void:
 	var b := bird
 	if not (b.state in ["charge", "return"]):
@@ -2330,7 +2330,7 @@ func _defeat_title() -> String:
 			return "家豪被抓去當晚餐了……"
 
 func _defeat_tip() -> String:
-	var tip := "用引路點讓家豪一次只打到一個人，不要讓她被包圍。"
+	var tip := "用引路點讓家豪一次只打到一個人，不要讓他被包圍。"
 	match fail:
 		"hood":
 			tip = "狼外婆守著小紅帽，直接進門會被拍出來。先把假獵物放在木屋門口引開她，再用引路點帶家豪進屋。"
@@ -2341,9 +2341,9 @@ func _defeat_tip() -> String:
 				"chopper":
 					tip = "家豪被伐木工圍著打。用假獵物讓他們背對家豪，從背後偷襲；一次只對付一個。"
 				"smoker":
-					tip = "家豪被抽菸的人打倒了。別讓她一次碰到兩個人，先用假獵物引開一個。"
+					tip = "家豪被抽菸的人打倒了。別讓他一次碰到兩個人，先用假獵物引開一個。"
 				_:
-					tip = "家豪撐不住了。用假獵物引開人，一次只讓她打一個。"
+					tip = "家豪撐不住了。用假獵物引開人，一次只讓他打一個。"
 		"fire":
 			tip = "菸蒂幾秒後會點著附近的樹，火還會延燒。讓家豪走過去踩熄；倒下的樹幹能擋火。"
 		"trees":
