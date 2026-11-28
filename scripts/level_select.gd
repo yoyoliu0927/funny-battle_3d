@@ -502,6 +502,7 @@ func _ready() -> void:
 		_title = TitleScreen.new()
 		_title.map = self
 		add_child(_title)
+		_title_music_on()
 	if "--autotest" in args:
 		_autotest.call_deferred()
 	if shots != "":
@@ -551,6 +552,52 @@ func _breathe(done: int, total: int) -> void:
 	if wp:
 		wp.hold_watch()                  # 這幾格故意很長：不要被當成跑不動而降畫質
 	await get_tree().process_frame
+
+## 標題畫面的音樂：first_light_particles（2 分 12 秒，匯入時設成循環）。只有開遊戲的標題畫面放，
+## 按下開始就淡出、換回主島的音樂盒（_title_music_tick）。檔案不在就照舊放音樂盒
+const TITLE_BGM_PATH := "res://assets/audio/first_light_particles.ogg"
+const TITLE_BGM_FADE := 1.2      # 按下開始之後淡出幾秒
+var _title_bgm: AudioStreamPlayer
+var _title_bgm_t := 0.0          # 淡出了多久
+
+func _title_music_on() -> void:
+	if not ResourceLoader.exists(TITLE_BGM_PATH):
+		return
+	var st := load(TITLE_BGM_PATH) as AudioStream
+	if st == null:
+		return
+	(_snd["bgm"] as AudioStreamPlayer).stop()
+	_title_bgm = AudioStreamPlayer.new()
+	_title_bgm.stream = st
+	_title_bgm.volume_db = BGM_DB
+	add_child(_title_bgm)
+	_title_bgm.play()
+
+## 主島的音樂盒現在可以放了嗎（標題畫面的音樂還在放就先不要）
+func _bgm_free() -> bool:
+	return _title_bgm == null
+
+## 每一格：標題畫面按下開始（或已經收掉）之後，新音樂淡出，接著音樂盒從小聲慢慢變大
+func _title_music_tick(dt: float) -> void:
+	if _title_bgm == null:
+		return
+	var leaving := _title == null or not (String(_title.get("_state")) in ["open", "title"])
+	if not leaving:
+		return
+	_title_bgm_t += dt
+	var k := clampf(_title_bgm_t / TITLE_BGM_FADE, 0.0, 1.0)
+	_title_bgm.volume_db = lerpf(BGM_DB, -60.0, k * k)
+	if k < 1.0:
+		return
+	_title_bgm.queue_free()
+	_title_bgm = null
+	if _title != null and bool(_title.get("_first")):
+		return                       # 第一次玩：接著要換去開場劇情（劇情有自己的配樂），音樂盒不用開
+	var bgm := _snd["bgm"] as AudioStreamPlayer
+	if bgm.stream != null:
+		bgm.volume_db = -40.0
+		bgm.play()
+		create_tween().tween_property(bgm, "volume_db", BGM_DB, 2.0)
 
 ## 標題畫面收掉了：介面拿出來，開始收按鍵
 func _title_end() -> void:
@@ -2472,7 +2519,7 @@ func _build_audio() -> void:
 		_snd[id] = p
 		if p.stream == null:
 			_snd_todo.append(id)
-	if _snd_todo.is_empty():
+	if _snd_todo.is_empty() and _bgm_free():
 		(_snd["bgm"] as AudioStreamPlayer).play()
 
 static func _synth(id: String) -> AudioStreamWAV:
@@ -2496,7 +2543,7 @@ func _synth_step() -> void:
 	if not _snd_streams.has(id):
 		_snd_streams[id] = _synth(id)
 	(_snd[id] as AudioStreamPlayer).stream = _snd_streams[id]
-	if id == "bgm":
+	if id == "bgm" and _bgm_free():
 		(_snd["bgm"] as AudioStreamPlayer).play()
 
 ## 播一個音效。pitch：音高倍率（走路的每一跳稍微不一樣，才不會像機關槍）
@@ -2661,18 +2708,9 @@ static func _snd_click() -> AudioStreamWAV:
 	_bell(s, 0.0, 84, 0.18, 0.4)
 	return _snd_wav(s)
 
-## 背景音樂：first_light_particles（2 分 12 秒，匯入時設成循環、QOA 壓縮，約 5 MB）。
-## 檔案不在就退回原本程式合成的音樂盒（_snd_bgm_box）
-const BGM_PATH := "res://assets/audio/first_light_particles.wav"
+## 背景音樂（主島、世界地圖）：音樂盒的四小節循環（C–Am–F–G，9.6 秒），音符的尾巴繞回開頭，所以接起來聽不出接縫。
+## 開遊戲的標題畫面另外放 first_light_particles（見 _title_music_on）
 static func _snd_bgm() -> AudioStreamWAV:
-	if ResourceLoader.exists(BGM_PATH):
-		var st := load(BGM_PATH) as AudioStreamWAV
-		if st:
-			return st
-	return _snd_bgm_box()
-
-## 原本的背景音樂：音樂盒的四小節循環（C–Am–F–G，9.6 秒），音符的尾巴繞回開頭，所以接起來聽不出接縫
-static func _snd_bgm_box() -> AudioStreamWAV:
 	var step := 0.3
 	var melody := [76, -1, 79, -1, 84, -1, 79, 76,  81, -1, 76, -1, 72, -1, 76, -1,
 		77, -1, 81, -1, 84, -1, 81, 77,  79, -1, 74, -1, 79, 83, 86, -1]
@@ -4651,6 +4689,8 @@ func _step(d: int) -> void:
 		walk_to(stage_sel + d)
 
 func _process(dt: float) -> void:
+	if _title_bgm != null:
+		_title_music_tick(dt)
 	if not _snd_todo.is_empty():
 		_synth_step()
 	if not _isle_todo.is_empty() and dt > 0.0:
