@@ -2627,8 +2627,18 @@ static func _snd_click() -> AudioStreamWAV:
 	_bell(s, 0.0, 84, 0.18, 0.4)
 	return _snd_wav(s)
 
-## 背景音樂：音樂盒的四小節循環（C–Am–F–G，9.6 秒），音符的尾巴繞回開頭，所以接起來聽不出接縫
+## 背景音樂：first_light_particles（2 分 12 秒，匯入時設成循環、QOA 壓縮，約 5 MB）。
+## 檔案不在就退回原本程式合成的音樂盒（_snd_bgm_box）
+const BGM_PATH := "res://assets/audio/first_light_particles.wav"
 static func _snd_bgm() -> AudioStreamWAV:
+	if ResourceLoader.exists(BGM_PATH):
+		var st := load(BGM_PATH) as AudioStreamWAV
+		if st:
+			return st
+	return _snd_bgm_box()
+
+## 原本的背景音樂：音樂盒的四小節循環（C–Am–F–G，9.6 秒），音符的尾巴繞回開頭，所以接起來聽不出接縫
+static func _snd_bgm_box() -> AudioStreamWAV:
 	var step := 0.3
 	var melody := [76, -1, 79, -1, 84, -1, 79, 76,  81, -1, 76, -1, 72, -1, 76, -1,
 		77, -1, 81, -1, 84, -1, 81, 77,  79, -1, 74, -1, 79, 83, 86, -1]
