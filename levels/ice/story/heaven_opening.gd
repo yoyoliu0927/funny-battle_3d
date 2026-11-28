@@ -1,6 +1,6 @@
 extends "res://levels/ice/story/story_kit.gd"
 ## 丹穴山海的開場動畫（第 5 天）。分鏡在 levels/ice/docs/大關開場與結尾動畫.md 第 8 節。
-## 第一次進丹穴山第 1 關之前播（丹穴山 1 的 world.gd、battle.gd 會轉過來，見 story_registry.gd），播完進第 1 關。
+## 每次在選關地圖按丹穴山第 1 關都先播（見 story_registry.gd；直接開第 1 關的保險在丹穴山 1 的 world.gd、battle.gd），播完進第 1 關。
 ## 場地借第 1 關「雲階」：南邊是雪地和紅梅（從冰雪島走過來），越往北雪越融，霧裡是南天門。
 ## 丹穴山不是島、看不到海，所以不坐船：企鵝在雪地的山腳送行，家豪自己爬上去。
 ## 丹穴山的結尾就是整個遊戲的結局（levels/heaven/ending/ending.gd），這裡只有開場。

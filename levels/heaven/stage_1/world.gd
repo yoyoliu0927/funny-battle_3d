@@ -4,9 +4,9 @@ extends "res://levels/heaven/heaven_world.gd"
 
 const StoryRegistry := preload("res://levels/ice/story/story_registry.gd")
 
-## 第一次進丹穴山：先播大關的開場動畫（battle.gd 負責換場景），這裡的場地先不蓋
+## 沒從地圖進來、又從來沒看過開場（例如開發時直接開這一關）：先播大關的開場動畫（battle.gd 負責換場景），這裡的場地先不蓋
 func _ready() -> void:
-	if StoryRegistry.opening_for("heaven") != "":
+	if StoryRegistry.opening_pending("heaven") != "":
 		set_process(false)
 		set_physics_process(false)
 		return

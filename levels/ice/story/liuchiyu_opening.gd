@@ -1,6 +1,6 @@
 extends "res://levels/ice/story/story_kit.gd"
 ## 霧山楓燃的開場動畫（第 3 天午後）。分鏡在 levels/ice/docs/大關開場與結尾動畫.md 第 6 節。
-## 第一次進霧山第 1 關之前播（選關地圖問 story_registry.gd），播完進第 1 關；
+## 每次在選關地圖按霧山第 1 關都先播（選關地圖問 story_registry.gd），播完進第 1 關；
 ## 這一章自己的開場（全島飛一圈、Chapter 牌子、神蹟介紹卡）在關卡裡照常接在後面。
 ## 場地借第 1 關「南岸」（拿掉戰局和玩家）；島外那一雙巨大的神之手跟選關地圖上那一雙同一個畫法（map_isles.gd）。
 ##

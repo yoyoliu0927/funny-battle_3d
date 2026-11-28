@@ -5,9 +5,9 @@ extends "res://levels/heaven/heaven_battle.gd"
 
 const StoryRegistry := preload("res://levels/ice/story/story_registry.gd")
 
-## 第一次進丹穴山：先播大關的開場動畫（levels/ice/story/heaven_opening.gd），播完會再回到這一關
+## 沒從地圖進來、又從來沒看過開場（例如開發時直接開這一關）：先播大關的開場動畫（levels/ice/story/heaven_opening.gd），播完會再回到這一關
 func _ready() -> void:
-	var opening := StoryRegistry.opening_for("heaven")
+	var opening := StoryRegistry.opening_pending("heaven")
 	if opening != "":
 		set_process(false)
 		set_physics_process(false)
