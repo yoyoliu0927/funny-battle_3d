@@ -343,6 +343,10 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a == "--autotest" or a.begins_with("--mapshots=") or a.begins_with("--hubshots=") or a.begins_with("--titleshots=") or a == "--freetest" or a.begins_with("--freeshots=") or a == "--sailtest" or a.begins_with("--sailshots=") or a.begins_with("--todshots=") or a == "--todtest":
 			Journal.persist = false          # 測試不寫玩家的手帳存檔
+	var want_title := TitleScreen.wanted()   # 先問：底下分格蓋的話會過好幾格，「剛開遊戲」（前 10 格）就判斷不出來了
+	_slicing = WebPerf.shell_up()
+	if _slicing:
+		process_mode = Node.PROCESS_MODE_DISABLED    # 蓋到一半的時候自己和子節點（農莊居民、釣魚、打碟）都先不要動
 	_load_chapters()
 	_sync_stars()
 	_cam = get_node("../Camera3D")
@@ -361,6 +365,8 @@ func _ready() -> void:
 	_dj = HubDj.new()
 	_dj.map = self
 	add_child(_dj)
+	var steps := entries.size() + 4
+	await _breathe(0, steps)               # 載入這個場景（腳本很大）和蓋農莊分開
 	for e in entries.size():
 		worlds.append(_build_world(e))
 		if not _is_hub(e):
@@ -372,11 +378,13 @@ func _ready() -> void:
 				_batch_isle(worlds[e])
 		else:
 			_batch_hub_decor(worlds[e].root)
+		await _breathe(e + 1, steps)
 	_hub_build = false
 	_free.map = self
 	_free.build()
 	_sailer.map = self
 	_sailer.build()
+	await _breathe(entries.size() + 1, steps)
 	_cam_fov0 = _cam.fov
 	_fit_map_camera()
 	_proxy_ranges()
@@ -397,6 +405,7 @@ func _ready() -> void:
 	_build_shallows()
 	_build_sea_props()
 	_build_halo()
+	await _breathe(entries.size() + 2, steps)
 	_build_hero()
 	_spawn_hub_hens()
 	_life.register("hero", _hero, 1.0, 0.9)
@@ -409,6 +418,7 @@ func _ready() -> void:
 	_journal.map = self
 	add_child(_journal)
 	_build_audio()
+	await _breathe(entries.size() + 3, steps)
 	var args := OS.get_cmdline_user_args()
 	var testing := "--autotest" in args
 	var shots := ""
@@ -472,6 +482,7 @@ func _ready() -> void:
 		_night.map = self
 		add_child(_night)
 		_night.build()
+	await _breathe(entries.size() + 4, steps)
 	selected = -1
 	select(0)
 	if Engine.has_meta("map_last"):
@@ -479,7 +490,7 @@ func _ready() -> void:
 	elif not testing:
 		_zoom = 1.0                      # 剛開遊戲：先看一眼整張世界地圖，再拉近到主島
 	_place_hero(true)
-	if TitleScreen.wanted() and hub_shots == "" and not hub_test and not free_test and free_shots == "" and not sail_test and sail_shots == "" and tod_shots == "" and not tod_test:
+	if want_title and hub_shots == "" and not hub_test and not free_test and free_shots == "" and not sail_test and sail_shots == "" and tod_shots == "" and not tod_test:
 		# 剛開遊戲：先放標題畫面。按下開始之後鏡頭直接滑到主島（第一次玩會先接開場劇情）
 		_zoom = 0.0
 		_layer.visible = false
@@ -509,9 +520,32 @@ func _ready() -> void:
 	if _title == null and not testing:
 		_growth_check.call_deferred()
 		_journal_check.call_deferred()
+	if _slicing:
+		_slicing = false
+		process_mode = Node.PROCESS_MODE_INHERIT
 	# 第一幀就把鏡頭和地圖文字擺好（dt＝0，時間不會往前走）：新場景的第一幀會在 _process 跑之前先畫出來，
 	# 沒先跑一次的話那一幀用的是場景檔裡的預設鏡頭（農莊正上方），晚上看起來就是一片灰，劇情結束、從關卡回來都會閃一下
 	_process(0.0)
+	if WebPerf.shell_up():
+		# 標題畫面在載入畫面後面先畫兩格（第一格要編著色器），畫好了才叫載入畫面淡出
+		for i in 2:
+			await RenderingServer.frame_post_draw
+		WebPerf.shell_ready()
+
+## 網頁版開機：整張地圖（農莊＋五座主題島＋海、航線、介面）一次蓋完，慢的筆電要卡十幾秒，
+## Chrome 會跳「頁面沒有回應」。所以開機那一次分成好幾格蓋：每蓋完一塊就讓瀏覽器喘一口氣（畫一格、處理輸入），
+## 網頁的載入畫面（assets/web/loading_shell.html）這時還蓋在上面，動畫照常動，最後才叫它淡出（_ready 最後面）。
+## 總時間差不多，只是不會一次卡很久。桌面版、測試、從關卡回到地圖（主題島都留著）都照原本一次蓋完（_slicing 是 false）。
+var _slicing := false
+
+func _breathe(done: int, total: int) -> void:
+	if not _slicing:
+		return
+	WebPerf.shell_progress(done, total)
+	var wp = WebPerf.find(get_tree())
+	if wp:
+		wp.hold_watch()                  # 這幾格故意很長：不要被當成跑不動而降畫質
+	await get_tree().process_frame
 
 ## 標題畫面收掉了：介面拿出來，開始收按鍵
 func _title_end() -> void:
