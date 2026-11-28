@@ -343,6 +343,9 @@ func _ready() -> void:
 	for a in OS.get_cmdline_user_args():
 		if a == "--autotest" or a.begins_with("--mapshots=") or a.begins_with("--hubshots=") or a.begins_with("--titleshots=") or a == "--freetest" or a.begins_with("--freeshots=") or a == "--sailtest" or a.begins_with("--sailshots=") or a.begins_with("--todshots=") or a == "--todtest":
 			Journal.persist = false          # 測試不寫玩家的手帳存檔
+			_defer_isles = false             # 測試照舊一次蓋好（截圖、自動測試要馬上看到每座島）
+	if "--perf-nolazy" in OS.get_cmdline_user_args():
+		_defer_isles = false
 	_load_chapters()
 	_sync_stars()
 	_cam = get_node("../Camera3D")
@@ -362,10 +365,12 @@ func _ready() -> void:
 	_dj.map = self
 	add_child(_dj)
 	for e in entries.size():
-		worlds.append(_build_world(e))
+		worlds.append(_build_world(e, _defer_isles and not _is_hub(e)))
 		if not _is_hub(e):
 			if worlds[e].kept:
 				_far_proxies.append_array(worlds[e].proxies)      # 上次合好的，原封不動
+			elif worlds[e].lazy:
+				_isle_todo.append(e)                              # 先空著，進場之後在背景蓋（_tick_isle_build）
 			else:
 				_prefetch_meshes(worlds[e].root)
 				_flatten_pieces(worlds[e].root)
@@ -1120,9 +1125,53 @@ static func _drop_kept(e: int) -> void:
 		(k.root as Node).free()
 	_isle_keep.erase(e)
 
+## 效能（網頁版第一次開遊戲）：主島以外的主題島先空著，只記位置和大小（路線、海、地圖排版用得到），
+## 第一個畫面出來之後一格做一步、一座一座在背景蓋：蓋島 → 合零件 → 做遠景替身。
+## 玩家要看到它們之前（拉成世界地圖、選到那座島、開船出海、跳去別的島）就把剩下的一口氣蓋完。
+## 測試和 --perf-nolazy 照舊一次蓋好。
+var _defer_isles := true
+var _isle_todo: Array = []     # 還空著的島（照順序蓋）
+var _isle_phase := 0           # 0 = 蓋、1 = 合零件、2 = 替身
+var _isle_key := ""            # 蓋到一半先不讓它被留著（_keep_isles）：做完替身才把 keep_key 放回去
+var _isle_wait := 2            # 前幾格先不蓋：讓第一個畫面先出來
+
+func _isle_urgent() -> bool:
+	return _map or _zoom > 0.0 or not _sail.is_empty() or not _jump.is_empty() or (selected >= 0 and not _is_hub(selected))
+
+func _tick_isle_build() -> void:
+	if _isle_urgent():
+		while not _isle_todo.is_empty():
+			_isle_build_step()
+		return
+	if _isle_wait > 0:
+		_isle_wait -= 1
+		return
+	_isle_build_step()
+
+func _isle_build_step() -> void:
+	var e: int = _isle_todo[0]
+	match _isle_phase:
+		0:
+			var old: Node = worlds[e].root
+			remove_child(old)
+			old.free()
+			worlds[e] = _build_world(e)
+			_hub_build = false
+			_isle_key = String(worlds[e].keep_key)
+			worlds[e].keep_key = ""
+		1:
+			_prefetch_meshes(worlds[e].root)
+			_flatten_pieces(worlds[e].root)
+		2:
+			_batch_isle(worlds[e])
+			_proxy_ranges()
+			worlds[e].keep_key = _isle_key
+			_isle_todo.pop_front()
+	_isle_phase = (_isle_phase + 1) % 3
+
 ## 蓋第 e 座島：一整座大島，島上有每個站點的地標、圓墊、路、旗子。還沒做好的大關是一座被雲蓋住的小島。
 ## 島先蓋在自己的座標裡（root 底下），再把 root 搬到世界地圖上的位置。
-func _build_world(e: int) -> Dictionary:
+func _build_world(e: int, lazy := false) -> Dictionary:
 	var ent: Dictionary = entries[e]
 	var ch: Dictionary = ent.ch
 	var hub := _is_hub(e)
@@ -1159,13 +1208,15 @@ func _build_world(e: int) -> Dictionary:
 			_hooks[ch.id] = hook          # 島面高度（ground_y）要用蓋島那一個（裡面記著島的形狀）
 		else:
 			hook = _hook(ch)
+	# 先空著（見 _tick_isle_build）：只有大關自己的蓋島腳本、這次要從頭蓋的島才延後（還沒開放的島、上次留著的島本來就很快）
+	lazy = lazy and playable and not hub and kept == null and hook != null and hook.has_method("build_island")
 	var col := _color_of(ent)
 	var at: Vector2 = _ring_pos[e]
 	var off := Vector3(at.x, 0, at.y)
 	var sc := _isle_scale(e)                          # 最終章整座放大一點（全圖的視覺高潮）
 	var w := {"root": root, "n": n, "pads": [], "isles": [], "isle_roots": [], "segs": [], "pad_nodes": [], "hook": hook,
 		"center": Vector3(at.x, TOP_Y, at.y), "rx": ISLE_R + 2.0, "rz": ISLE_R + 2.0, "marks": [],
-		"keep_key": keep_key, "kept": kept != null, "proxies": kept.proxies if kept != null else []}
+		"keep_key": keep_key, "kept": kept != null, "proxies": kept.proxies if kept != null else [], "lazy": lazy}
 	var ctx := {}
 	if playable:
 		ctx = _island_ctx(le, n)
@@ -1177,6 +1228,8 @@ func _build_world(e: int) -> Dictionary:
 			_build_farm(root, ctx)
 		elif kept != null:
 			pass                                      # 島面、樹、地標都還在
+		elif lazy:
+			pass                                      # 之後在背景蓋
 		elif hook and hook.has_method("build_island"):
 			hook.build_island(root, ctx)
 		else:
@@ -1188,6 +1241,8 @@ func _build_world(e: int) -> Dictionary:
 	var on_ground := func(p: Vector3) -> Vector3:
 		if not playable:
 			return p
+		if lazy:
+			return Vector3(p.x, TOP_Y, p.z)           # 島還沒蓋，島面高度還不知道（大關的 ground_y 要等 build_island 跑過）
 		var y := float(hook.ground_y(p.x, p.z)) if hook and hook.has_method("ground_y") else TOP_Y
 		return Vector3(p.x, y, p.z)
 	var lpads: Array = []
@@ -1215,6 +1270,8 @@ func _build_world(e: int) -> Dictionary:
 			pts.append(p)
 			wpts.append(p * sc + off)
 		w.segs.append(wpts)
+		if lazy:
+			continue                                  # 先空著的島：路、圓墊、旗子、地標都等真的蓋的時候再做
 		var done := String(_st(e, k).kind) != "stage" or _st_cleared(e, k)
 		w.marks.append(_strip_node(root, pts, 1.5, PATH_LIFT, edge_mat))
 		w.marks.append(_strip_node(root, pts, 1.05, PATH_LIFT + 0.04, _flat_mat(PATH_DONE if done else PATH_TODO, true)))
@@ -1230,6 +1287,13 @@ func _build_world(e: int) -> Dictionary:
 			pc = GREEN
 		elif open:
 			pc = _st_color(e, k)
+		if lazy:
+			var ir0 := Node3D.new()
+			ir0.name = "Spot%d" % k
+			ir0.position = lspots[k]
+			root.add_child(ir0)
+			w.isle_roots.append(ir0)
+			continue
 		w.pad_nodes.append(_build_pad(root, lpads[k], pc))
 		if kind == "stage" and open:
 			w.marks.append(_build_flag(root, (lpads[k] as Vector3) + Vector3(1.75, 0, -0.5), GOLD if cleared else _st_color(e, k), k * 1.3 + e))
@@ -4545,6 +4609,8 @@ func _step(d: int) -> void:
 func _process(dt: float) -> void:
 	if not _snd_todo.is_empty():
 		_synth_step()
+	if not _isle_todo.is_empty() and dt > 0.0:
+		_tick_isle_build()
 	_t += dt
 	_idle_t += dt
 	_tick_hero(dt)
