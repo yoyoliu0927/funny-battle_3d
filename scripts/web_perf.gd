@@ -103,6 +103,31 @@ static func install(tree: SceneTree) -> void:
 	n.name = NODE_NAME
 	tree.root.add_child.call_deferred(n)
 
+## 網頁版的載入畫面（assets/web/loading_shell.html）：引擎啟動之後還蓋在遊戲上面，
+## 等遊戲把第一個畫面蓋好（選關地圖蓋完、標題畫面畫出來）叫 shell_ready() 才淡出。
+## 中間選關地圖分好幾格蓋（level_select.gd 的 _breathe），網頁不會整段卡住，載入畫面的動畫照常動，Chrome 也不會跳「頁面沒有回應」。
+static var _shell_up := true
+
+## 載入畫面還蓋著嗎（只有網頁版、開機那一段是 true）
+static func shell_up() -> bool:
+	return _shell_up and OS.has_feature("web")
+
+## 載入畫面上的進度（地圖蓋到第幾塊）
+static func shell_progress(done: int, total: int) -> void:
+	if shell_up():
+		JavaScriptBridge.eval("window.jiahaoBuild && window.jiahaoBuild(%d, %d)" % [done, total])
+
+## 第一個畫面好了：叫載入畫面淡出（之後再叫也沒事）
+static func shell_ready() -> void:
+	if shell_up():
+		_shell_up = false
+		JavaScriptBridge.eval("window.jiahaoGameReady && window.jiahaoGameReady()")
+
+## 先不要看 FPS（開機分格蓋地圖、合成音效這類故意卡一下的時候）：不然會被當成這台電腦跑不動而降畫質
+func hold_watch() -> void:
+	_settle = maxf(_settle, SETTLE)
+	_reset_watch()
+
 ## 找到裝好的那一個（還沒裝好是 null）
 static func find(tree: SceneTree) -> Node:
 	if tree == null:

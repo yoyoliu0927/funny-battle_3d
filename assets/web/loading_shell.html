@@ -1053,6 +1053,25 @@ const engine = new Engine(Object.assign({}, GODOT_CONFIG, {
 	hero.addEventListener('pointerdown', onPoke);
 	onLoadProgress = setProgress;
 
+	// 引擎啟動之後，遊戲還要蓋選關地圖（網頁版分好幾格蓋，見 scripts/web_perf.gd 的 shell_ready）：
+	// 載入畫面先留著，遊戲蓋好第一個畫面叫 jiahaoGameReady() 才淡出；蓋的時候用 jiahaoBuild(第幾塊, 總共幾塊) 報進度
+	let gameStarted = false;
+	let gameReadyEarly = false;
+	window.jiahaoGameReady = function () {
+		if (!gameStarted) {
+			gameReadyEarly = true;
+			return;
+		}
+		setStatusMode('hidden');
+	};
+	window.jiahaoBuild = function (done, total) {
+		if (phase !== 'start') {
+			return;
+		}
+		phaseLabel.textContent = '家豪正在把島擺好';
+		bytesLabel.textContent = done + ' / ' + total;
+	};
+
 	const missing = Engine.getMissingFeatures({
 		threads: GODOT_THREADS_ENABLED,
 	});
@@ -1100,7 +1119,15 @@ const engine = new Engine(Object.assign({}, GODOT_CONFIG, {
 		}).then(function () {
 			return engine.start({ 'args': ['--main-pack', pack].concat(GODOT_CONFIG['args'] || []) });
 		}).then(function () {
-			setStatusMode('hidden');
+			gameStarted = true;
+			if (gameReadyEarly) {
+				setStatusMode('hidden');
+				return;
+			}
+			// 保險：遊戲一直沒說好了（舊版的遊戲、走了沒有通知的路），一分鐘之後還是收掉
+			setTimeout(function () {
+				setStatusMode('hidden');
+			}, 60000);
 		}, function (err) {
 			displayFailureNotice(err);
 		});

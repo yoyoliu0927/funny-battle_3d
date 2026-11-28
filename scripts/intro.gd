@@ -67,9 +67,19 @@ func _ready() -> void:
 	if not testing and TitleScreen.at_boot() and ResourceLoader.exists(NEXT_SCENE):
 		set_process(false)
 		set_process_unhandled_input(false)
-		get_tree().change_scene_to_file.call_deferred(NEXT_SCENE)
+		if WebPerf.shell_up():
+			_next_frame_go()             # 網頁版：引擎啟動和蓋選關地圖分在不同格（不然整段卡在一起，見 level_select.gd 的 _breathe）
+		else:
+			get_tree().change_scene_to_file.call_deferred(NEXT_SCENE)
 		return
 	super()
+	WebPerf.shell_ready()                # 直接播劇情（不經過標題畫面）：網頁的載入畫面也要收掉
+
+## 網頁版引擎啟動時會「當場」跑第一格（還在同一段 JavaScript 裡），所以等兩格：選關地圖才會在下一段才載入
+func _next_frame_go() -> void:
+	for i in 2:
+		await get_tree().process_frame
+	get_tree().change_scene_to_file(NEXT_SCENE)
 
 ## 隱藏按鍵（展示用，畫面上不提示）：開場播到一半按 Shift＋E，直接跳去播結局
 func _unhandled_input(e: InputEvent) -> void:
