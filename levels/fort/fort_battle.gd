@@ -1012,6 +1012,7 @@ func reset() -> void:
 		_end_cut()
 	_hide_win_card()
 	_death_cause = ""
+	_spotted = false
 	_tower_ways.clear()
 	_shell_hit = false
 	_boss_by_cannon = false
@@ -2141,6 +2142,7 @@ func _tick_farmer(f: Fighter, dt: float) -> void:
 			_aggro(f)
 	var dist := _flat_dist(f.pos, bird.pos)
 	if not f.aggro and f.state in ["patrol", "look", "idle"] and sees_bird(f):
+		_spotted = true
 		_log("%s看到家豪了" % f.name)
 		_aggro(f)
 	match f.state:
@@ -2193,7 +2195,10 @@ func _tick_farmer(f: Fighter, dt: float) -> void:
 			_face(f, bird.pos)
 			if f.t >= f.windup:
 				if dist <= f.reach + 0.35 and _bird_targetable():
-					_hit_bird(FIRST_STRIKE_DMG, false, f.pos, f)
+					# 教學關（偷襲！）：走進守衛的紅色扇形被正面踢到，一腳就倒。
+					# 這關只教一件事「別被看到」：不放飼料直接衝會輸，繞到背後才贏
+					var lethal := int(world.get("stage")) == 0
+					_hit_bird(bird.hp if lethal else FIRST_STRIKE_DMG, false, f.pos, f)
 					f.struck = true   # 先手只有一次：踢完就沒力氣了
 				f.set_state("recover")
 		"fuse":
@@ -3620,7 +3625,8 @@ func _star_goals() -> Array:
 	var uses := casts.size()
 	match int(world.get("stage")):
 		0:
-			return [["no_kick", "家豪沒被踢到", bird.hp >= bird.max_hp - 0.01],
+			# 教學關被踢到就輸了，「沒被踢到」不算挑戰；改成整場都沒走進紅色扇形
+			return [["unseen", "守衛沒發現家豪", not _spotted],
 				["one_feed", "只用 1 把飼料", casts.size() <= 1]]
 		1:
 			return [["fast2", "%d 秒內、神蹟 %d 次以內" % [int(STAR_TIME[1]), STAR_USES[1]], time <= STAR_TIME[1] and uses <= STAR_USES[1]],
@@ -3642,7 +3648,7 @@ func _star_goals() -> Array:
 func _star_failed(id: String) -> bool:
 	var uses := casts.size()
 	match id:
-		"no_kick": return bird.hp < bird.max_hp - 0.01
+		"unseen": return _spotted
 		"one_feed": return uses > 1
 		"fast2": return time > STAR_TIME[1] or uses > STAR_USES[1]
 		"fast3": return time > STAR_TIME[0] or uses > STAR_USES[0]
@@ -4388,7 +4394,7 @@ func _hit_bird(dmg: float, heavy: bool, from: Vector3, by: Fighter = null) -> vo
 	b.hp = maxf(b.hp - dmg, 0.0)
 	hit_spots.append(b.pos)
 	_noise_at(b.pos)
-	if by and not by.is_boss:
+	if by and not by.is_boss and int(world.get("stage")) != 0:   # 教學關一腳就倒，輸了的卡片會說明
 		_explain_later("first_strike", 0.8)
 	if by:
 		if by.is_boss:
@@ -5165,6 +5171,7 @@ func _build_defeat() -> void:
 
 ## 輸了：畫面染紅、中間一張筆記紙，大標題寫「怎麼輸的」，下面一句教你下次怎麼避開，再一顆「再試一次」。
 ## （參考動作遊戲的死亡提示；外觀用全遊戲的手帳風格。原本的「晚餐畫面」不再自動切過去）
+var _spotted := false             # 這一輪有農夫看到家豪（教學關的星星：守衛沒發現家豪）
 var _death_cause := ""            # 最後一下是被什麼打到的：kick／boss／shell／bomb／rock／tower
 var _ko_layer: CanvasLayer
 var _ko_tint: ColorRect
@@ -5623,7 +5630,7 @@ func _on_tut_closed() -> void:
 		_coach_pending = false
 		_start_coach()           # 開場的教學看完 → 畫面下方的引導接著教
 	else:
-		_show_first_hint(_coach != "")
+		_show_first_hint(_coach != "" and _coach_t >= float(STUCK_HINT.get(_coach, 0.0)))
 	if not _tut_fresh.is_empty():
 		if not _auto_run():
 			FortProgress.mark_known(_tut_fresh)   # 看過的機制記下來，其他小關不再自動跳出
@@ -5684,6 +5691,8 @@ func _show_first_hint(on: bool) -> void:
 
 ## "vision"（農夫的視線）、"turret"（炮塔）不自動跳：紅色扇形、地上的紅圈看了就懂，按 H 還是看得到
 const JIT_PAGES := ["controls", "controls_more", "feed", "banana", "rock", "wind", "first_strike", "commander_rage", "vision", "turret"]
+## 弱引導：一進關畫面下方什麼都不寫。玩家卡在某一步這麼多秒（還沒做到）才淡淡提示那一步；做到了就收起來
+const STUCK_HINT := {"look": 8.0, "move": 10.0, "cast": 15.0, "start": 12.0}
 const TIP_TIME := 7.0
 var _hint_row: HBoxContainer
 var _coach := ""               # 現在的引導步驟（"" = 沒有）
@@ -5745,7 +5754,7 @@ func _coach_set(step: String) -> void:
 			"tip_height":
 				_hint_row.add_child(UIStyle.key_hint("Space", "上升", 16))
 				_hint_row.add_child(UIStyle.key_hint("Shift", "下降：飛高一點，看清楚炮塔和梯子", 16))
-	_show_first_hint(step != "" and not (_tut and _tut.is_open()))
+	_show_first_hint(step != "" and not STUCK_HINT.has(step) and not (_tut and _tut.is_open()))
 
 ## 這個提示這輩子還沒出現過：記下來（只出現一次）並回傳 true
 func _tip_new(id: String) -> bool:
@@ -5779,6 +5788,10 @@ func _tick_coach(dt: float) -> void:
 	if Input.is_action_pressed("fly_up") or Input.is_action_pressed("fly_down"):
 		_tip_used("tip_height")
 	_coach_t += dt
+	if STUCK_HINT.has(_coach) and _coach_t >= float(STUCK_HINT[_coach]) and _first_hint and not _first_hint.visible:
+		_show_first_hint(true)   # 卡住了：現在才提示這一步
+		if _coach == "cast" and _hotbar:
+			_hotbar.pulse()      # 神蹟欄跳一下：畫面和字一起指出下一步
 	match _coach:
 		"look":
 			var fwd := -camera.global_basis.z
