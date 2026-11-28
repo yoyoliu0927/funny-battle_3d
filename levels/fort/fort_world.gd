@@ -272,7 +272,7 @@ func _ready() -> void:
 	farmer_routes = stage_routes(stage)
 	east = stage == 3
 	stage_name = ["教學　偷襲！", "第 1 小關　蹦！飛鴨飛鴨", "第 2 小關　三座炮塔", "第 3 小關　指揮官的院子", "第 4 小關　風"][stage]
-	stage_goal = ["目標：打倒守衛（正面衝過去會被他先踢）", "目標：打倒兩個農夫（炮塔可以不管）", "目標：拿下三座炮塔（撞倒或佔領）", "目標：打倒指揮官（3 點血），路上的守衛可以避開或打倒", "目標：打倒所有守衛"][stage]
+	stage_goal = ["目標：打倒守衛", "目標：打倒兩個農夫（炮塔可以不管）", "目標：拿下三座炮塔（撞倒或佔領）", "目標：打倒指揮官（3 點血），路上的守衛可以避開或打倒", "目標：打倒所有守衛"][stage]
 	for w in STAGES[stage].get("winds", []):
 		var a: Vector2 = w.a
 		var b: Vector2 = w.b

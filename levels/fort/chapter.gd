@@ -14,7 +14,7 @@ const MAP_SCRIPT := "res://levels/fort/map_isles.gd"
 ## 三星制度：星星紀錄放在要塞自己的戰局腳本裡（過關 1 顆，另外每關兩個條件，見 fort_battle.gd 的 _star_goals）
 const STARS_SCRIPT := "res://levels/fort/fort_battle.gd"
 const STAGES := [
-	{"title": "偷襲！", "desc": "守衛面向缺口站著：家豪正面衝過去會被先踢。在守衛背後撒飼料，讓家豪繞過去偷襲。", "scene": "stage_0/stage.tscn"},
+	{"title": "偷襲！", "desc": "守衛面向缺口站著：家豪走進他的紅色扇形，會被一腳踢倒。在守衛背後撒飼料，讓家豪繞過去偷襲。", "scene": "stage_0/stage.tscn"},
 	{"title": "蹦！飛鴨飛鴨", "desc": "把飼料撒在砲口前面，家豪會鑽進砲管；瞄準、發射！", "scene": "stage_1/stage.tscn"},
 	{"title": "三座炮塔", "desc": "三座炮塔都要拿下：巨石撞倒，或讓家豪爬梯子上去佔領。", "scene": "stage_2/stage.tscn"},
 	{"title": "指揮官的院子", "desc": "從要塞把家豪射到東邊院子的高台上，打倒指揮官。", "scene": "stage_3/stage.tscn"},
